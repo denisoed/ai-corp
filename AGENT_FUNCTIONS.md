@@ -184,7 +184,8 @@ This document describes all available tools/functions that AI agents can use whe
 **Description:** Modify an existing agent's properties.
 
 **Parameters:**
-- `agentName` (string, required): Name of the agent to update
+- `agentName` (string, required): Current name of the agent to update
+- `newName` (string, optional): New name for the agent
 - `model` (string, optional): New AI model
 - `role` (string, optional): New role
 - `description` (string, optional): Updated description

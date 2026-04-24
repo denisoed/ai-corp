@@ -481,6 +481,7 @@ async function executeTool(name: string, args: any, executingAgentId: string, to
     mutateStore(s => {
       const a = s.agents.find(x => x.id === agent.id);
       if (!a) return;
+      if (args.newName) a.name = args.newName;
       if (args.model) a.model = args.model;
       if (args.role) a.role = args.role as any;
       if (args.description) a.description = args.description;

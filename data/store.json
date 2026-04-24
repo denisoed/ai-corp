@@ -1,17 +1,277 @@
 {
-  "agents": [],
-  "tasks": [],
+  "agents": [
+    {
+      "name": "CEO Bot",
+      "role": "Manager",
+      "model": "GPT-4",
+      "description": "Overall project architect and CEO.",
+      "skills": [
+        "Leadership"
+      ],
+      "id": "1ac13c32-258c-4f65-b794-3ab5ceec7abc",
+      "status": "Idle",
+      "telegramConfig": {
+        "status": "running",
+        "botToken": "8681255478:AAFmCTv8_5l-Ci68vaXrFHi71qdYhWuY7Xc",
+        "lastChatId": 430385670
+      }
+    },
+    {
+      "name": "Alpha PM",
+      "role": "Manager",
+      "model": "OpenClaw",
+      "description": "Product Manager managing tasks and unblocking devs.",
+      "skills": [
+        "Agile",
+        "Scrum"
+      ],
+      "parentIndex": 0,
+      "id": "54821884-711a-4b05-8577-f7752f5e6c6e",
+      "parentId": "1ac13c32-258c-4f65-b794-3ab5ceec7abc",
+      "status": "Idle"
+    },
+    {
+      "name": "DevBot V3",
+      "role": "Developer",
+      "model": "Codex",
+      "description": "Full-stack Developer generating React and Node.js code.",
+      "skills": [
+        "TypeScript",
+        "React"
+      ],
+      "parentIndex": 1,
+      "id": "9390f1cf-6a14-4985-b061-99310921ae69",
+      "parentId": "54821884-711a-4b05-8577-f7752f5e6c6e",
+      "status": "Idle"
+    },
+    {
+      "name": "Sec-Reviewer",
+      "role": "Reviewer",
+      "model": "Claude CLI",
+      "description": "QA and Code Reviewer hunting for security bugs.",
+      "skills": [
+        "Testing",
+        "Security"
+      ],
+      "parentIndex": 2,
+      "id": "369b5c0f-3d76-4642-80e1-ca8a8c73b66c",
+      "parentId": "9390f1cf-6a14-4985-b061-99310921ae69",
+      "status": "Idle"
+    },
+    {
+      "name": "Infra Bot",
+      "role": "DevOps",
+      "model": "GPT-DevOps",
+      "description": "Manages CI/CD and cloud infrastructure deployments.",
+      "skills": [
+        "Docker",
+        "AWS",
+        "Pipelines"
+      ],
+      "parentIndex": 1,
+      "id": "13117a26-f0f5-4463-a17e-33ded09bbae5",
+      "parentId": "54821884-711a-4b05-8577-f7752f5e6c6e",
+      "status": "Idle"
+    },
+    {
+      "id": "bd7ddef3-cb23-4801-bc60-37564a65d635",
+      "name": "Иванов",
+      "model": "GPT-5.4",
+      "role": "Manager",
+      "description": "Менеджер с сильными навыками управления проектами. Подчиняется CEO.",
+      "skills": [
+        "Управление проектами",
+        "Планирование",
+        "Координация команд",
+        "Стратегическое планирование"
+      ],
+      "parentId": "1ac13c32-258c-4f65-b794-3ab5ceec7abc",
+      "status": "Idle"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "80c5ca4a-c6f8-4a09-903d-aa209f822553",
+      "title": "Project Kickoff",
+      "description": "Define the roadmap and system architecture.",
+      "status": "In Progress",
+      "priority": "High",
+      "risk": "medium",
+      "cost": 0.39041050021329426,
+      "tags": [
+        "Planning"
+      ],
+      "assigneeId": "1ac13c32-258c-4f65-b794-3ab5ceec7abc",
+      "creatorId": "system",
+      "createdAt": "2026-04-24T13:55:09.500Z",
+      "updatedAt": "2026-04-24T13:55:09.500Z",
+      "comments": [
+        {
+          "id": "eeb4d63a-506f-4227-8d27-59af83b12934",
+          "authorId": "1ac13c32-258c-4f65-b794-3ab5ceec7abc",
+          "authorName": "CEO Bot",
+          "content": "Trace: Ran commands to implement Write vision doc",
+          "createdAt": "2026-04-24T13:55:10.530Z",
+          "type": "trace",
+          "metadata": {
+            "cost": "0.390"
+          }
+        },
+        {
+          "id": "cfb57fec-2230-4a25-9dfb-1b9fda91ffe6",
+          "authorId": "1ac13c32-258c-4f65-b794-3ab5ceec7abc",
+          "authorName": "CEO Bot",
+          "content": "Completed subtask: Write vision doc",
+          "createdAt": "2026-04-24T13:55:10.530Z",
+          "type": "message"
+        }
+      ],
+      "subtasks": [
+        {
+          "id": "1214c513-a18d-4468-852b-a9ebd8506460",
+          "title": "Write vision doc",
+          "completed": true
+        },
+        {
+          "id": "36029cc4-c17f-46c6-a582-a190cd20b6a0",
+          "title": "Approve architecture",
+          "completed": false
+        },
+        {
+          "id": "ad11c93c-3888-48fd-9641-4e22a91b88e8",
+          "title": "Allocate budget",
+          "completed": false
+        }
+      ]
+    },
+    {
+      "id": "5bd4771e-9e95-406c-aed4-57d668ad9e58",
+      "title": "Setup Repository",
+      "description": "Initialize Git repo, linters, and build pipelines.",
+      "status": "Planned",
+      "priority": "Medium",
+      "risk": "medium",
+      "cost": 0,
+      "tags": [
+        "DevOps"
+      ],
+      "assigneeId": "13117a26-f0f5-4463-a17e-33ded09bbae5",
+      "creatorId": "system",
+      "createdAt": "2026-04-24T13:55:09.500Z",
+      "updatedAt": "2026-04-24T13:55:09.500Z",
+      "comments": [],
+      "subtasks": [
+        {
+          "id": "051475d9-2f73-4a95-ac87-c516a4d1da6e",
+          "title": "Create GitHub repo",
+          "completed": false
+        },
+        {
+          "id": "b0f52266-bb04-4a98-8092-f4661d356d34",
+          "title": "Configure ESLint/Prettier",
+          "completed": false
+        },
+        {
+          "id": "6a83a420-838f-49b1-b048-2452118fbbee",
+          "title": "Set up GitHub Actions",
+          "completed": false
+        }
+      ]
+    },
+    {
+      "id": "f5ce4662-544e-411d-a887-b2269e3a6ba7",
+      "title": "Implement Auth API",
+      "description": "Create JWT based authentication service.",
+      "status": "Backlog",
+      "priority": "High",
+      "risk": "medium",
+      "cost": 0,
+      "tags": [
+        "Backend"
+      ],
+      "assigneeId": "9390f1cf-6a14-4985-b061-99310921ae69",
+      "creatorId": "system",
+      "createdAt": "2026-04-24T13:55:09.500Z",
+      "updatedAt": "2026-04-24T13:55:09.500Z",
+      "comments": [],
+      "subtasks": [
+        {
+          "id": "16b270f7-5db7-453a-9bac-aa429313742e",
+          "title": "Design DB Schema",
+          "completed": false
+        },
+        {
+          "id": "9edd6f74-ca25-455a-8edf-f7902cd18caf",
+          "title": "Implement JWT signing",
+          "completed": false
+        },
+        {
+          "id": "0bde0822-d71a-4448-91bf-35bd279d8e5b",
+          "title": "Write endpoint tests",
+          "completed": false
+        }
+      ]
+    }
+  ],
   "logs": [
     {
-      "id": "f6159fc6-9642-43bf-80a4-e1311f4db215",
-      "timestamp": "2026-04-24T13:54:24.432Z",
-      "agentId": "system",
-      "action": "System Initialized",
-      "details": "Welcome to AI Company Dashboard. Please select a template to start.",
+      "id": "e2b38c2a-e68d-48f6-8560-34c9fbf906ef",
+      "timestamp": "2026-04-24T13:56:33.892Z",
+      "agentId": "1ac13c32-258c-4f65-b794-3ab5ceec7abc",
+      "action": "Agent Updated",
+      "details": "Updated Иванов.",
       "type": "info"
+    },
+    {
+      "id": "e5d61a24-bf42-4958-bfe9-d013317308da",
+      "timestamp": "2026-04-24T13:56:31.987Z",
+      "agentId": "system",
+      "action": "Telegram Message Received",
+      "details": "CEO Bot received a message: \"Поменяй имя агента \"Иванов\" на имя \"Manager Bot\"\"",
+      "type": "info"
+    },
+    {
+      "id": "c14e74a9-876e-4dc2-83da-50894e04278d",
+      "timestamp": "2026-04-24T13:56:16.767Z",
+      "agentId": "1ac13c32-258c-4f65-b794-3ab5ceec7abc",
+      "action": "Hired Agent via Telegram",
+      "details": "Hired Иванов (Manager).",
+      "type": "success"
+    },
+    {
+      "id": "beaeecfa-a258-4811-9626-3a67e1e82880",
+      "timestamp": "2026-04-24T13:56:11.778Z",
+      "agentId": "system",
+      "action": "Telegram Message Received",
+      "details": "CEO Bot received a message: \"Найми нового агента Иванова. Роль - Менеджер, сильные стороны - управление проектами. Он будет подчиняться мне (или CEO)\"",
+      "type": "info"
+    },
+    {
+      "id": "02e14d75-4732-4775-900e-d9b4d0c2dc0e",
+      "timestamp": "2026-04-24T13:55:53.888Z",
+      "agentId": "system",
+      "action": "Telegram Message Received",
+      "details": "CEO Bot received a message: \"Привет\"",
+      "type": "info"
+    },
+    {
+      "id": "4ac35247-bc3f-48da-9221-aac77385db6d",
+      "timestamp": "2026-04-24T13:55:10.854Z",
+      "agentId": "system",
+      "action": "Autopilot Disabled",
+      "details": "System set to manual mode.",
+      "type": "info"
+    },
+    {
+      "id": "30323a4e-d73b-46ac-b0b3-5422f5f22c76",
+      "timestamp": "2026-04-24T13:55:09.500Z",
+      "agentId": "system",
+      "action": "Template Applied",
+      "details": "Started new company with template: Software Development Team",
+      "type": "success"
     }
   ],
   "approvals": [],
   "isAutopilot": false,
-  "totalCost": 0
+  "totalCost": 0.39041050021329426
 }

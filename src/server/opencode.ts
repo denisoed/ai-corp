@@ -224,7 +224,8 @@ export const companyTools = [
       parameters: {
         type: 'object' as const,
         properties: {
-          agentName: { type: 'string' as const, description: 'Name of the agent to update' },
+          agentName: { type: 'string' as const, description: 'Current name of the agent to update' },
+          newName: { type: 'string' as const, description: 'Optional. New name for the agent' },
           model: { type: 'string' as const, description: 'Optional. New AI model' },
           role: { type: 'string' as const, description: 'Optional. Must be: Manager, Developer, Analyst, Reviewer, Designer, DevOps, Research' },
           description: { type: 'string' as const, description: 'Optional. Updated description' },
