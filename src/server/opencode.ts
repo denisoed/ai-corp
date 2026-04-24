@@ -77,6 +77,290 @@ export const companyTools = [
         required: ['focus']
       }
     }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'move_task',
+      description: 'Move a task to a different column/status on the Kanban board.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          taskTitle: { type: 'string' as const, description: 'Title or partial title of the task' },
+          newStatus: { type: 'string' as const, description: 'Must be: Backlog, Planned, In Progress, Review, Needs Approval, Done, Failed, or Blocked' }
+        },
+        required: ['taskTitle', 'newStatus']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'assign_task',
+      description: 'Assign or reassign a task to a specific agent by name.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          taskTitle: { type: 'string' as const, description: 'Title or partial title of the task' },
+          agentName: { type: 'string' as const, description: 'Name of the agent to assign to' }
+        },
+        required: ['taskTitle', 'agentName']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'update_task',
+      description: 'Update task properties (priority, risk, description, tags).',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          taskTitle: { type: 'string' as const, description: 'Title or partial title of the task' },
+          priority: { type: 'string' as const, description: 'Optional. Must be: Low, Medium, High, or Urgent' },
+          risk: { type: 'string' as const, description: 'Optional. Must be: low, medium, high, or critical' },
+          description: { type: 'string' as const, description: 'Optional. Updated description' },
+          tags: { type: 'array' as const, items: { type: 'string' as const }, description: 'Optional. New tags (replaces existing)' }
+        },
+        required: ['taskTitle']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'delete_task',
+      description: 'Remove a task from the board permanently.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          taskTitle: { type: 'string' as const, description: 'Title or partial title of the task to delete' }
+        },
+        required: ['taskTitle']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'add_task_comment',
+      description: 'Add a comment or note to an existing task.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          taskTitle: { type: 'string' as const, description: 'Title or partial title of the task' },
+          content: { type: 'string' as const, description: 'Comment text' },
+          type: { type: 'string' as const, description: 'Optional. message, action, or trace (default: message)' }
+        },
+        required: ['taskTitle', 'content']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'create_subtask',
+      description: 'Break down a task into smaller subtasks.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          taskTitle: { type: 'string' as const, description: 'Parent task title' },
+          subtaskTitle: { type: 'string' as const, description: 'Title of the new subtask' }
+        },
+        required: ['taskTitle', 'subtaskTitle']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'complete_subtask',
+      description: 'Mark a subtask as completed.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          taskTitle: { type: 'string' as const, description: 'Parent task title' },
+          subtaskTitle: { type: 'string' as const, description: 'Subtask title to mark done' }
+        },
+        required: ['taskTitle', 'subtaskTitle']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'add_task_tag',
+      description: 'Add a tag to a task.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          taskTitle: { type: 'string' as const, description: 'Task title' },
+          tag: { type: 'string' as const, description: 'Tag to add' }
+        },
+        required: ['taskTitle', 'tag']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'remove_task_tag',
+      description: 'Remove a tag from a task.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          taskTitle: { type: 'string' as const, description: 'Task title' },
+          tag: { type: 'string' as const, description: 'Tag to remove' }
+        },
+        required: ['taskTitle', 'tag']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'update_agent',
+      description: "Modify an existing agent's properties.",
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          agentName: { type: 'string' as const, description: 'Name of the agent to update' },
+          model: { type: 'string' as const, description: 'Optional. New AI model' },
+          role: { type: 'string' as const, description: 'Optional. Must be: Manager, Developer, Analyst, Reviewer, Designer, DevOps, Research' },
+          description: { type: 'string' as const, description: 'Optional. Updated description' },
+          skills: { type: 'array' as const, items: { type: 'string' as const }, description: 'Optional. New skills list' }
+        },
+        required: ['agentName']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'delete_agent',
+      description: 'Remove (fire) an agent from the company.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          agentName: { type: 'string' as const, description: 'Name of the agent to remove' }
+        },
+        required: ['agentName']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'set_agent_status',
+      description: "Manually set an agent's operational status.",
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          agentName: { type: 'string' as const, description: 'Agent name' },
+          status: { type: 'string' as const, description: 'Must be: Idle, Working, Blocked, Offline, or Error' }
+        },
+        required: ['agentName', 'status']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_agent_details',
+      description: 'Get detailed information about a specific agent and their current workload.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          agentName: { type: 'string' as const, description: 'Name of the agent' }
+        },
+        required: ['agentName']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'toggle_autopilot',
+      description: 'Enable or disable the autonomous orchestrator.',
+      parameters: {
+        type: 'object' as const,
+        properties: {}
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'resolve_approval',
+      description: 'Approve or reject a pending approval request.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          approvalId: { type: 'string' as const, description: 'ID of the approval request' },
+          approved: { type: 'boolean' as const, description: 'true to approve, false to reject' }
+        },
+        required: ['approvalId', 'approved']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'search_tasks',
+      description: 'Find tasks matching criteria.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          status: { type: 'string' as const, description: 'Optional. Filter by status' },
+          priority: { type: 'string' as const, description: 'Optional. Filter by priority' },
+          tag: { type: 'string' as const, description: 'Optional. Filter by tag' },
+          assigneeName: { type: 'string' as const, description: 'Optional. Filter by assigned agent name' }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_task_details',
+      description: 'Get full information about a task including comments, subtasks, and history.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          taskTitle: { type: 'string' as const, description: 'Task title' }
+        },
+        required: ['taskTitle']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'send_broadcast',
+      description: 'Send a message to all agents that have Telegram bots configured.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          message: { type: 'string' as const, description: 'Text to broadcast' }
+        },
+        required: ['message']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'generate_report',
+      description: 'Generate a textual summary report of the company state.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          type: { type: 'string' as const, description: 'Must be: dashboard, agents, tasks, or costs' }
+        },
+        required: ['type']
+      }
+    }
   }
 ];
 

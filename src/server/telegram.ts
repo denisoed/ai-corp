@@ -1,5 +1,5 @@
 import { mutateStore, getStore } from './store';
-import { Agent, TaskRisk, TaskPriority } from '../types';
+import { Agent, Task, TaskRisk, TaskPriority, TaskStatus, AgentStatus, Comment } from '../types';
 import { OpenCodeChatSession } from './opencode';
 
 const TELEGRAM_API = 'https://api.telegram.org/bot';
@@ -14,7 +14,6 @@ interface BotState {
 const runningBots: Map<string, BotState> = new Map();
 
 export function startTelegramManager() {
-  // Watch store for agents with bot tokens and start/stop accordingly
   setInterval(() => {
     const { agents } = getStore();
 
@@ -175,7 +174,7 @@ Description: ${agentInfo.description}
 Skills: ${agentInfo.skills.join(', ')}
 
 You are communicating with the user/boss via Telegram. 
-Help them manage the company, answer questions, or use your tools to perform actions like creating tasks or hiring new agents.
+Help them manage the company, answer questions, or use your tools to perform actions like creating tasks, moving tasks on the board, assigning tasks, updating agents, generating reports, etc.
 Be concise, professional, and act in-character!`;
 
     const chatSession = new OpenCodeChatSession(systemInstruction);
@@ -186,7 +185,7 @@ Be concise, professional, and act in-character!`;
       const results = [];
       for (const call of response.toolCalls) {
         const args = JSON.parse(call.function.arguments);
-        const result = await executeTool(call.function.name, args, agentId);
+        const result = await executeTool(call.function.name, args, agentId, token);
         results.push(result);
       }
       response = await chatSession.sendToolResults(response.toolCalls, results);
@@ -221,13 +220,41 @@ Be concise, professional, and act in-character!`;
   }
 }
 
-async function executeTool(name: string, args: any, executingAgentId: string): Promise<any> {
-  const state = getStore();
+// --- Tool Implementations ---
 
+function findAgent(name: string): Agent | undefined {
+  const state = getStore();
+  return state.agents.find(a => a.name.toLowerCase().includes(name.toLowerCase()));
+}
+
+function findTask(title: string): Task | undefined {
+  const state = getStore();
+  return state.tasks.find(t => t.title.toLowerCase().includes(title.toLowerCase()));
+}
+
+function logAction(action: string, details: string, type: 'info' | 'success' | 'warning' | 'error', agentId: string) {
+  mutateStore(s => {
+    s.logs.unshift({
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      agentId,
+      action,
+      details,
+      type
+    });
+    if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
+  });
+}
+
+async function executeTool(name: string, args: any, executingAgentId: string, token?: string): Promise<any> {
+  const state = getStore();
+  const now = new Date().toISOString();
+
+  // --- CREATE AGENT ---
   if (name === 'create_agent') {
     let parentId = undefined;
     if (args.managerName) {
-      const parent = state.agents.find(a => a.name.toLowerCase().includes(args.managerName.toLowerCase()));
+      const parent = findAgent(args.managerName);
       if (parent) parentId = parent.id;
     }
 
@@ -242,24 +269,16 @@ async function executeTool(name: string, args: any, executingAgentId: string): P
         parentId,
         status: 'Idle'
       });
-      s.logs.unshift({
-        id: crypto.randomUUID(),
-        timestamp: new Date().toISOString(),
-        agentId: executingAgentId,
-        action: 'Hired Agent via Telegram',
-        details: `Hired ${args.name} (${args.role}).`,
-        type: 'success'
-      });
-      if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
     });
-
+    logAction('Hired Agent via Telegram', `Hired ${args.name} (${args.role}).`, 'success', executingAgentId);
     return { success: true, message: `Agent ${args.name} created successfully.` };
   }
 
+  // --- CREATE TASK ---
   if (name === 'create_task') {
     let assigneeId = undefined;
     if (args.assigneeName) {
-      const assignee = state.agents.find(a => a.name.toLowerCase().includes(args.assigneeName.toLowerCase()));
+      const assignee = findAgent(args.assigneeName);
       if (assignee) assigneeId = assignee.id;
     }
 
@@ -275,25 +294,17 @@ async function executeTool(name: string, args: any, executingAgentId: string): P
         assigneeId,
         creatorId: 'user',
         cost: 0,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: now,
+        updatedAt: now,
         comments: [],
         subtasks: []
       });
-      s.logs.unshift({
-        id: crypto.randomUUID(),
-        timestamp: new Date().toISOString(),
-        agentId: executingAgentId,
-        action: 'Created Task via Telegram',
-        details: `Added task "${args.title}" to board.`,
-        type: 'success'
-      });
-      if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
     });
-
+    logAction('Created Task via Telegram', `Added task "${args.title}" to board.`, 'success', executingAgentId);
     return { success: true, message: `Task "${args.title}" created successfully.` };
   }
 
+  // --- GET COMPANY STATE ---
   if (name === 'get_company_state') {
     if (args.focus === 'agents') {
       return { agents: state.agents.map(a => ({ name: a.name, role: a.role, status: a.status })) };
@@ -304,8 +315,398 @@ async function executeTool(name: string, args: any, executingAgentId: string): P
     return {
       agentsCount: state.agents.length,
       tasksCount: state.tasks.length,
-      activeTasks: state.tasks.filter(t => t.status === 'In Progress').length
+      activeTasks: state.tasks.filter(t => t.status === 'In Progress').length,
+      totalCost: state.totalCost
     };
+  }
+
+  // --- MOVE TASK ---
+  if (name === 'move_task') {
+    const task = findTask(args.taskTitle);
+    if (!task) return { success: false, error: `Task "${args.taskTitle}" not found.` };
+
+    mutateStore(s => {
+      const t = s.tasks.find(x => x.id === task.id);
+      if (t) {
+        t.status = args.newStatus as TaskStatus;
+        t.updatedAt = now;
+      }
+    });
+    logAction('Task Moved', `Moved "${task.title}" to ${args.newStatus}.`, 'info', executingAgentId);
+    return { success: true, message: `Task "${task.title}" moved to ${args.newStatus}.` };
+  }
+
+  // --- ASSIGN TASK ---
+  if (name === 'assign_task') {
+    const task = findTask(args.taskTitle);
+    if (!task) return { success: false, error: `Task "${args.taskTitle}" not found.` };
+    const agent = findAgent(args.agentName);
+    if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+
+    mutateStore(s => {
+      const t = s.tasks.find(x => x.id === task.id);
+      if (t) {
+        t.assigneeId = agent.id;
+        t.updatedAt = now;
+      }
+    });
+    logAction('Task Assigned', `Assigned "${task.title}" to ${agent.name}.`, 'info', executingAgentId);
+    return { success: true, message: `Task "${task.title}" assigned to ${agent.name}.` };
+  }
+
+  // --- UPDATE TASK ---
+  if (name === 'update_task') {
+    const task = findTask(args.taskTitle);
+    if (!task) return { success: false, error: `Task "${args.taskTitle}" not found.` };
+
+    mutateStore(s => {
+      const t = s.tasks.find(x => x.id === task.id);
+      if (!t) return;
+      if (args.priority) t.priority = args.priority as TaskPriority;
+      if (args.risk) t.risk = args.risk as TaskRisk;
+      if (args.description) t.description = args.description;
+      if (args.tags) t.tags = args.tags;
+      t.updatedAt = now;
+    });
+    logAction('Task Updated', `Updated "${task.title}".`, 'info', executingAgentId);
+    return { success: true, message: `Task "${task.title}" updated.` };
+  }
+
+  // --- DELETE TASK ---
+  if (name === 'delete_task') {
+    const task = findTask(args.taskTitle);
+    if (!task) return { success: false, error: `Task "${args.taskTitle}" not found.` };
+
+    mutateStore(s => {
+      s.tasks = s.tasks.filter(t => t.id !== task.id);
+    });
+    logAction('Task Deleted', `Deleted "${task.title}".`, 'warning', executingAgentId);
+    return { success: true, message: `Task "${task.title}" deleted.` };
+  }
+
+  // --- ADD TASK COMMENT ---
+  if (name === 'add_task_comment') {
+    const task = findTask(args.taskTitle);
+    if (!task) return { success: false, error: `Task "${args.taskTitle}" not found.` };
+    const agent = state.agents.find(a => a.id === executingAgentId);
+
+    mutateStore(s => {
+      const t = s.tasks.find(x => x.id === task.id);
+      if (t) {
+        t.comments.push({
+          id: crypto.randomUUID(),
+          authorId: executingAgentId,
+          authorName: agent?.name || 'System',
+          content: args.content,
+          createdAt: now,
+          type: (args.type || 'message') as Comment['type']
+        });
+        t.updatedAt = now;
+      }
+    });
+    logAction('Comment Added', `Added comment to "${task.title}".`, 'info', executingAgentId);
+    return { success: true, message: `Comment added to "${task.title}".` };
+  }
+
+  // --- CREATE SUBTASK ---
+  if (name === 'create_subtask') {
+    const task = findTask(args.taskTitle);
+    if (!task) return { success: false, error: `Task "${args.taskTitle}" not found.` };
+
+    mutateStore(s => {
+      const t = s.tasks.find(x => x.id === task.id);
+      if (t) {
+        t.subtasks.push({ id: crypto.randomUUID(), title: args.subtaskTitle, completed: false });
+        t.updatedAt = now;
+      }
+    });
+    logAction('Subtask Created', `Added subtask "${args.subtaskTitle}" to "${task.title}".`, 'info', executingAgentId);
+    return { success: true, message: `Subtask "${args.subtaskTitle}" created.` };
+  }
+
+  // --- COMPLETE SUBTASK ---
+  if (name === 'complete_subtask') {
+    const task = findTask(args.taskTitle);
+    if (!task) return { success: false, error: `Task "${args.taskTitle}" not found.` };
+    const subtask = task.subtasks.find(s => s.title.toLowerCase().includes(args.subtaskTitle.toLowerCase()));
+    if (!subtask) return { success: false, error: `Subtask "${args.subtaskTitle}" not found.` };
+
+    mutateStore(s => {
+      const t = s.tasks.find(x => x.id === task.id);
+      if (t) {
+        const st = t.subtasks.find(x => x.id === subtask.id);
+        if (st) st.completed = true;
+        t.updatedAt = now;
+      }
+    });
+    logAction('Subtask Completed', `Completed "${args.subtaskTitle}" in "${task.title}".`, 'success', executingAgentId);
+    return { success: true, message: `Subtask "${args.subtaskTitle}" completed.` };
+  }
+
+  // --- ADD TASK TAG ---
+  if (name === 'add_task_tag') {
+    const task = findTask(args.taskTitle);
+    if (!task) return { success: false, error: `Task "${args.taskTitle}" not found.` };
+
+    mutateStore(s => {
+      const t = s.tasks.find(x => x.id === task.id);
+      if (t && !t.tags.includes(args.tag)) {
+        t.tags.push(args.tag);
+        t.updatedAt = now;
+      }
+    });
+    return { success: true, message: `Tag "${args.tag}" added to "${task.title}".` };
+  }
+
+  // --- REMOVE TASK TAG ---
+  if (name === 'remove_task_tag') {
+    const task = findTask(args.taskTitle);
+    if (!task) return { success: false, error: `Task "${args.taskTitle}" not found.` };
+
+    mutateStore(s => {
+      const t = s.tasks.find(x => x.id === task.id);
+      if (t) {
+        t.tags = t.tags.filter(tag => tag !== args.tag);
+        t.updatedAt = now;
+      }
+    });
+    return { success: true, message: `Tag "${args.tag}" removed from "${task.title}".` };
+  }
+
+  // --- UPDATE AGENT ---
+  if (name === 'update_agent') {
+    const agent = findAgent(args.agentName);
+    if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+
+    mutateStore(s => {
+      const a = s.agents.find(x => x.id === agent.id);
+      if (!a) return;
+      if (args.model) a.model = args.model;
+      if (args.role) a.role = args.role as any;
+      if (args.description) a.description = args.description;
+      if (args.skills) a.skills = args.skills;
+    });
+    logAction('Agent Updated', `Updated ${agent.name}.`, 'info', executingAgentId);
+    return { success: true, message: `Agent "${agent.name}" updated.` };
+  }
+
+  // --- DELETE AGENT ---
+  if (name === 'delete_agent') {
+    const agent = findAgent(args.agentName);
+    if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+
+    mutateStore(s => {
+      s.agents = s.agents.filter(a => a.id !== agent.id);
+    });
+    logAction('Agent Removed', `Removed ${agent.name}.`, 'warning', executingAgentId);
+    return { success: true, message: `Agent "${agent.name}" removed.` };
+  }
+
+  // --- SET AGENT STATUS ---
+  if (name === 'set_agent_status') {
+    const agent = findAgent(args.agentName);
+    if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+
+    mutateStore(s => {
+      const a = s.agents.find(x => x.id === agent.id);
+      if (a) a.status = args.status as AgentStatus;
+    });
+    logAction('Status Changed', `Set ${agent.name} to ${args.status}.`, 'info', executingAgentId);
+    return { success: true, message: `Agent "${agent.name}" status set to ${args.status}.` };
+  }
+
+  // --- GET AGENT DETAILS ---
+  if (name === 'get_agent_details') {
+    const agent = findAgent(args.agentName);
+    if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+    const tasks = state.tasks.filter(t => t.assigneeId === agent.id);
+    return {
+      agent: { name: agent.name, role: agent.role, status: agent.status, model: agent.model, skills: agent.skills, description: agent.description },
+      tasks: tasks.map(t => ({ title: t.title, status: t.status, priority: t.priority }))
+    };
+  }
+
+  // --- TOGGLE AUTOPILOT ---
+  if (name === 'toggle_autopilot') {
+    let newState = false;
+    mutateStore(s => {
+      s.isAutopilot = !s.isAutopilot;
+      newState = s.isAutopilot;
+      s.logs.unshift({
+        id: crypto.randomUUID(),
+        timestamp: now,
+        agentId: executingAgentId,
+        action: newState ? 'Autopilot Engaged' : 'Autopilot Disabled',
+        details: newState ? 'AI Orchestration engine has taken over.' : 'System set to manual mode.',
+        type: 'info'
+      });
+      if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
+    });
+    return { success: true, message: `Autopilot is now ${newState ? 'ON' : 'OFF'}.` };
+  }
+
+  // --- RESOLVE APPROVAL ---
+  if (name === 'resolve_approval') {
+    let result: any = {};
+    mutateStore(s => {
+      const approval = s.approvals.find(a => a.id === args.approvalId);
+      if (!approval) {
+        result = { success: false, error: 'Approval not found.' };
+        return;
+      }
+
+      approval.status = args.approved ? 'approved' : 'rejected';
+      const fixSubtask = { id: crypto.randomUUID(), title: 'Fix issues based on feedback', completed: false };
+
+      if (approval.taskId) {
+        const task = s.tasks.find(t => t.id === approval.taskId);
+        if (task) {
+          task.status = args.approved ? 'Review' : 'In Progress';
+          task.updatedAt = now;
+          if (!args.approved) {
+            task.subtasks.push(fixSubtask);
+          }
+          task.comments.push({
+            id: crypto.randomUUID(),
+            authorId: 'user',
+            authorName: 'Admin (You)',
+            content: args.approved ? `Approval granted for: ${approval.action}. Proceeding.` : 'Approval denied. Please revise according to comments.',
+            createdAt: now,
+            type: 'action'
+          });
+        }
+      }
+
+      if (approval.agentId) {
+        const agent = s.agents.find(a => a.id === approval.agentId);
+        if (agent) agent.status = 'Idle';
+      }
+
+      s.logs.unshift({
+        id: crypto.randomUUID(),
+        timestamp: now,
+        agentId: 'user',
+        action: args.approved ? 'Approval Granted' : 'Approval Rejected',
+        details: `User ${args.approved ? 'approved' : 'rejected'} action: ${approval.action}`,
+        type: args.approved ? 'success' : 'error'
+      });
+      if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
+
+      result = { success: true, message: `Approval ${args.approved ? 'granted' : 'denied'}.` };
+    });
+    return result;
+  }
+
+  // --- SEARCH TASKS ---
+  if (name === 'search_tasks') {
+    let tasks = state.tasks;
+    if (args.status) tasks = tasks.filter(t => t.status.toLowerCase() === args.status.toLowerCase());
+    if (args.priority) tasks = tasks.filter(t => t.priority.toLowerCase() === args.priority.toLowerCase());
+    if (args.tag) tasks = tasks.filter(t => t.tags.some(tag => tag.toLowerCase().includes(args.tag.toLowerCase())));
+    if (args.assigneeName) {
+      const agent = findAgent(args.assigneeName);
+      if (agent) tasks = tasks.filter(t => t.assigneeId === agent.id);
+    }
+    return {
+      count: tasks.length,
+      tasks: tasks.map(t => ({
+        title: t.title,
+        status: t.status,
+        priority: t.priority,
+        assignee: state.agents.find(a => a.id === t.assigneeId)?.name || 'unassigned',
+        tags: t.tags
+      }))
+    };
+  }
+
+  // --- GET TASK DETAILS ---
+  if (name === 'get_task_details') {
+    const task = findTask(args.taskTitle);
+    if (!task) return { success: false, error: `Task "${args.taskTitle}" not found.` };
+    const assignee = state.agents.find(a => a.id === task.assigneeId);
+    return {
+      title: task.title,
+      description: task.description,
+      status: task.status,
+      priority: task.priority,
+      risk: task.risk,
+      assignee: assignee?.name || 'unassigned',
+      tags: task.tags,
+      cost: task.cost,
+      subtasks: task.subtasks,
+      comments: task.comments,
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt
+    };
+  }
+
+  // --- SEND BROADCAST ---
+  if (name === 'send_broadcast') {
+    const botsWithTokens = state.agents.filter(a => a.telegramConfig?.botToken && a.telegramConfig?.lastChatId);
+    let sent = 0;
+
+    for (const agent of botsWithTokens) {
+      try {
+        await fetch(`${TELEGRAM_API}${agent.telegramConfig!.botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: agent.telegramConfig!.lastChatId,
+            text: `📢 Broadcast from ${state.agents.find(a => a.id === executingAgentId)?.name || 'Admin'}:\n\n${args.message}`
+          })
+        });
+        sent++;
+      } catch (e) {
+        console.error(`[Broadcast] Failed to send to ${agent.name}:`, e);
+      }
+    }
+
+    logAction('Broadcast Sent', `Broadcast sent to ${sent} agent(s).`, 'info', executingAgentId);
+    return { success: true, message: `Broadcast sent to ${sent} agent(s).` };
+  }
+
+  // --- GENERATE REPORT ---
+  if (name === 'generate_report') {
+    let report = '';
+    if (args.type === 'dashboard' || args.type === 'all') {
+      report += `📊 COMPANY DASHBOARD\n`;
+      report += `━━━━━━━━━━━━━━━━━━━━\n`;
+      report += `Total Agents: ${state.agents.length}\n`;
+      report += `Total Tasks: ${state.tasks.length}\n`;
+      report += `Active Tasks: ${state.tasks.filter(t => t.status === 'In Progress').length}\n`;
+      report += `Pending Approvals: ${state.approvals.filter(a => a.status === 'pending').length}\n`;
+      report += `Total Cost: $${state.totalCost.toFixed(2)}\n\n`;
+    }
+    if (args.type === 'agents' || args.type === 'all') {
+      report += `👥 AGENTS\n`;
+      report += `━━━━━━━━━━━━━━━━━━━━\n`;
+      state.agents.forEach(a => {
+        const taskCount = state.tasks.filter(t => t.assigneeId === a.id).length;
+        report += `• ${a.name} (${a.role}) — ${a.status} — ${taskCount} tasks\n`;
+      });
+      report += `\n`;
+    }
+    if (args.type === 'tasks' || args.type === 'all') {
+      report += `📋 TASKS BY STATUS\n`;
+      report += `━━━━━━━━━━━━━━━━━━━━\n`;
+      const statuses = ['Backlog', 'Planned', 'In Progress', 'Review', 'Needs Approval', 'Done'];
+      statuses.forEach(st => {
+        const count = state.tasks.filter(t => t.status === st).length;
+        report += `${st}: ${count}\n`;
+      });
+      report += `\n`;
+    }
+    if (args.type === 'costs' || args.type === 'all') {
+      report += `💰 COSTS\n`;
+      report += `━━━━━━━━━━━━━━━━━━━━\n`;
+      report += `Total: $${state.totalCost.toFixed(2)}\n`;
+      const expensiveTasks = state.tasks.filter(t => t.cost > 0).sort((a, b) => b.cost - a.cost).slice(0, 5);
+      if (expensiveTasks.length) {
+        report += `Top 5 expensive tasks:\n`;
+        expensiveTasks.forEach(t => report += `• ${t.title}: $${t.cost.toFixed(2)}\n`);
+      }
+    }
+    return { success: true, report: report.trim() };
   }
 
   return { success: false, error: 'Unknown tool' };
