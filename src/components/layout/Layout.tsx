@@ -1,0 +1,130 @@
+import React, { useState } from 'react';
+import { LayoutDashboard, Users, KanbanSquare, Activity, Settings, Menu, Briefcase, Network } from 'lucide-react';
+import { cn } from '../../lib/utils';
+import { Button } from '../ui/Button';
+import { useStore } from '../../store';
+
+interface SidebarItemProps {
+  key?: React.Key;
+  icon: React.ElementType;
+  label: string;
+  active?: boolean;
+  onClick: () => void;
+}
+
+function SidebarItem({ icon: Icon, label, active, onClick }: SidebarItemProps) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer",
+        active 
+          ? "bg-zinc-800 text-indigo-400" 
+          : "text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+      )}
+    >
+      <Icon className="h-5 w-5" />
+      <span>{label}</span>
+    </button>
+  );
+}
+
+interface LayoutProps {
+  children: React.ReactNode;
+  activeView: string;
+  onViewChange: (view: string) => void;
+}
+
+export function Layout(props: LayoutProps) {
+  const { activeView, onViewChange, children } = props;
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const { isAutopilot, toggleAutopilot } = useStore();
+
+  const navItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'agents', label: 'Agents', icon: Users },
+    { id: 'board', label: 'Task Board', icon: KanbanSquare },
+    { id: 'logs', label: 'Activity Logs', icon: Activity },
+  ];
+
+  return (
+    <div className="flex h-screen bg-zinc-950 text-zinc-300 font-sans overflow-hidden">
+      {/* Sidebar */}
+      <aside className={cn(
+        "fixed inset-y-0 left-0 z-50 w-64 border-r border-zinc-800 bg-zinc-950 flex flex-col transition-transform md:relative md:translate-x-0 hidden md:flex",
+        mobileOpen ? "translate-x-0 !flex" : "-translate-x-full"
+      )}>
+        <div className="flex h-16 items-center border-b border-zinc-800 px-6 gap-3">
+          <div className="w-8 h-8 flex-shrink-0 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-xs">AC</div>
+          <span className="font-semibold tracking-tight text-white">Alpha Corp</span>
+        </div>
+        <div className="p-4 space-y-2 flex-col flex-1">
+          {navItems.map(item => (
+            <SidebarItem
+              key={item.id}
+              icon={item.icon}
+              label={item.label}
+              active={activeView === item.id}
+              onClick={() => {
+                onViewChange(item.id);
+                setMobileOpen(false);
+              }}
+            />
+          ))}
+        </div>
+        
+        <div className="mt-auto mb-4 px-4">
+          <SidebarItem
+            icon={Settings}
+            label="Settings"
+            active={activeView === 'settings'}
+            onClick={() => {
+              onViewChange('settings');
+              setMobileOpen(false);
+            }}
+          />
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <header className="h-16 border-b border-zinc-800 flex items-center justify-between px-8 bg-zinc-900/50">
+          <div className="flex items-center gap-4">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="md:hidden"
+              onClick={() => setMobileOpen(!mobileOpen)}
+            >
+              <Menu className="h-5 w-5 text-zinc-300" />
+            </Button>
+            <h1 className="text-xl font-semibold text-white tracking-tight">Orchestra AI <span className="text-zinc-500 font-normal ml-2 hidden sm:inline-block capitalize">/ {activeView.replace('-', ' ')}</span></h1>
+            <span className="hidden md:inline-block px-2 py-0.5 bg-emerald-500/10 text-emerald-400 text-xs rounded border border-emerald-500/20">SYSTEM STABLE</span>
+          </div>
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2 border border-zinc-800 bg-zinc-900 rounded-full px-3 py-1 cursor-pointer hover:border-zinc-700 transition" onClick={toggleAutopilot}>
+              <div className={cn("w-2 h-2 rounded-full", isAutopilot ? "bg-emerald-500 animate-pulse" : "bg-zinc-600")} />
+              <span className="text-xs font-semibold text-zinc-300 tracking-wider uppercase">AutoPilot</span>
+            </div>
+            <div className="hidden sm:flex items-center gap-2 text-xs">
+              <span className="text-zinc-500">Tokens/min:</span>
+              <span className="text-indigo-400 font-mono">{isAutopilot ? '45.1k' : '14.2k'}</span>
+            </div>
+          </div>
+        </header>
+
+        <main className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
+          {children}
+        </main>
+      </div>
+
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div 
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+    </div>
+  );
+}

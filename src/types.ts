@@ -1,0 +1,117 @@
+export type AgentRole = 'Manager' | 'Developer' | 'Analyst' | 'Reviewer' | 'Designer' | 'DevOps' | 'Research';
+
+export type AgentStatus = 'Idle' | 'Working' | 'Blocked' | 'Error' | 'Offline';
+
+export interface Agent {
+  id: string;
+  name: string;
+  model: string; 
+  role: AgentRole;
+  status: AgentStatus;
+  avatarUrl?: string;
+  description: string;
+  skills: string[];
+  parentId?: string;
+  collaborators?: string[];
+  telegramConfig?: {
+    botToken: string;
+    status: 'disconnected' | 'running' | 'error';
+    lastError?: string;
+    lastChatId?: number | string;
+  };
+  allowedPaths?: string[];
+  forbiddenPaths?: string[];
+  budgetToday?: number;
+  spentToday?: number;
+  currentTaskId?: string;
+}
+
+export type TaskStatus = 'Backlog' | 'Planned' | 'In Progress' | 'Review' | 'Needs Approval' | 'Done' | 'Failed' | 'Blocked';
+
+export type TaskPriority = 'Low' | 'Medium' | 'High' | 'Urgent';
+export type TaskRisk = 'low' | 'medium' | 'high' | 'critical';
+
+export interface ApprovalRequest {
+  id: string;
+  taskId?: string;
+  agentId: string;
+  action: string;
+  risk: TaskRisk;
+  estimatedCost: number;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: string;
+  details?: string;
+}
+
+export interface Comment {
+  id: string;
+  authorId: string; 
+  authorName: string;
+  content: string;
+  createdAt: string;
+  isQuestion?: boolean;
+  type?: 'system' | 'message' | 'action' | 'trace';
+  metadata?: any; // For traces: commands, diffs, test outputs
+}
+
+export interface SubTask {
+  id: string;
+  title: string;
+  completed: boolean;
+  assigneeId?: string;
+}
+
+export interface Task {
+  id: string;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  risk: TaskRisk;
+  cost: number;
+  branch?: string;
+  worktree?: string;
+  assigneeId?: string; // agent id
+  creatorId: string; // agent id or 'user'
+  createdAt: string;
+  updatedAt: string;
+  comments: Comment[];
+  tags: string[];
+  subtasks: SubTask[];
+}
+
+export interface Log {
+  id: string;
+  timestamp: string;
+  agentId: string;
+  action: string;
+  details: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+}
+
+export interface AgentTemplate {
+  name: string;
+  model: string;
+  role: AgentRole;
+  description: string;
+  skills: string[];
+  parentIndex?: number; // Index of the manager in the template's agents array
+}
+
+export interface TaskTemplate {
+  title: string;
+  description: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  tags: string[];
+  assigneeIndex?: number;
+  subtasks?: string[];
+}
+
+export interface CompanyTemplate {
+  id: string;
+  name: string;
+  description: string;
+  agents: AgentTemplate[];
+  tasks: TaskTemplate[];
+}
