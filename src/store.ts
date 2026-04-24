@@ -1,6 +1,39 @@
 import { create } from 'zustand';
-import { v4 as uuidv4 } from 'uuid';
 import { Agent, Task, Log, Comment, TaskStatus, CompanyTemplate, ApprovalRequest } from './types';
+
+const API_BASE = '/api';
+
+async function apiGet(path: string) {
+  const res = await fetch(`${API_BASE}${path}`);
+  if (!res.ok) throw new Error(`API GET ${path} failed: ${res.status}`);
+  return res.json();
+}
+
+async function apiPost(path: string, body: any) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) throw new Error(`API POST ${path} failed: ${res.status}`);
+  return res.json();
+}
+
+async function apiPatch(path: string, body: any) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) throw new Error(`API PATCH ${path} failed: ${res.status}`);
+  return res.json();
+}
+
+async function apiDelete(path: string) {
+  const res = await fetch(`${API_BASE}${path}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`API DELETE ${path} failed: ${res.status}`);
+  return res.json();
+}
 
 interface AppState {
   agents: Agent[];
@@ -9,221 +42,123 @@ interface AppState {
   approvals: ApprovalRequest[];
   isAutopilot: boolean;
   totalCost: number;
-  
-  addAgent: (agent: Omit<Agent, 'id'>) => void;
-  updateAgent: (id: string, agent: Partial<Agent>) => void;
-  removeAgent: (id: string) => void;
+  loading: boolean;
 
-  addTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'comments' | 'subtasks' | 'cost'>) => void;
-  updateTask: (id: string, task: Partial<Task>) => void;
-  updateSubtask: (taskId: string, subtaskId: string, completed: boolean) => void;
-  moveTask: (id: string, status: TaskStatus) => void;
-  addComment: (taskId: string, comment: Omit<Comment, 'id' | 'createdAt'>) => void;
-  
-  addLog: (log: Omit<Log, 'id' | 'timestamp'>) => void;
-  addApproval: (approval: Omit<ApprovalRequest, 'id' | 'createdAt' | 'status'>) => void;
-  resolveApproval: (id: string, approved: boolean) => void;
-  
-  applyTemplate: (template: CompanyTemplate) => void;
-  toggleAutopilot: () => void;
+  fetchState: () => Promise<void>;
+  addAgent: (agent: Omit<Agent, 'id'>) => Promise<void>;
+  updateAgent: (id: string, agent: Partial<Agent>) => Promise<void>;
+  removeAgent: (id: string) => Promise<void>;
+
+  addTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'comments' | 'subtasks' | 'cost'>) => Promise<void>;
+  updateTask: (id: string, task: Partial<Task>) => Promise<void>;
+  updateSubtask: (taskId: string, subtaskId: string, completed: boolean) => Promise<void>;
+  moveTask: (id: string, status: TaskStatus) => Promise<void>;
+  addComment: (taskId: string, comment: Omit<Comment, 'id' | 'createdAt'>) => Promise<void>;
+
+  addLog: (log: Omit<Log, 'id' | 'timestamp'>) => Promise<void>;
+  addApproval: (approval: Omit<ApprovalRequest, 'id' | 'createdAt' | 'status'>) => Promise<void>;
+  resolveApproval: (id: string, approved: boolean) => Promise<void>;
+
+  applyTemplate: (template: CompanyTemplate) => Promise<void>;
+  toggleAutopilot: () => Promise<void>;
 }
 
-const initialAgents: Agent[] = [];
-
-const initialTasks: Task[] = [];
-
-export const useStore = create<AppState>((set) => ({
-  agents: initialAgents,
-  tasks: initialTasks,
+export const useStore = create<AppState>((set, get) => ({
+  agents: [],
+  tasks: [],
+  logs: [],
   approvals: [],
   isAutopilot: false,
   totalCost: 0,
-  logs: [
-    {
-      id: uuidv4(),
-      timestamp: new Date().toISOString(),
-      agentId: 'system',
-      action: 'System Initialized',
-      details: 'Welcome to AI Company Dashboard. Please select a template to start.',
-      type: 'info'
+  loading: true,
+
+  fetchState: async () => {
+    try {
+      const state = await apiGet('/state');
+      set({ ...state, loading: false });
+    } catch (e) {
+      console.error('Failed to fetch state:', e);
+      set({ loading: false });
     }
-  ],
+  },
 
-  addAgent: (agent) => set((state) => {
-    const newAgent = { ...agent, id: uuidv4() };
-    return { agents: [...state.agents, newAgent] };
-  }),
-  
-  updateAgent: (id, updates) => set((state) => ({
-    agents: state.agents.map(a => a.id === id ? { ...a, ...updates } : a)
-  })),
+  addAgent: async (agent) => {
+    const newAgent = await apiPost('/agents', agent);
+    set({ agents: [...get().agents, newAgent] });
+  },
 
-  removeAgent: (id) => set((state) => ({
-    agents: state.agents.filter(a => a.id !== id)
-  })),
+  updateAgent: async (id, updates) => {
+    const updated = await apiPatch(`/agents/${id}`, updates);
+    set({ agents: get().agents.map(a => a.id === id ? updated : a) });
+  },
 
-  addTask: (task) => set((state) => ({
-    tasks: [...state.tasks, {
-      ...task,
-      id: uuidv4(),
-      cost: 0,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      comments: [],
-      subtasks: []
-    }]
-  })),
+  removeAgent: async (id) => {
+    await apiDelete(`/agents/${id}`);
+    set({ agents: get().agents.filter(a => a.id !== id) });
+  },
 
-  updateTask: (id, updates) => set((state) => ({
-    tasks: state.tasks.map(t => t.id === id ? { ...t, ...updates, updatedAt: new Date().toISOString() } : t)
-  })),
+  addTask: async (task) => {
+    const newTask = await apiPost('/tasks', task);
+    set({ tasks: [...get().tasks, newTask] });
+  },
 
-  updateSubtask: (taskId, subtaskId, completed) => set((state) => ({
-    tasks: state.tasks.map(t => t.id === taskId ? {
-      ...t,
-      updatedAt: new Date().toISOString(),
-      subtasks: t.subtasks.map(s => s.id === subtaskId ? { ...s, completed } : s)
-    } : t)
-  })),
+  updateTask: async (id, updates) => {
+    const updated = await apiPatch(`/tasks/${id}`, updates);
+    set({ tasks: get().tasks.map(t => t.id === id ? updated : t) });
+  },
 
-  moveTask: (id, status) => set((state) => ({
-    tasks: state.tasks.map(t => t.id === id ? { ...t, status, updatedAt: new Date().toISOString() } : t)
-  })),
+  updateSubtask: async (taskId, subtaskId, completed) => {
+    const task = get().tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const subtasks = task.subtasks.map(s => s.id === subtaskId ? { ...s, completed } : s);
+    const updated = await apiPatch(`/tasks/${taskId}`, { subtasks });
+    set({ tasks: get().tasks.map(t => t.id === taskId ? updated : t) });
+  },
 
-  addComment: (taskId, comment) => set((state) => ({
-    tasks: state.tasks.map(t => t.id === taskId ? {
-      ...t,
-      updatedAt: new Date().toISOString(),
-      comments: [...t.comments, { ...comment, id: uuidv4(), createdAt: new Date().toISOString() }]
-    } : t)
-  })),
+  moveTask: async (id, status) => {
+    const updated = await apiPatch(`/tasks/${id}`, { status });
+    set({ tasks: get().tasks.map(t => t.id === id ? updated : t) });
+  },
 
-  addLog: (log) => set((state) => ({
-    logs: [{ ...log, id: uuidv4(), timestamp: new Date().toISOString() }, ...state.logs].slice(0, 100)
-  })),
+  addComment: async (taskId, comment) => {
+    const updated = await apiPost(`/tasks/${taskId}/comments`, comment);
+    set({ tasks: get().tasks.map(t => t.id === taskId ? updated : t) });
+  },
 
-  addApproval: (approval) => set((state) => ({
-    approvals: [{
-      ...approval,
-      id: uuidv4(),
-      status: 'pending',
-      createdAt: new Date().toISOString()
-    }, ...state.approvals]
-  })),
+  addLog: async (log) => {
+    const newLog = await apiPost('/logs', log);
+    set({ logs: [newLog, ...get().logs].slice(0, 100) });
+  },
 
-  resolveApproval: (id, approved) => set((state) => {
-    const approval = state.approvals.find(a => a.id === id);
-    if (!approval) return state;
+  addApproval: async (approval) => {
+    const newApproval = await apiPost('/approvals', approval);
+    set({ approvals: [newApproval, ...get().approvals] });
+  },
 
-    const newApprovals = state.approvals.map(a => 
-      a.id === id ? { ...a, status: approved ? ('approved' as const) : ('rejected' as const) } : a
-    );
+  resolveApproval: async (id, approved) => {
+    const result = await apiPost(`/approvals/${id}/resolve`, { approved });
+    set({
+      approvals: get().approvals.map(a => a.id === id ? result.approval : a),
+      tasks: result.tasks,
+      agents: result.agents
+    });
+  },
 
-    let newTasks = state.tasks;
-    let newAgents = state.agents;
+  applyTemplate: async (template) => {
+    const result = await apiPost('/templates/apply', template);
+    set({
+      agents: result.agents,
+      tasks: result.tasks,
+      logs: result.logs,
+      isAutopilot: result.isAutopilot
+    });
+  },
 
-    if (approval.taskId) {
-      const task = state.tasks.find(t => t.id === approval.taskId);
-      const fixSubtask = { id: uuidv4(), title: 'Fix issues based on feedback', completed: false };
-
-      newTasks = state.tasks.map(t => {
-        if (t.id === approval.taskId) {
-           return { 
-             ...t, 
-             status: approved ? 'Review' : 'In Progress',
-             subtasks: approved ? t.subtasks : [...t.subtasks, fixSubtask],
-             comments: [...t.comments, {
-               id: uuidv4(),
-               authorId: 'user',
-               authorName: 'Admin (You)',
-               content: approved ? `Approval granted for: ${approval.action}. Proceeding.` : 'Approval denied. Please revise according to comments.',
-               createdAt: new Date().toISOString(),
-               type: 'action'
-             }]
-           };
-        }
-        return t;
-      });
-    }
-    
-    if (approval.agentId) {
-      newAgents = state.agents.map(a =>
-        a.id === approval.agentId
-          ? { ...a, status: 'Idle' } // unblock the agent
-          : a
-      );
-    }
-
-    return {
-      ...state,
-      approvals: newApprovals,
-      tasks: newTasks,
-      agents: newAgents,
-      logs: [{
-        id: uuidv4(),
-        timestamp: new Date().toISOString(),
-        agentId: 'user',
-        action: approved ? 'Approval Granted' : 'Approval Rejected',
-        details: `User ${approved ? 'approved' : 'rejected'} action: ${approval.action}`,
-        type: (approved ? 'success' : 'error') as 'success' | 'error'
-      }, ...state.logs].slice(0, 100)
-    };
-  }),
-  
-  applyTemplate: (template) => set(() => {
-    // First pass: generate UUIDs for all agents
-    const newAgentIds = template.agents.map(() => uuidv4());
-
-    const newAgents: Agent[] = template.agents.map((a, i) => ({
-      ...a,
-      id: newAgentIds[i],
-      parentId: a.parentIndex !== undefined ? newAgentIds[a.parentIndex] : undefined,
-      status: 'Idle'
-    }));
-
-    const newTasks: Task[] = template.tasks.map(t => ({
-      id: uuidv4(),
-      title: t.title,
-      description: t.description,
-      status: t.status,
-      priority: t.priority,
-      risk: 'medium',
-      cost: 0,
-      tags: t.tags,
-      assigneeId: t.assigneeIndex !== undefined ? newAgentIds[t.assigneeIndex] : undefined,
-      creatorId: 'system',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      comments: [],
-      subtasks: t.subtasks ? t.subtasks.map(st => ({ id: uuidv4(), title: st, completed: false })) : []
-    }));
-
-    const newLog: Log = {
-      id: uuidv4(),
-      timestamp: new Date().toISOString(),
-      agentId: 'system',
-      action: 'Template Applied',
-      details: `Started new company with template: ${template.name}`,
-      type: 'success'
-    };
-
-    return {
-      agents: newAgents,
-      tasks: newTasks,
-      logs: [newLog],
-      isAutopilot: true // Auto-start the magic upon template instantiation
-    };
-  }),
-
-  toggleAutopilot: () => set((state) => ({
-    isAutopilot: !state.isAutopilot,
-    logs: [{
-      id: uuidv4(),
-      timestamp: new Date().toISOString(),
-      agentId: 'system',
-      action: !state.isAutopilot ? 'Autopilot Engaged' : 'Autopilot Disabled',
-      details: !state.isAutopilot ? 'AI Orchestration engine has taken over.' : 'System set to manual mode.',
-      type: 'info' as const
-    }, ...state.logs].slice(0, 100)
-  }))
+  toggleAutopilot: async () => {
+    const result = await apiPost('/autopilot/toggle', {});
+    set({
+      isAutopilot: result.isAutopilot,
+      logs: [result.log, ...get().logs].slice(0, 100)
+    });
+  }
 }));

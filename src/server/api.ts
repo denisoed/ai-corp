@@ -1,0 +1,212 @@
+import { Router } from 'express';
+import { getStore, mutateStore } from './store';
+
+const router = Router();
+
+router.get('/state', (req, res) => {
+  res.json(getStore());
+});
+
+router.post('/agents', (req, res) => {
+  const agent = { ...req.body, id: crypto.randomUUID() };
+  mutateStore(s => {
+    s.agents.push(agent);
+  });
+  res.json(agent);
+});
+
+router.patch('/agents/:id', (req, res) => {
+  mutateStore(s => {
+    const idx = s.agents.findIndex(a => a.id === req.params.id);
+    if (idx !== -1) {
+      s.agents[idx] = { ...s.agents[idx], ...req.body };
+    }
+  });
+  const updated = getStore().agents.find(a => a.id === req.params.id);
+  res.json(updated);
+});
+
+router.delete('/agents/:id', (req, res) => {
+  mutateStore(s => {
+    s.agents = s.agents.filter(a => a.id !== req.params.id);
+  });
+  res.json({ success: true });
+});
+
+router.post('/tasks', (req, res) => {
+  const task = {
+    ...req.body,
+    id: crypto.randomUUID(),
+    cost: 0,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    comments: [],
+    subtasks: []
+  };
+  mutateStore(s => {
+    s.tasks.push(task);
+  });
+  res.json(task);
+});
+
+router.patch('/tasks/:id', (req, res) => {
+  mutateStore(s => {
+    const idx = s.tasks.findIndex(t => t.id === req.params.id);
+    if (idx !== -1) {
+      s.tasks[idx] = { ...s.tasks[idx], ...req.body, updatedAt: new Date().toISOString() };
+    }
+  });
+  const updated = getStore().tasks.find(t => t.id === req.params.id);
+  res.json(updated);
+});
+
+router.post('/tasks/:taskId/comments', (req, res) => {
+  const comment = { ...req.body, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
+  mutateStore(s => {
+    const task = s.tasks.find(t => t.id === req.params.taskId);
+    if (task) {
+      task.comments.push(comment);
+      task.updatedAt = new Date().toISOString();
+    }
+  });
+  const updated = getStore().tasks.find(t => t.id === req.params.taskId);
+  res.json(updated);
+});
+
+router.post('/logs', (req, res) => {
+  const log = { ...req.body, id: crypto.randomUUID(), timestamp: new Date().toISOString() };
+  mutateStore(s => {
+    s.logs.unshift(log);
+    if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
+  });
+  res.json(log);
+});
+
+router.post('/approvals', (req, res) => {
+  const approval = { ...req.body, id: crypto.randomUUID(), status: 'pending', createdAt: new Date().toISOString() };
+  mutateStore(s => {
+    s.approvals.unshift(approval);
+    if (s.approvals.length > 100) s.approvals = s.approvals.slice(0, 100);
+  });
+  res.json(approval);
+});
+
+router.post('/approvals/:id/resolve', (req, res) => {
+  const { approved } = req.body;
+  let result: any = {};
+
+  mutateStore(s => {
+    const approval = s.approvals.find(a => a.id === req.params.id);
+    if (!approval) return;
+
+    approval.status = approved ? 'approved' : 'rejected';
+    const fixSubtask = { id: crypto.randomUUID(), title: 'Fix issues based on feedback', completed: false };
+
+    if (approval.taskId) {
+      const task = s.tasks.find(t => t.id === approval.taskId);
+      if (task) {
+        task.status = approved ? 'Review' : 'In Progress';
+        task.updatedAt = new Date().toISOString();
+        if (!approved) {
+          task.subtasks.push(fixSubtask);
+        }
+        task.comments.push({
+          id: crypto.randomUUID(),
+          authorId: 'user',
+          authorName: 'Admin (You)',
+          content: approved ? `Approval granted for: ${approval.action}. Proceeding.` : 'Approval denied. Please revise according to comments.',
+          createdAt: new Date().toISOString(),
+          type: 'action'
+        });
+      }
+    }
+
+    if (approval.agentId) {
+      const agent = s.agents.find(a => a.id === approval.agentId);
+      if (agent) agent.status = 'Idle';
+    }
+
+    s.logs.unshift({
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      agentId: 'user',
+      action: approved ? 'Approval Granted' : 'Approval Rejected',
+      details: `User ${approved ? 'approved' : 'rejected'} action: ${approval.action}`,
+      type: approved ? 'success' : 'error'
+    });
+    if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
+
+    result = {
+      approval,
+      tasks: s.tasks,
+      agents: s.agents
+    };
+  });
+
+  res.json(result);
+});
+
+router.post('/templates/apply', (req, res) => {
+  const template = req.body;
+  const newAgentIds = template.agents.map(() => crypto.randomUUID());
+
+  mutateStore(s => {
+    const newAgents = template.agents.map((a: any, i: number) => ({
+      ...a,
+      id: newAgentIds[i],
+      parentId: a.parentIndex !== undefined ? newAgentIds[a.parentIndex] : undefined,
+      status: 'Idle' as const
+    }));
+
+    const newTasks = template.tasks.map((t: any) => ({
+      id: crypto.randomUUID(),
+      title: t.title,
+      description: t.description,
+      status: t.status,
+      priority: t.priority,
+      risk: 'medium' as const,
+      cost: 0,
+      tags: t.tags,
+      assigneeId: t.assigneeIndex !== undefined ? newAgentIds[t.assigneeIndex] : undefined,
+      creatorId: 'system',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      comments: [],
+      subtasks: t.subtasks ? t.subtasks.map((st: string) => ({ id: crypto.randomUUID(), title: st, completed: false })) : []
+    }));
+
+    s.agents = newAgents;
+    s.tasks = newTasks;
+    s.logs = [{
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      agentId: 'system',
+      action: 'Template Applied',
+      details: `Started new company with template: ${template.name}`,
+      type: 'success'
+    }];
+    s.isAutopilot = true;
+  });
+
+  res.json(getStore());
+});
+
+router.post('/autopilot/toggle', (req, res) => {
+  let log: any;
+  mutateStore(s => {
+    s.isAutopilot = !s.isAutopilot;
+    log = {
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      agentId: 'system',
+      action: s.isAutopilot ? 'Autopilot Engaged' : 'Autopilot Disabled',
+      details: s.isAutopilot ? 'AI Orchestration engine has taken over.' : 'System set to manual mode.',
+      type: 'info'
+    };
+    s.logs.unshift(log);
+    if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
+  });
+  res.json({ isAutopilot: getStore().isAutopilot, log });
+});
+
+export default router;

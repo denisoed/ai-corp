@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Layout } from './components/layout/Layout';
 import { Dashboard } from './components/views/Dashboard';
 import { AgentsList } from './components/views/AgentsList';
@@ -13,15 +13,28 @@ import { useStore } from './store';
 import { useOrchestrator } from './lib/orchestrator';
 import { useTelegramManager } from './lib/telegramAdapter';
 
+function useSync() {
+  const fetchState = useStore(state => state.fetchState);
+
+  useEffect(() => {
+    fetchState();
+    const interval = setInterval(() => {
+      fetchState();
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [fetchState]);
+}
+
 export default function App() {
   // If no agents, start on agents view
   const agents = useStore(state => state.agents);
   const [activeView, setActiveView] = useState(agents.length === 0 ? 'agents' : 'dashboard');
 
-  // Start the autonomous engine
-  useOrchestrator();
+  // Sync state with backend server every 2 seconds
+  useSync();
 
-  // Start the Telegram bot manager
+  // These are now server-side only (kept for compatibility)
+  useOrchestrator();
   useTelegramManager();
 
   const renderView = () => {
@@ -47,4 +60,3 @@ export default function App() {
     </Layout>
   );
 }
-
