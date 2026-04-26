@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { Layout } from './components/layout/Layout';
 import { Dashboard } from './components/views/Dashboard';
-import { AgentsList } from './components/views/AgentsList';
+import { WorkspacesList } from './components/views/WorkspacesList';
 import { TaskBoard } from './components/views/TaskBoard';
 import { ActivityLogs } from './components/views/ActivityLogs';
 import { useStore } from './store';
@@ -41,8 +41,8 @@ export default function App() {
     switch (activeView) {
       case 'dashboard':
         return <Dashboard />;
-      case 'agents':
-        return <AgentsList />;
+      case 'workspaces':
+        return <WorkspacesList />;
       case 'board':
         return <TaskBoard />;
       case 'logs':

@@ -1,12 +1,13 @@
 import fs from 'fs';
 import path from 'path';
-import { Agent, Task, Log, ApprovalRequest } from '../types';
+import { Agent, Task, Log, ApprovalRequest, Workspace } from '../types';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DATA_FILE = path.join(DATA_DIR, 'store.json');
 
 interface StoreData {
   agents: Agent[];
+  workspaces: Workspace[];
   tasks: Task[];
   logs: Log[];
   approvals: ApprovalRequest[];
@@ -16,6 +17,7 @@ interface StoreData {
 
 const defaultStore: StoreData = {
   agents: [],
+  workspaces: [],
   tasks: [],
   logs: [
     {
@@ -38,7 +40,12 @@ export function loadStore() {
   try {
     if (fs.existsSync(DATA_FILE)) {
       const raw = fs.readFileSync(DATA_FILE, 'utf8');
-      store = JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      store = {
+        ...defaultStore,
+        ...parsed,
+        workspaces: parsed.workspaces || []
+      };
       console.log('[Store] Loaded from', DATA_FILE);
     } else {
       console.log('[Store] No data file found, using defaults');

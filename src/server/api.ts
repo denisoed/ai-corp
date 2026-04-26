@@ -7,6 +7,84 @@ router.get('/state', (req, res) => {
   res.json(getStore());
 });
 
+router.post('/workspaces', (req, res) => {
+  const workspace = {
+    ...req.body,
+    id: crypto.randomUUID(),
+    agentIds: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  mutateStore(s => {
+    s.workspaces.push(workspace);
+  });
+  res.json(workspace);
+});
+
+router.get('/folders', async (req, res) => {
+  const fs = await import('fs');
+  const path = await import('path');
+
+  function readDir(dir: string, depth: number = 0): any {
+    if (depth > 2) return null;
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      const items = [];
+      for (const entry of entries) {
+        if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '__pycache__') continue;
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          items.push({
+            name: entry.name,
+            path: fullPath,
+            type: 'directory',
+            children: depth < 2 ? undefined : undefined
+          });
+        } else {
+          items.push({ name: entry.name, path: fullPath, type: 'file' });
+        }
+      }
+      return items.sort((a: any, b: any) => {
+        if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  const targetPath = (req.query.path as string) || (process.env.HOME || '');
+  if (!targetPath) {
+    return res.status(400).json({ error: 'No path specified and HOME not set' });
+  }
+  const name = targetPath.split('/').pop() || targetPath;
+  const items = readDir(targetPath) || [];
+  res.json([{ name, path: targetPath, type: 'directory', children: items }]);
+});
+
+router.patch('/workspaces/:id', (req, res) => {
+  mutateStore(s => {
+    const idx = s.workspaces.findIndex(w => w.id === req.params.id);
+    if (idx !== -1) {
+      s.workspaces[idx] = { ...s.workspaces[idx], ...req.body, updatedAt: new Date().toISOString() };
+    }
+  });
+  const updated = getStore().workspaces.find(w => w.id === req.params.id);
+  res.json(updated);
+});
+
+router.delete('/workspaces/:id', (req, res) => {
+  mutateStore(s => {
+    s.workspaces = s.workspaces.filter(w => w.id !== req.params.id);
+    s.agents.forEach(a => {
+      if (a.workspaceId === req.params.id) {
+        a.workspaceId = undefined;
+      }
+    });
+  });
+  res.json({ success: true });
+});
+
 router.post('/agents', (req, res) => {
   const agent = { ...req.body, id: crypto.randomUUID() };
   mutateStore(s => {
@@ -19,6 +97,24 @@ router.patch('/agents/:id', (req, res) => {
   mutateStore(s => {
     const idx = s.agents.findIndex(a => a.id === req.params.id);
     if (idx !== -1) {
+      const oldWorkspaceId = s.agents[idx].workspaceId;
+      const newWorkspaceId = req.body.workspaceId;
+
+      if (newWorkspaceId !== undefined && newWorkspaceId !== oldWorkspaceId) {
+        if (oldWorkspaceId) {
+          const oldWsIdx = s.workspaces.findIndex(w => w.id === oldWorkspaceId);
+          if (oldWsIdx !== -1) {
+            s.workspaces[oldWsIdx].agentIds = s.workspaces[oldWsIdx].agentIds.filter(id => id !== req.params.id);
+          }
+        }
+        if (newWorkspaceId) {
+          const newWsIdx = s.workspaces.findIndex(w => w.id === newWorkspaceId);
+          if (newWsIdx !== -1 && !s.workspaces[newWsIdx].agentIds.includes(req.params.id)) {
+            s.workspaces[newWsIdx].agentIds.push(req.params.id);
+          }
+        }
+      }
+
       s.agents[idx] = { ...s.agents[idx], ...req.body };
     }
   });

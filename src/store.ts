@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Agent, Task, Log, Comment, TaskStatus, CompanyTemplate, ApprovalRequest } from './types';
+import { Agent, Task, Log, Comment, TaskStatus, CompanyTemplate, ApprovalRequest, Workspace } from './types';
 
 const API_BASE = '/api';
 
@@ -37,6 +37,7 @@ async function apiDelete(path: string) {
 
 interface AppState {
   agents: Agent[];
+  workspaces: Workspace[];
   tasks: Task[];
   logs: Log[];
   approvals: ApprovalRequest[];
@@ -48,6 +49,11 @@ interface AppState {
   addAgent: (agent: Omit<Agent, 'id'>) => Promise<void>;
   updateAgent: (id: string, agent: Partial<Agent>) => Promise<void>;
   removeAgent: (id: string) => Promise<void>;
+
+  addWorkspace: (workspace: Omit<Workspace, 'id' | 'agentIds' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+  updateWorkspace: (id: string, workspace: Partial<Workspace>) => Promise<void>;
+  removeWorkspace: (id: string) => Promise<void>;
+  assignAgentToWorkspace: (agentId: string, workspaceId: string | undefined) => Promise<void>;
 
   addTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'comments' | 'subtasks' | 'cost'>) => Promise<void>;
   updateTask: (id: string, task: Partial<Task>) => Promise<void>;
@@ -65,6 +71,7 @@ interface AppState {
 
 export const useStore = create<AppState>((set, get) => ({
   agents: [],
+  workspaces: [],
   tasks: [],
   logs: [],
   approvals: [],
@@ -95,6 +102,45 @@ export const useStore = create<AppState>((set, get) => ({
   removeAgent: async (id) => {
     await apiDelete(`/agents/${id}`);
     set({ agents: get().agents.filter(a => a.id !== id) });
+  },
+
+  addWorkspace: async (workspace) => {
+    const newWorkspace = await apiPost('/workspaces', workspace);
+    set({ workspaces: [...get().workspaces, newWorkspace] });
+  },
+
+  updateWorkspace: async (id, updates) => {
+    const updated = await apiPatch(`/workspaces/${id}`, updates);
+    set({ workspaces: get().workspaces.map(w => w.id === id ? updated : w) });
+  },
+
+  removeWorkspace: async (id) => {
+    await apiDelete(`/workspaces/${id}`);
+    set({ workspaces: get().workspaces.filter(w => w.id !== id) });
+  },
+
+  assignAgentToWorkspace: async (agentId, workspaceId) => {
+    await apiPatch(`/agents/${agentId}`, { workspaceId });
+    const agent = get().agents.find(a => a.id === agentId);
+    if (!agent) return;
+    const oldWorkspaceId = agent.workspaceId;
+    if (oldWorkspaceId) {
+      set({
+        agents: get().agents.map(a => a.id === agentId ? { ...a, workspaceId } : a),
+        workspaces: get().workspaces.map(w =>
+          w.id === oldWorkspaceId ? { ...w, agentIds: w.agentIds.filter(id => id !== agentId) } : w
+        )
+      });
+    } else if (workspaceId) {
+      set({
+        agents: get().agents.map(a => a.id === agentId ? { ...a, workspaceId } : a),
+        workspaces: get().workspaces.map(w =>
+          w.id === workspaceId ? { ...w, agentIds: [...w.agentIds, agentId] } : w
+        )
+      });
+    } else {
+      set({ agents: get().agents.map(a => a.id === agentId ? { ...a, workspaceId } : a) });
+    }
   },
 
   addTask: async (task) => {

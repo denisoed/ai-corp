@@ -1,0 +1,1008 @@
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useStore } from '../../store';
+import * as d3 from 'd3';
+import { Card, CardContent } from '../ui/Card';
+import { Button } from '../ui/Button';
+import { Badge } from '../ui/Badge';
+import { Input } from '../ui/Input';
+import { FolderPicker } from '../ui/FolderPicker';
+import { Plus, Briefcase, Users as UsersIcon, Trash2, X } from 'lucide-react';
+import { COMPANY_TEMPLATES } from '../../lib/templates';
+import { ReactFlow, Background, Controls, Node, Edge, useNodesState, useEdgesState } from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+import { AgentNode } from './AgentNode';
+import { CustomSelect, SelectItem } from '../ui/CustomSelect';
+import { MultiSelect } from '../ui/MultiSelect';
+import { cn } from '../../lib/utils';
+
+const WORKSPACE_COLORS = [
+  '#6366f1', '#8b5cf6', '#ec4899', '#f97316', '#14b8a6', '#22c55e', '#3b82f6', '#eab308'
+];
+
+const DEFAULT_COLOR = '#6366f1';
+
+interface WorkspaceGroupNode {
+  id: string;
+  type: 'workspaceGroup';
+  position: { x: number; y: number };
+  data: {
+    workspaceId: string;
+    name: string;
+    color: string;
+    agentCount: number;
+  };
+}
+
+function WorkspaceGroupNodeComponent({ data }: { data: any }) {
+  return (
+    <div
+      className="rounded-xl border-2 flex flex-col items-center text-center gap-2 p-4"
+      style={{
+        width: data.width || 256,
+        height: data.height || 'auto',
+        backgroundColor: `${data.color}15`,
+        borderColor: `${data.color}60`,
+      }}
+    >
+      <div
+        className="w-8 h-8 rounded-lg flex items-center justify-center"
+        style={{ backgroundColor: `${data.color}30` }}
+      >
+        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: data.color }} />
+      </div>
+      <div>
+        <h3 className="text-sm font-semibold text-zinc-100">{data.name}</h3>
+        <p className="text-xs text-zinc-500">{data.agentCount} agent{data.agentCount !== 1 ? 's' : ''}</p>
+      </div>
+    </div>
+  );
+}
+
+function computeTree(wsAgents: any[], rootId: string) {
+  const validAgentIds = new Set(wsAgents.map(a => a.id));
+  const rootData = {
+    id: rootId,
+    name: 'System',
+    role: 'System',
+    isRoot: true,
+    parentId: null,
+    collaborators: [],
+    workspaceId: '__internal__'
+  };
+  const allNodes = [
+    rootData,
+    ...wsAgents.map(a => ({
+      ...a,
+      parentId: (a.parentId && validAgentIds.has(a.parentId)) ? a.parentId : rootId
+    }))
+  ];
+
+  const visited = new Set<string>();
+  const stack = new Set<string>();
+  const breakCycle = (nodeId: string): boolean => {
+    if (stack.has(nodeId)) return true;
+    if (visited.has(nodeId)) return false;
+    visited.add(nodeId);
+    stack.add(nodeId);
+    const node = allNodes.find(n => n.id === nodeId);
+    if (node && node.parentId) {
+      if (breakCycle(node.parentId)) node.parentId = rootId;
+    }
+    stack.delete(nodeId);
+    return false;
+  };
+  allNodes.forEach(n => breakCycle(n.id));
+
+  let hierarchy;
+  try {
+    hierarchy = d3.stratify<any>().id(d => d.id).parentId(d => d.parentId)(allNodes);
+  } catch {
+    allNodes.forEach(n => { if (n.id !== rootId) n.parentId = rootId; });
+    hierarchy = d3.stratify<any>().id(d => d.id).parentId(d => d.parentId)(allNodes);
+  }
+
+  const treeLayout = d3.tree<any>().nodeSize([260, 220]);
+  const root = treeLayout(hierarchy);
+  return { desc: root.descendants(), links: root.links() };
+}
+
+export function WorkspacesList() {
+  const { agents, workspaces, addAgent, removeAgent, updateAgent, addWorkspace, updateWorkspace, removeWorkspace, assignAgentToWorkspace, applyTemplate, addLog } = useStore();
+  const [showAddAgent, setShowAddAgent] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
+  const [showWorkspaceSettings, setShowWorkspaceSettings] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [newAgentRole, setNewAgentRole] = useState('Developer');
+  const [newAgentParent, setNewAgentParent] = useState('');
+  const [settingsFolderPath, setSettingsFolderPath] = useState('');
+  const [newAgentCollabs, setNewAgentCollabs] = useState<string[]>([]);
+  const [newAgentWorkspace, setNewAgentWorkspace] = useState('');
+
+  const [newWsName, setNewWsName] = useState('');
+  const [newWsDescription, setNewWsDescription] = useState('');
+  const [newWsFolder, setNewWsFolder] = useState('');
+  const [newWsColor, setNewWsColor] = useState(DEFAULT_COLOR);
+
+  const nodeTypes = useMemo(() => ({
+    agent: AgentNode,
+    workspaceGroup: WorkspaceGroupNodeComponent
+  }), []);
+
+  const selectedWorkspace = workspaces.find(w => w.id === showWorkspaceSettings);
+  const selectedAgent = agents.find(a => a.id === selectedAgentId);
+
+  const layoutNodes = useMemo(() => {
+    const nodes: Node[] = [];
+    const PAD = 60;
+    const WS_GAP = 80;
+
+    const wsAgentsMap = new Map<string, typeof agents>();
+    wsAgentsMap.set('__unassigned', []);
+    workspaces.forEach(ws => wsAgentsMap.set(ws.id, []));
+    agents.forEach(agent => {
+      const wsId = agent.workspaceId || '__unassigned';
+      if (!wsAgentsMap.has(wsId)) wsAgentsMap.set(wsId, []);
+      wsAgentsMap.get(wsId)!.push(agent);
+    });
+
+    const unassignedAgents = wsAgentsMap.get('__unassigned') || [];
+
+    const computeWsLayout = (wsId: string, wsName: string, wsColor: string, wsAgents: typeof agents, rootId: string) => {
+      if (wsAgents.length === 0) {
+        return { wsId, name: wsName, color: wsColor, agentCount: 0, width: 256, height: 100, agents: [] as { id: string; relX: number; relY: number; data: any }[] };
+      }
+
+      const { desc } = computeTree(wsAgents, rootId);
+
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      desc.forEach(node => {
+        if (node.data.id === rootId) return;
+        minX = Math.min(minX, node.x);
+        minY = Math.min(minY, node.y);
+        maxX = Math.max(maxX, node.x);
+        maxY = Math.max(maxY, node.y);
+      });
+
+      const CARD_W = 224;
+      const CARD_H = 160;
+      const width = Math.max(256, maxX - minX + CARD_W + PAD * 2);
+      const height = Math.max(100, maxY - minY + CARD_H + PAD * 2 + 50);
+      const offsetX = -minX + PAD;
+      const offsetY = -minY + PAD + 50;
+
+      const agents: { id: string; relX: number; relY: number; data: any }[] = [];
+      desc.forEach(node => {
+        if (node.data.id === rootId) return;
+        agents.push({
+          id: node.data.id,
+          relX: node.x + offsetX,
+          relY: node.y + offsetY,
+          data: node.data,
+        });
+      });
+
+      return { wsId, name: wsName, color: wsColor, agentCount: wsAgents.length, width, height, agents };
+    };
+
+    const allWsLayouts: ReturnType<typeof computeWsLayout>[] = [];
+    workspaces.forEach(ws => {
+      const wsAgents = wsAgentsMap.get(ws.id) || [];
+      allWsLayouts.push(computeWsLayout(ws.id, ws.name, ws.color || DEFAULT_COLOR, wsAgents, `ws-root-${ws.id}`));
+    });
+
+    let flowX = 60;
+    let flowY = 60;
+    let rowMaxH = 0;
+    const MAX_ROW_W = 4000;
+
+    allWsLayouts.forEach((layout, i) => {
+      if (i > 0 && flowX + layout.width > MAX_ROW_W) {
+        flowX = 60;
+        flowY += rowMaxH + WS_GAP;
+        rowMaxH = 0;
+      }
+
+      nodes.push({
+        id: `ws-${layout.wsId}`,
+        type: 'workspaceGroup',
+        position: { x: flowX, y: flowY },
+        draggable: true,
+        data: {
+          workspaceId: layout.wsId,
+          name: layout.name,
+          color: layout.color,
+          agentCount: layout.agentCount,
+          width: layout.width,
+          height: layout.height,
+        }
+      });
+
+      layout.agents.forEach(a => {
+        nodes.push({
+          id: a.id,
+          type: 'agent',
+          position: { x: flowX + a.relX, y: flowY + a.relY },
+          data: { ...a.data, selected: selectedAgentId === a.id, workspaceColor: layout.color }
+        });
+      });
+
+      flowX += layout.width + WS_GAP;
+      rowMaxH = Math.max(rowMaxH, layout.height);
+    });
+
+    if (unassignedAgents.length > 0) {
+      const unassignedY = flowY + rowMaxH + WS_GAP;
+      const layout = computeWsLayout('__unassigned', 'Unassigned', '#52525b', unassignedAgents, 'unassigned-root');
+
+      nodes.push({
+        id: 'ws-unassigned',
+        type: 'workspaceGroup',
+        position: { x: 60, y: unassignedY },
+        draggable: true,
+        data: {
+          workspaceId: '__unassigned',
+          name: 'Unassigned',
+          color: '#52525b',
+          agentCount: layout.agentCount,
+          width: layout.width,
+          height: layout.height,
+        }
+      });
+
+      layout.agents.forEach(a => {
+        nodes.push({
+          id: a.id,
+          type: 'agent',
+          position: { x: 60 + a.relX, y: unassignedY + a.relY },
+          data: { ...a.data, selected: selectedAgentId === a.id, workspaceColor: '#52525b' }
+        });
+      });
+    }
+
+    return nodes;
+  }, [agents, workspaces]);
+
+  const layoutEdges = useMemo(() => {
+    const edges: Edge[] = [];
+    const wsAgentsMap = new Map<string, typeof agents>();
+    wsAgentsMap.set('__unassigned', []);
+    workspaces.forEach(ws => wsAgentsMap.set(ws.id, []));
+    agents.forEach(agent => {
+      const wsId = agent.workspaceId || '__unassigned';
+      if (!wsAgentsMap.has(wsId)) wsAgentsMap.set(wsId, []);
+      wsAgentsMap.get(wsId)!.push(agent);
+    });
+
+    workspaces.forEach(ws => {
+      const wsAgents = wsAgentsMap.get(ws.id) || [];
+
+      const { desc, links } = computeTree(wsAgents, `ws-root-${ws.id}`);
+
+      links.forEach(link => {
+        if (link.source.data.id === `ws-root-${ws.id}`) return;
+        edges.push({
+          id: `e-${link.source.data.id}-${link.target.data.id}`,
+          source: link.source.data.id,
+          target: link.target.data.id,
+          sourceHandle: 'bottom',
+          targetHandle: 'top',
+          type: 'smoothstep',
+          style: { stroke: 'rgba(161, 161, 170, 0.4)', strokeWidth: 1.5, strokeDasharray: '4 4' }
+        });
+      });
+
+      const horizontalLinks: { source: any, target: any }[] = [];
+      wsAgents.forEach(agent => {
+        if (agent.collaborators && agent.collaborators.length > 0) {
+          const sourceNode = desc.find(n => n.data.id === agent.id);
+          agent.collaborators.forEach(collabId => {
+            const targetNode = desc.find(n => n.data.id === collabId);
+            if (sourceNode && targetNode && sourceNode.data.id !== targetNode.data.id) {
+              const existing = horizontalLinks.find(l =>
+                (l.source.data.id === sourceNode.data.id && l.target.data.id === targetNode.data.id) ||
+                (l.source.data.id === targetNode.data.id && l.target.data.id === sourceNode.data.id)
+              );
+              if (!existing) horizontalLinks.push({ source: sourceNode, target: targetNode });
+            }
+          });
+        }
+      });
+
+      horizontalLinks.forEach(link => {
+        const sx = desc.find(n => n.data.id === link.source.data.id)?.x || 0;
+        const tx = desc.find(n => n.data.id === link.target.data.id)?.x || 0;
+        const handles = sx < tx ? { sourceHandle: 'right', targetHandle: 'left' } : { sourceHandle: 'left', targetHandle: 'right' };
+        edges.push({
+          id: `h-${link.source.data.id}-${link.target.data.id}`,
+          source: link.source.data.id,
+          target: link.target.data.id,
+          ...handles,
+          type: 'bezier',
+          style: { stroke: 'rgba(99, 102, 241, 0.5)', strokeWidth: 2, strokeDasharray: '4 4' }
+        });
+      });
+    });
+
+    const unassignedAgents = wsAgentsMap.get('__unassigned') || [];
+    if (unassignedAgents.length > 0) {
+      const { links } = computeTree(unassignedAgents, 'unassigned-root');
+      links.forEach(link => {
+        if (link.source.data.id === 'unassigned-root') return;
+        edges.push({
+          id: `e-u-${link.source.data.id}-${link.target.data.id}`,
+          source: link.source.data.id,
+          target: link.target.data.id,
+          sourceHandle: 'bottom',
+          targetHandle: 'top',
+          type: 'smoothstep',
+          style: { stroke: 'rgba(161, 161, 170, 0.4)', strokeWidth: 1.5, strokeDasharray: '4 4' }
+        });
+      });
+    }
+
+    return edges;
+  }, [agents, workspaces]);
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(layoutNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(layoutEdges);
+
+  const prevAgentWsRef = useRef<string>('');
+
+  useEffect(() => {
+    const agentWsKey = agents.map(a => `${a.id}:${a.workspaceId}`).sort().join(',') + '|' + workspaces.map(w => w.id).sort().join(',');
+    if (agentWsKey !== prevAgentWsRef.current) {
+      setNodes(layoutNodes);
+      prevAgentWsRef.current = agentWsKey;
+    }
+  }, [agents, workspaces, layoutNodes, setNodes]);
+
+  useEffect(() => {
+    setEdges(layoutEdges);
+  }, [layoutEdges, setEdges]);
+
+  useEffect(() => {
+    setNodes(nodes => nodes.map(n => {
+      if (n.type === 'agent') {
+        const isSelected = n.id === selectedAgentId;
+        if (n.data.selected !== isSelected) {
+          return { ...n, data: { ...n.data, selected: isSelected } };
+        }
+      }
+      return n;
+    }));
+  }, [selectedAgentId, setNodes]);
+
+  const onNodeDrag = useCallback((_: any, node: any) => {
+    if (node.type !== 'agent') return;
+    const agent = agents.find(a => a.id === node.id);
+    if (!agent || !agent.workspaceId) return;
+
+    const wsNodeId = `ws-${agent.workspaceId}`;
+    const PAD = 60;
+    const CARD_W = 224;
+    const CARD_H = 160;
+
+    setNodes((nds: any) => nds.map(n => {
+      if (n.id !== wsNodeId) return n;
+      const ws = n.position;
+      const np = node.position;
+      const newW = Math.max((n.data.width as number) || 256, Math.max(np.x - ws.x + CARD_W + PAD, ws.x + (n.data.width || 256) - ws.x));
+      const newH = Math.max((n.data.height as number) || 100, Math.max(np.y - ws.y + CARD_H + PAD, ws.y + (n.data.height || 100) - ws.y));
+      if (newW !== n.data.width || newH !== n.data.height) {
+        return { ...n, data: { ...n.data, width: newW, height: newH } };
+      }
+      return n;
+    }));
+  }, [agents, setNodes]);
+
+  const onNodeDragStop = useCallback((_: any, node: any) => {
+    if (node.type !== 'agent') return;
+    const agent = agents.find(a => a.id === node.id);
+    if (!agent) return;
+
+    const wsNodes = nodes.filter(n => n.type === 'workspaceGroup');
+    const draggedPos = node.position;
+    let landedInWs: string | undefined;
+
+    for (const wsNode of wsNodes) {
+      const wsPos = wsNode.position;
+      const wsW = (wsNode.data as any).width || 256;
+      const wsH = (wsNode.data as any).height || 100;
+      if (
+        draggedPos.x >= wsPos.x && draggedPos.x <= wsPos.x + wsW &&
+        draggedPos.y >= wsPos.y && draggedPos.y <= wsPos.y + wsH
+      ) {
+        landedInWs = (wsNode.data as any).workspaceId;
+        break;
+      }
+    }
+
+    if (landedInWs === '__unassigned') {
+      if (agent.workspaceId) assignAgentToWorkspace(agent.id, undefined);
+      return;
+    }
+
+    if (landedInWs && landedInWs !== agent.workspaceId) {
+      assignAgentToWorkspace(agent.id, landedInWs);
+      return;
+    }
+
+    if (!landedInWs && agent.workspaceId) {
+      assignAgentToWorkspace(agent.id, undefined);
+      return;
+    }
+
+    if (landedInWs === agent.workspaceId && agent.workspaceId) {
+      const PAD = 60;
+      const CARD_W = 224;
+      const CARD_H = 160;
+      const wsNodeId = `ws-${agent.workspaceId}`;
+      setNodes((nds: any) => nds.map(n => {
+        if (n.id !== wsNodeId) return n;
+        const ws = n.position;
+        const np = node.position;
+        const newW = Math.max((n.data.width as number) || 256, np.x - ws.x + CARD_W + PAD);
+        const newH = Math.max((n.data.height as number) || 100, np.y - ws.y + CARD_H + PAD);
+        if (newW !== n.data.width || newH !== n.data.height) {
+          return { ...n, data: { ...n.data, width: newW, height: newH } };
+        }
+        return n;
+      }));
+    }
+  }, [agents, nodes, assignAgentToWorkspace, setNodes]);
+
+  const onConnect = useCallback((connection: any) => {
+    const { source, target, sourceHandle, targetHandle } = connection;
+    if (source === target) return;
+
+    if ((sourceHandle === 'bottom' && targetHandle === 'top') || (sourceHandle === 'top' && targetHandle === 'bottom')) {
+      const parentConfig = sourceHandle === 'bottom' ? source : target;
+      const childConfig = sourceHandle === 'bottom' ? target : source;
+      if (childConfig === 'company-root' || childConfig.startsWith('ws-') || childConfig.startsWith('unassigned')) return;
+
+      setEdges((eds: any) => [...eds, {
+        id: `e-${source}-${target}`,
+        source, target,
+        sourceHandle: 'bottom', targetHandle: 'top',
+        type: 'smoothstep',
+        style: { stroke: 'rgba(161, 161, 170, 0.4)', strokeWidth: 1.5, strokeDasharray: '4 4' }
+      }]);
+
+      updateAgent(childConfig, { parentId: parentConfig === 'company-root' ? undefined : parentConfig }).catch(e => console.error('Failed to update agent parent:', e));
+      return;
+    }
+
+    if ((sourceHandle === 'right' || sourceHandle === 'left') && (targetHandle === 'left' || targetHandle === 'right')) {
+      if (source === 'company-root' || target === 'company-root' || source.startsWith('ws-') || target.startsWith('ws-')) return;
+      const sourceAgent = agents.find(a => a.id === source);
+      if (sourceAgent) {
+        const newCollabs = new Set(sourceAgent.collaborators || []);
+        const isRemoving = newCollabs.has(target);
+        if (isRemoving) {
+          newCollabs.delete(target);
+        } else {
+          newCollabs.add(target);
+        }
+
+        if (!isRemoving) {
+          const handles = sourceHandle === 'right' ? { sourceHandle: 'right', targetHandle: 'left' } : { sourceHandle: 'left', targetHandle: 'right' };
+          setEdges((eds: any) => [...eds, {
+            id: `h-${source}-${target}`,
+            source, target,
+            ...handles,
+            type: 'bezier',
+            style: { stroke: 'rgba(99, 102, 241, 0.5)', strokeWidth: 2, strokeDasharray: '4 4' }
+          }]);
+        } else {
+          setEdges((eds: any) => eds.filter((e: any) => e.id !== `h-${source}-${target}`));
+        }
+
+        updateAgent(source, { collaborators: Array.from(newCollabs) }).catch(e => console.error('Failed to update agent collaborators:', e));
+      }
+    }
+  }, [agents, updateAgent, setEdges]);
+
+  const onNodeClick = useCallback((_: any, node: any) => {
+    if (node.id.startsWith('ws-') || node.id.startsWith('unassigned')) {
+      const wsId = node.data.workspaceId;
+      if (wsId === '__unassigned') return;
+      setShowWorkspaceSettings(wsId);
+    } else {
+      setSelectedAgentId(node.id);
+    }
+  }, []);
+
+  const onPaneClick = useCallback(() => {
+    setSelectedAgentId(null);
+    setShowWorkspaceSettings(null);
+  }, []);
+
+  const handleCreateWorkspace = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newWsName.trim()) return;
+    addWorkspace({
+      name: newWsName,
+      description: newWsDescription,
+      folderPath: newWsFolder || undefined,
+      color: newWsColor
+    });
+    addLog({ agentId: 'system', action: 'Workspace Created', details: `Created workspace: ${newWsName}`, type: 'success' });
+    setNewWsName('');
+    setNewWsDescription('');
+    setNewWsFolder('');
+    setNewWsColor(DEFAULT_COLOR);
+    setShowCreateWorkspace(false);
+  };
+
+  const handleAddAgent = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    addAgent({
+      name: formData.get('name') as string,
+      model: formData.get('model') as string,
+      role: newAgentRole as any,
+      parentId: newAgentParent || undefined,
+      status: 'Idle',
+      description: formData.get('description') as string,
+      skills: (formData.get('skills') as string).split(',').map(s => s.trim()),
+      collaborators: newAgentCollabs,
+      workspaceId: newAgentWorkspace || undefined
+    });
+    addLog({
+      agentId: 'system',
+      action: 'Agent Onboarded',
+      details: `${formData.get('name')} joined${newAgentWorkspace ? ` workspace ${workspaces.find(w => w.id === newAgentWorkspace)?.name}` : ''}.`,
+      type: 'info'
+    });
+    setShowAddAgent(false);
+  };
+
+  const handleApplyTemplate = (template: any) => {
+    applyTemplate(template);
+    setShowTemplates(false);
+  };
+
+  return (
+    <div className="h-full flex flex-col space-y-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 flex-none shrink-0 border-b border-zinc-800 pb-4">
+        <div>
+          <h2 className="text-xs uppercase font-bold tracking-widest text-zinc-500">Workspaces</h2>
+          <p className="text-sm text-zinc-400 mt-1">Organize agents into workspaces with shared settings and folder paths.</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowTemplates(true)}>
+            <Briefcase className="mr-2 h-4 w-4" />
+            Templates
+          </Button>
+          <Button variant="outline" onClick={() => setShowCreateWorkspace(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Create Workspace
+          </Button>
+          <Button onClick={() => setShowAddAgent(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Onboard Agent
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex-1 flex gap-6 overflow-hidden">
+        <div className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden relative group">
+          {agents.length === 0 && workspaces.length === 0 ? (
+            <div className="absolute inset-0 flex items-center justify-center text-zinc-500 text-sm">
+              No agents yet. Create a workspace or use Templates to get started.
+            </div>
+          ) : (
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              onNodeClick={onNodeClick}
+              onNodeDrag={onNodeDrag}
+              onNodeDragStop={onNodeDragStop}
+              onPaneClick={onPaneClick}
+              fitView
+              fitViewOptions={{ padding: 0.2 }}
+              minZoom={0.1}
+              maxZoom={1.5}
+              className="bg-zinc-950"
+            >
+              <Background color="#3f3f46" gap={24} size={1} />
+              <Controls className="!bg-zinc-900 border !border-zinc-800 !fill-white opacity-0 group-hover:opacity-100 transition-opacity" showInteractive={false} />
+            </ReactFlow>
+          )}
+        </div>
+
+        {selectedAgent && (
+          <div className="w-80 border border-zinc-800 rounded-xl bg-zinc-900 flex flex-col shrink-0 overflow-y-auto animate-in slide-in-from-right-4 duration-300">
+            <div className="p-4 border-b border-zinc-800 flex justify-between items-start sticky top-0 bg-zinc-900/90 backdrop-blur-sm z-10">
+              <h3 className="font-semibold text-zinc-100 flex items-center">
+                <div className="h-6 w-6 bg-zinc-800 text-zinc-300 rounded-full flex items-center justify-center font-bold text-xs mr-2">
+                  {selectedAgent.name.substring(0, 2).toUpperCase()}
+                </div>
+                {selectedAgent.name}
+              </h3>
+              <button onClick={() => setSelectedAgentId(null)} className="text-zinc-500 hover:text-white">×</button>
+            </div>
+
+            <div className="p-4 space-y-6">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Model</label>
+                <p className="text-sm text-zinc-300">{selectedAgent.model}</p>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Role</label>
+                <div><Badge variant="outline">{selectedAgent.role}</Badge></div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Workspace</label>
+                  <CustomSelect
+                    value={selectedAgent.workspaceId}
+                    onValueChange={(val: string) => assignAgentToWorkspace(selectedAgent.id, val === '__none__' ? undefined : val)}
+                    placeholder="No workspace"
+                  >
+                    <SelectItem value="__none__">No Workspace</SelectItem>
+                    {workspaces.map(w => (
+                      <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                    ))}
+                  </CustomSelect>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Description</label>
+                <p className="text-sm text-zinc-300">{selectedAgent.description}</p>
+              </div>
+
+              <div className="pt-4 border-t border-zinc-800 space-y-4">
+                <h4 className="font-medium text-zinc-200">Relationships</h4>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Manager (Reports To)</label>
+                  <CustomSelect
+                    value={selectedAgent.parentId || ''}
+                    onValueChange={(val: string) => updateAgent(selectedAgent.id, { parentId: val === 'root' ? undefined : val })}
+                    placeholder="Select a manager"
+                  >
+                    <SelectItem value="root">No Parent (Root Hub)</SelectItem>
+                    {agents.filter(a => a.id !== selectedAgent.id).map(a => (
+                      <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                    ))}
+                  </CustomSelect>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest flex items-center justify-between">
+                    Collaborators
+                  </label>
+                  <MultiSelect
+                    options={agents.filter(a => a.id !== selectedAgent.id).map(a => ({ value: a.id, label: `${a.name} (${a.role})` }))}
+                    value={selectedAgent.collaborators || []}
+                    onChange={(values: string[]) => updateAgent(selectedAgent.id, { collaborators: values })}
+                    placeholder="Select collaborators"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-zinc-800">
+                <Button variant="destructive" className="w-full flex justify-center items-center gap-2 bg-red-950/50 hover:bg-red-900 border border-red-900/50 text-red-200" onClick={() => {
+                  removeAgent(selectedAgent.id);
+                  setSelectedAgentId(null);
+                  addLog({ agentId: 'system', action: 'Agent Removed', details: `${selectedAgent.name} left the company.`, type: 'warning' });
+                }}>
+                  <Trash2 size={16} /> Retire Agent
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showWorkspaceSettings && selectedWorkspace && (
+          <div className="w-80 border border-zinc-800 rounded-xl bg-zinc-900 flex flex-col shrink-0 overflow-y-auto animate-in slide-in-from-right-4 duration-300">
+            <div className="p-4 border-b border-zinc-800 flex justify-between items-start sticky top-0 bg-zinc-900/90 backdrop-blur-sm z-10">
+              <h3 className="font-semibold text-zinc-100 flex items-center">
+                <div className="h-6 w-6 rounded-lg mr-2" style={{ backgroundColor: selectedWorkspace.color }} />
+                {selectedWorkspace.name}
+              </h3>
+              <button onClick={() => setShowWorkspaceSettings(null)} className="text-zinc-500 hover:text-white">×</button>
+            </div>
+
+            <div className="p-4 space-y-6">
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                updateWorkspace(selectedWorkspace.id, {
+                  name: formData.get('name') as string,
+                  description: formData.get('description') as string,
+                  folderPath: settingsFolderPath || undefined
+                });
+                addLog({ agentId: 'system', action: 'Workspace Updated', details: `Updated workspace: ${formData.get('name')}`, type: 'info' });
+              }} className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Name</label>
+                  <Input name="name" defaultValue={selectedWorkspace.name} className="bg-zinc-950" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Description</label>
+                  <Input name="description" defaultValue={selectedWorkspace.description} className="bg-zinc-950" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Working Folder</label>
+                  <FolderPicker
+                    value={settingsFolderPath}
+                    onChange={setSettingsFolderPath}
+                    placeholder="Select a folder..."
+                    className="w-full"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Color</label>
+                  <div className="flex gap-2 flex-wrap">
+                    {WORKSPACE_COLORS.map(color => (
+                      <button
+                        key={color}
+                        type="button"
+                        onClick={() => updateWorkspace(selectedWorkspace.id, { color })}
+                        className={cn("w-7 h-7 rounded-md border-2 transition-all", selectedWorkspace.color === color ? "border-white scale-110" : "border-transparent")}
+                        style={{ backgroundColor: color }}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <Button type="submit" className="w-full">Save Changes</Button>
+              </form>
+
+              <div className="pt-4 border-t border-zinc-800 space-y-4">
+                <h4 className="font-medium text-zinc-200">Agents in this Workspace</h4>
+                {agents.filter(a => a.workspaceId === selectedWorkspace.id).length === 0 ? (
+                  <p className="text-xs text-zinc-500">No agents assigned yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {agents.filter(a => a.workspaceId === selectedWorkspace.id).map(a => (
+                      <div key={a.id} className="flex items-center justify-between p-2 bg-zinc-950 rounded-md border border-zinc-800">
+                        <span className="text-sm text-zinc-300">{a.name}</span>
+                        <button
+                          onClick={() => assignAgentToWorkspace(a.id, undefined)}
+                          className="text-xs text-zinc-500 hover:text-red-400"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-4 border-t border-zinc-800">
+                <Button
+                  variant="destructive"
+                  className="w-full flex justify-center items-center gap-2 bg-red-950/50 hover:bg-red-900 border border-red-900/50 text-red-200"
+                  onClick={() => {
+                    removeWorkspace(selectedWorkspace.id);
+                    setShowWorkspaceSettings(null);
+                    addLog({ agentId: 'system', action: 'Workspace Deleted', details: `Deleted workspace: ${selectedWorkspace.name}`, type: 'warning' });
+                  }}
+                >
+                  <Trash2 size={16} /> Delete Workspace
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {showAddAgent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="absolute inset-0" onClick={() => setShowAddAgent(false)} />
+          <div className="relative w-full max-w-2xl bg-zinc-950 border border-zinc-800 xl:rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-6 border-b border-zinc-800 flex justify-between items-start bg-zinc-900/40 shrink-0">
+              <div>
+                <h3 className="text-xl font-semibold text-zinc-100">Onboard New Agent</h3>
+                <p className="text-sm text-zinc-500 mt-1 mb-0">Configure agent and assign to a workspace.</p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setShowAddAgent(false)} className="rounded-full w-8 h-8 p-0 flex items-center justify-center -mt-2 -mr-2">×</Button>
+            </div>
+
+            <div className="p-6 overflow-y-auto">
+              <form id="add-agent-form" onSubmit={handleAddAgent} className="space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Name</label>
+                    <Input name="name" required placeholder="e.g. CodeLlama Assistant" className="bg-zinc-900 shadow-inner border-zinc-800" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Model / Engine</label>
+                    <Input name="model" required placeholder="e.g. OpenClaw, Codex" className="bg-zinc-900 shadow-inner border-zinc-800" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Role</label>
+                    <CustomSelect value={newAgentRole} onValueChange={setNewAgentRole} placeholder="Select a role">
+                      <SelectItem value="Developer">Developer</SelectItem>
+                      <SelectItem value="Manager">Manager</SelectItem>
+                      <SelectItem value="Reviewer">Reviewer</SelectItem>
+                      <SelectItem value="Analyst">Analyst</SelectItem>
+                      <SelectItem value="Designer">Designer</SelectItem>
+                    </CustomSelect>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Workspace</label>
+                    <CustomSelect value={newAgentWorkspace} onValueChange={setNewAgentWorkspace} placeholder="No workspace">
+                      <SelectItem value="__none__">No Workspace</SelectItem>
+                      {workspaces.map(w => (
+                        <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                      ))}
+                    </CustomSelect>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Manager (Reports To)</label>
+                    <CustomSelect value={newAgentParent} onValueChange={(v) => setNewAgentParent(v === '__root__' ? '' : v)} placeholder="Select a manager">
+                      <SelectItem value="__root__">No Parent (Root Hub)</SelectItem>
+                      {agents.map(a => (
+                        <SelectItem key={a.id} value={a.id}>{a.name} ({a.role})</SelectItem>
+                      ))}
+                    </CustomSelect>
+                  </div>
+                  <div className="space-y-2 sm:col-span-2 text-zinc-300">
+                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Collaborators (Optional)</label>
+                    <MultiSelect
+                      options={agents.map(a => ({ value: a.id, label: `${a.name} (${a.role})` }))}
+                      value={newAgentCollabs}
+                      onChange={setNewAgentCollabs}
+                      placeholder="Select collaborators"
+                    />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Skills (comma separated)</label>
+                    <Input name="skills" required placeholder="React, Node.js, Planning" className="bg-zinc-900 shadow-inner border-zinc-800" />
+                  </div>
+                  <div className="space-y-2 flex flex-col sm:col-span-2">
+                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Description</label>
+                    <textarea
+                      name="description"
+                      required
+                      rows={3}
+                      className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus-visible:outline-none shadow-inner focus-visible:ring-1 focus-visible:ring-indigo-500 focus-visible:border-indigo-500"
+                      placeholder="Agent responsibilities..."
+                    />
+                  </div>
+                </div>
+              </form>
+            </div>
+
+            <div className="p-6 border-t border-zinc-800 bg-zinc-950 flex justify-end gap-3 shrink-0">
+              <Button variant="ghost" type="button" onClick={() => setShowAddAgent(false)}>Cancel</Button>
+              <Button type="submit" form="add-agent-form" className="bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25">Hire Agent</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCreateWorkspace && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="absolute inset-0" onClick={() => setShowCreateWorkspace(false)} />
+          <div className="relative w-full max-w-lg bg-zinc-950 border border-zinc-800 xl:rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-6 border-b border-zinc-800 flex justify-between items-start bg-zinc-900/40 shrink-0">
+              <div>
+                <h3 className="text-xl font-semibold text-zinc-100">Create Workspace</h3>
+                <p className="text-sm text-zinc-500 mt-1 mb-0">A workspace groups agents with shared settings and a working folder.</p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setShowCreateWorkspace(false)} className="rounded-full w-8 h-8 p-0 flex items-center justify-center -mt-2 -mr-2">×</Button>
+            </div>
+
+            <div className="p-6 overflow-y-auto">
+              <form id="create-workspace-form" onSubmit={handleCreateWorkspace} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Name</label>
+                  <Input
+                    value={newWsName}
+                    onChange={e => setNewWsName(e.target.value)}
+                    required
+                    placeholder="e.g. Frontend Team"
+                    className="bg-zinc-900 shadow-inner border-zinc-800"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Description</label>
+                  <Input
+                    value={newWsDescription}
+                    onChange={e => setNewWsDescription(e.target.value)}
+                    placeholder="What does this workspace focus on?"
+                    className="bg-zinc-900 shadow-inner border-zinc-800"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Working Folder</label>
+                  <FolderPicker
+                    value={newWsFolder}
+                    onChange={setNewWsFolder}
+                    placeholder="Select a folder..."
+                    className="w-full"
+                  />
+                  <p className="text-xs text-zinc-500 leading-tight">Agents in this workspace will work within this folder path.</p>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Color</label>
+                  <div className="flex gap-3">
+                    {WORKSPACE_COLORS.map(color => (
+                      <button
+                        key={color}
+                        type="button"
+                        onClick={() => setNewWsColor(color)}
+                        className={cn("w-8 h-8 rounded-lg border-2 transition-all", newWsColor === color ? "border-white scale-110" : "border-transparent hover:scale-105")}
+                        style={{ backgroundColor: color }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </form>
+            </div>
+
+            <div className="p-6 border-t border-zinc-800 bg-zinc-950 flex justify-end gap-3 shrink-0">
+              <Button variant="ghost" type="button" onClick={() => setShowCreateWorkspace(false)}>Cancel</Button>
+              <Button type="submit" form="create-workspace-form" className="bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25">Create Workspace</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTemplates && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="absolute inset-0" onClick={() => setShowTemplates(false)} />
+          <div className="relative w-full max-w-5xl bg-zinc-950 border border-zinc-800 xl:rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="p-6 border-b border-zinc-800 flex justify-between items-start bg-zinc-900/40 shrink-0">
+              <div>
+                <h3 className="text-xl font-semibold text-zinc-100">Ready-Made Teams</h3>
+                <p className="text-sm text-zinc-500 mt-1 mb-0">Instantly deploy a fully configured AI workforce.</p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setShowTemplates(false)} className="rounded-full w-8 h-8 p-0 flex items-center justify-center -mt-2 -mr-2">×</Button>
+            </div>
+
+            <div className="p-6 overflow-y-auto">
+              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                {COMPANY_TEMPLATES.map(template => (
+                  <Card key={template.id} className="flex flex-col bg-zinc-900 border-zinc-800 relative group overflow-hidden">
+                    <div className="absolute inset-0 bg-indigo-500/0 transition-colors duration-300 group-hover:bg-indigo-500/5 pointer-events-none" />
+                    <CardContent className="p-5 flex-1 space-y-4">
+                      <div className="flex items-start gap-4">
+                        <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 shadow-inner flex items-center justify-center text-indigo-400 shrink-0">
+                          <Briefcase className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h3 className="text-base font-semibold text-zinc-100">{template.name}</h3>
+                          <p className="text-xs text-zinc-400 leading-relaxed mt-1 line-clamp-2">{template.description}</p>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-zinc-800/50">
+                        <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2 flex items-center gap-1">
+                          <UsersIcon size={12} /> Team Composition
+                        </h4>
+                        <div className="flex flex-col gap-1.5 pl-1 border-l-2 border-zinc-800">
+                          {template.agents.map((agent, i) => (
+                            <div key={i} className="flex justify-between items-center pl-2">
+                              <span className="text-xs text-zinc-300 font-medium">{agent.name}</span>
+                              <span className="text-[10px] text-zinc-500">{agent.role}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </CardContent>
+                    <div className="p-5 pt-0 mt-auto">
+                      <Button
+                        className="w-full bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600 hover:text-white transition-all shadow-none group-hover:shadow-[0_0_15px_rgba(79,70,229,0.3)]"
+                        onClick={() => handleApplyTemplate(template)}
+                      >
+                        Deploy {template.name}
+                      </Button>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

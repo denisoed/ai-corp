@@ -2,6 +2,25 @@ export type AgentRole = 'Manager' | 'Developer' | 'Analyst' | 'Reviewer' | 'Desi
 
 export type AgentStatus = 'Idle' | 'Working' | 'Blocked' | 'Error' | 'Offline';
 
+export interface WorkspaceSettings {
+  autoApproveCheapTasks?: boolean;
+  maxParallelTasks?: number;
+  allowedRepos?: string[];
+  envVars?: Record<string, string>;
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  description: string;
+  folderPath?: string;
+  settings?: WorkspaceSettings;
+  agentIds: string[];
+  color?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Agent {
   id: string;
   name: string;
@@ -13,6 +32,7 @@ export interface Agent {
   skills: string[];
   parentId?: string;
   collaborators?: string[];
+  workspaceId?: string;
   telegramConfig?: {
     botToken: string;
     status: 'disconnected' | 'running' | 'error';
