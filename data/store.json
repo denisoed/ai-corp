@@ -15,7 +15,8 @@
         "botToken": "8681255478:AAFmCTv8_5l-Ci68vaXrFHi71qdYhWuY7Xc",
         "lastChatId": 430385670
       },
-      "workspaceId": "8bbe205c-7a44-4c7b-ba32-ee24629f3081"
+      "workspaceId": "8bbe205c-7a44-4c7b-ba32-ee24629f3081",
+      "collaborators": []
     },
     {
       "name": "Alpha PM",
@@ -99,7 +100,7 @@
     {
       "name": "SaltaCRM",
       "description": "",
-      "color": "#6366f1",
+      "color": "#f97316",
       "id": "8bbe205c-7a44-4c7b-ba32-ee24629f3081",
       "agentIds": [
         "1ac13c32-258c-4f65-b794-3ab5ceec7abc",
@@ -110,7 +111,7 @@
         "13117a26-f0f5-4463-a17e-33ded09bbae5"
       ],
       "createdAt": "2026-04-26T10:26:35.405Z",
-      "updatedAt": "2026-04-26T10:49:24.889Z",
+      "updatedAt": "2026-04-26T13:19:58.835Z",
       "folderPath": "/Users/denis/PROJECTS/salta-crm"
     }
   ],
@@ -239,6 +240,134 @@
     }
   ],
   "logs": [
+    {
+      "agentId": "system",
+      "action": "Workspace Updated",
+      "details": "Updated workspace: SaltaCRM",
+      "type": "info",
+      "id": "8b6ab78b-6638-4d1d-8b1a-c1a00af7c415",
+      "timestamp": "2026-04-26T13:19:58.836Z"
+    },
+    {
+      "agentId": "system",
+      "action": "Workspace Updated",
+      "details": "Updated workspace: SaltaCRM",
+      "type": "info",
+      "id": "16c1b106-d337-4c92-a5c3-2fd55d16154f",
+      "timestamp": "2026-04-26T13:19:58.667Z"
+    },
+    {
+      "agentId": "system",
+      "action": "Workspace Updated",
+      "details": "Updated workspace: SaltaCRM",
+      "type": "info",
+      "id": "bedaee24-1974-450c-9545-64304e83c3fb",
+      "timestamp": "2026-04-26T13:19:58.492Z"
+    },
+    {
+      "agentId": "system",
+      "action": "Workspace Updated",
+      "details": "Updated workspace: SaltaCRM",
+      "type": "info",
+      "id": "ff0bd906-2057-453c-b722-ed797784a087",
+      "timestamp": "2026-04-26T13:19:58.359Z"
+    },
+    {
+      "agentId": "system",
+      "action": "Workspace Updated",
+      "details": "Updated workspace: SaltaCRM",
+      "type": "info",
+      "id": "171fd85e-dc26-4a48-abae-d9361872d8da",
+      "timestamp": "2026-04-26T13:19:56.382Z"
+    },
+    {
+      "id": "22a71b9f-56b8-4601-b173-5f6a73d1b254",
+      "timestamp": "2026-04-26T13:08:04.390Z",
+      "agentId": "1ac13c32-258c-4f65-b794-3ab5ceec7abc",
+      "action": "Agent Updated",
+      "details": "Updated Иванов.",
+      "type": "info"
+    },
+    {
+      "id": "03056c50-6611-4e5a-95b3-a473409222e9",
+      "timestamp": "2026-04-26T13:07:59.272Z",
+      "agentId": "system",
+      "action": "Telegram Message Received",
+      "details": "CEO Bot received a message: \"Поменяй агенту Иванов роль и должность на продукт менеджера\"",
+      "type": "info"
+    },
+    {
+      "id": "f322a5d3-d79d-437b-a9f4-f74be25f281f",
+      "timestamp": "2026-04-26T13:07:27.195Z",
+      "agentId": "system",
+      "action": "Telegram Message Received",
+      "details": "CEO Bot received a message: \"Поменяй ему роль и должность на продукт менеджера\"",
+      "type": "info"
+    },
+    {
+      "id": "ab2f68b2-50a3-4abf-98c8-9551ad6842d5",
+      "timestamp": "2026-04-26T13:06:55.890Z",
+      "agentId": "system",
+      "action": "Telegram Message Received",
+      "details": "CEO Bot received a message: \"Об Иванове\"",
+      "type": "info"
+    },
+    {
+      "id": "11a8a40b-80d3-4517-b80f-163e8bf79307",
+      "timestamp": "2026-04-26T13:06:32.785Z",
+      "agentId": "system",
+      "action": "Telegram Message Received",
+      "details": "CEO Bot received a message: \"Нужно уточнить его должность, чтобы не путать\"",
+      "type": "info"
+    },
+    {
+      "id": "ed19fda6-79bc-4ebc-bd93-f956a6bf9836",
+      "timestamp": "2026-04-26T13:05:59.704Z",
+      "agentId": "system",
+      "action": "Telegram Message Received",
+      "details": "CEO Bot received a message: \"Тогда Иванов это продукт менеджер?\"",
+      "type": "info"
+    },
+    {
+      "id": "d4567116-6a38-408c-823e-19e5db6ba802",
+      "timestamp": "2026-04-26T13:04:38.176Z",
+      "agentId": "system",
+      "action": "Telegram Message Received",
+      "details": "CEO Bot received a message: \"Чем отличаются Alpha PM и Иванов?\"",
+      "type": "info"
+    },
+    {
+      "id": "2fc0b3e1-26e8-4dd6-bf64-5b395955ceeb",
+      "timestamp": "2026-04-26T13:03:51.868Z",
+      "agentId": "system",
+      "action": "Telegram Message Received",
+      "details": "CEO Bot received a message: \"Есть агент для ресерча?\"",
+      "type": "info"
+    },
+    {
+      "id": "1d13c826-2ab2-4525-8521-aefdf0efc124",
+      "timestamp": "2026-04-26T12:55:44.533Z",
+      "agentId": "system",
+      "action": "Telegram Message Received",
+      "details": "CEO Bot received a message: \"Какие команды у тебя есть?\"",
+      "type": "info"
+    },
+    {
+      "id": "81118b26-6d60-4567-a5a7-6e3035de5ace",
+      "timestamp": "2026-04-26T12:54:38.553Z",
+      "agentId": "system",
+      "action": "Telegram Message Received",
+      "details": "CEO Bot received a message: \"покажи текущее состояние команды\"",
+      "type": "info"
+    },
+    {
+      "id": "a87f0e23-790f-49c2-b8b5-cee5a1f396d4",
+      "timestamp": "2026-04-26T12:54:23.420Z",
+      "agentId": "system",
+      "action": "Telegram Message Received",
+      "details": "CEO Bot received a message: \"Привет\"",
+      "type": "info"
+    },
     {
       "agentId": "system",
       "action": "Workspace Updated",

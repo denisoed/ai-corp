@@ -6,13 +6,14 @@ import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Input } from '../ui/Input';
 import { FolderPicker } from '../ui/FolderPicker';
-import { Plus, Briefcase, Users as UsersIcon, Trash2, X } from 'lucide-react';
+import { Plus, Briefcase, Users as UsersIcon, Trash2, X, User, Link2, MessageCircle, Shield, AlertTriangle, FolderKanban } from 'lucide-react';
 import { COMPANY_TEMPLATES } from '../../lib/templates';
 import { ReactFlow, Background, Controls, Node, Edge, useNodesState, useEdgesState } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { AgentNode } from './AgentNode';
 import { CustomSelect, SelectItem } from '../ui/CustomSelect';
 import { MultiSelect } from '../ui/MultiSelect';
+import { Tabs, TabPanel } from '../ui/Tabs';
 import { cn } from '../../lib/utils';
 
 const WORKSPACE_COLORS = [
@@ -118,6 +119,8 @@ export function WorkspacesList() {
   const [settingsFolderPath, setSettingsFolderPath] = useState('');
   const [newAgentCollabs, setNewAgentCollabs] = useState<string[]>([]);
   const [newAgentWorkspace, setNewAgentWorkspace] = useState('');
+  const [activeAgentTab, setActiveAgentTab] = useState('info');
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('settings');
 
   const [newWsName, setNewWsName] = useState('');
   const [newWsDescription, setNewWsDescription] = useState('');
@@ -196,6 +199,8 @@ export function WorkspacesList() {
     let rowMaxH = 0;
     const MAX_ROW_W = 4000;
 
+    const wsLayoutData: Array<{ wsId: string; name: string; color: string; width: number; height: number; agents: any[]; x: number; y: number }> = [];
+
     allWsLayouts.forEach((layout, i) => {
       if (i > 0 && flowX + layout.width > MAX_ROW_W) {
         flowX = 60;
@@ -203,18 +208,36 @@ export function WorkspacesList() {
         rowMaxH = 0;
       }
 
+      wsLayoutData.push({
+        wsId: layout.wsId,
+        name: layout.name,
+        color: layout.color,
+        width: layout.width,
+        height: layout.height,
+        agents: layout.agents,
+        x: flowX,
+        y: flowY
+      });
+
+      flowX += layout.width + WS_GAP;
+      rowMaxH = Math.max(rowMaxH, layout.height);
+    });
+
+    wsLayoutData.forEach(layout => {
       nodes.push({
         id: `ws-${layout.wsId}`,
         type: 'workspaceGroup',
-        position: { x: flowX, y: flowY },
+        position: { x: layout.x, y: layout.y },
         draggable: true,
+        zIndex: 0,
         data: {
           workspaceId: layout.wsId,
           name: layout.name,
           color: layout.color,
-          agentCount: layout.agentCount,
+          agentCount: layout.agents.length,
           width: layout.width,
           height: layout.height,
+          zIndex: 0
         }
       });
 
@@ -222,13 +245,12 @@ export function WorkspacesList() {
         nodes.push({
           id: a.id,
           type: 'agent',
-          position: { x: flowX + a.relX, y: flowY + a.relY },
+          position: { x: layout.x + a.relX, y: layout.y + a.relY },
+          draggable: true,
+          zIndex: 1,
           data: { ...a.data, selected: selectedAgentId === a.id, workspaceColor: layout.color }
         });
       });
-
-      flowX += layout.width + WS_GAP;
-      rowMaxH = Math.max(rowMaxH, layout.height);
     });
 
     if (unassignedAgents.length > 0) {
@@ -240,13 +262,15 @@ export function WorkspacesList() {
         type: 'workspaceGroup',
         position: { x: 60, y: unassignedY },
         draggable: true,
+        zIndex: 0,
         data: {
           workspaceId: '__unassigned',
           name: 'Unassigned',
           color: '#52525b',
-          agentCount: layout.agentCount,
+          agentCount: layout.agents.length,
           width: layout.width,
           height: layout.height,
+          zIndex: 0
         }
       });
 
@@ -255,6 +279,8 @@ export function WorkspacesList() {
           id: a.id,
           type: 'agent',
           position: { x: 60 + a.relX, y: unassignedY + a.relY },
+          draggable: true,
+          zIndex: 1,
           data: { ...a.data, selected: selectedAgentId === a.id, workspaceColor: '#52525b' }
         });
       });
@@ -628,64 +654,201 @@ export function WorkspacesList() {
               <button onClick={() => setSelectedAgentId(null)} className="text-zinc-500 hover:text-white">×</button>
             </div>
 
-            <div className="p-4 space-y-6">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Model</label>
-                <p className="text-sm text-zinc-300">{selectedAgent.model}</p>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Role</label>
-                <div><Badge variant="outline">{selectedAgent.role}</Badge></div>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Workspace</label>
-                  <CustomSelect
-                    value={selectedAgent.workspaceId}
-                    onValueChange={(val: string) => assignAgentToWorkspace(selectedAgent.id, val === '__none__' ? undefined : val)}
-                    placeholder="No workspace"
-                  >
-                    <SelectItem value="__none__">No Workspace</SelectItem>
-                    {workspaces.map(w => (
-                      <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
-                    ))}
-                  </CustomSelect>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Description</label>
-                <p className="text-sm text-zinc-300">{selectedAgent.description}</p>
-              </div>
+            <Tabs
+              tabs={[
+                { id: 'info', label: 'Info', icon: <User size={14} /> },
+                { id: 'relationships', label: 'Team', icon: <Link2 size={14} /> },
+                { id: 'telegram', label: 'Telegram', icon: <MessageCircle size={14} /> },
+                { id: 'access', label: 'Access', icon: <Shield size={14} /> },
+              ]}
+              activeTab={activeAgentTab}
+              onTabChange={setActiveAgentTab}
+              className="px-4"
+            />
 
-              <div className="pt-4 border-t border-zinc-800 space-y-4">
-                <h4 className="font-medium text-zinc-200">Relationships</h4>
-
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Manager (Reports To)</label>
-                  <CustomSelect
-                    value={selectedAgent.parentId || ''}
-                    onValueChange={(val: string) => updateAgent(selectedAgent.id, { parentId: val === 'root' ? undefined : val })}
-                    placeholder="Select a manager"
-                  >
-                    <SelectItem value="root">No Parent (Root Hub)</SelectItem>
-                    {agents.filter(a => a.id !== selectedAgent.id).map(a => (
-                      <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
-                    ))}
-                  </CustomSelect>
+            <div className="p-4 flex-1 overflow-y-auto">
+              <TabPanel id="info" activeTab={activeAgentTab} className="space-y-4">
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Name</label>
+                    <Input
+                      value={selectedAgent.name}
+                      onChange={(e) => updateAgent(selectedAgent.id, { name: e.target.value })}
+                      className="bg-zinc-950"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Model</label>
+                    <Input
+                      value={selectedAgent.model}
+                      onChange={(e) => updateAgent(selectedAgent.id, { model: e.target.value })}
+                      className="bg-zinc-950"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Role</label>
+                    <CustomSelect
+                      value={selectedAgent.role}
+                      onValueChange={(val) => updateAgent(selectedAgent.id, { role: val })}
+                    >
+                      <SelectItem value="Developer">Developer</SelectItem>
+                      <SelectItem value="Manager">Manager</SelectItem>
+                      <SelectItem value="Reviewer">Reviewer</SelectItem>
+                      <SelectItem value="Analyst">Analyst</SelectItem>
+                      <SelectItem value="Designer">Designer</SelectItem>
+                    </CustomSelect>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Description</label>
+                    <Input
+                      value={selectedAgent.description}
+                      onChange={(e) => updateAgent(selectedAgent.id, { description: e.target.value })}
+                      className="bg-zinc-950"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Workspace</label>
+                    <CustomSelect
+                      value={selectedAgent.workspaceId || ''}
+                      onValueChange={(val) => assignAgentToWorkspace(selectedAgent.id, val === '__none__' ? undefined : val)}
+                      placeholder="No workspace"
+                    >
+                      <SelectItem value="__none__">No Workspace</SelectItem>
+                      {workspaces.map(w => (
+                        <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                      ))}
+                    </CustomSelect>
+                  </div>
                 </div>
+              </TabPanel>
 
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest flex items-center justify-between">
-                    Collaborators
-                  </label>
-                  <MultiSelect
-                    options={agents.filter(a => a.id !== selectedAgent.id).map(a => ({ value: a.id, label: `${a.name} (${a.role})` }))}
-                    value={selectedAgent.collaborators || []}
-                    onChange={(values: string[]) => updateAgent(selectedAgent.id, { collaborators: values })}
-                    placeholder="Select collaborators"
-                  />
+              <TabPanel id="relationships" activeTab={activeAgentTab} className="space-y-4">
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Manager (Reports To)</label>
+                    <CustomSelect
+                      value={selectedAgent.parentId || ''}
+                      onValueChange={(val) => updateAgent(selectedAgent.id, { parentId: val === 'root' ? undefined : val })}
+                      placeholder="Select a manager"
+                    >
+                      <SelectItem value="root">No Parent (Root Hub)</SelectItem>
+                      {agents.filter(a => a.id !== selectedAgent.id).map(a => (
+                        <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                      ))}
+                    </CustomSelect>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Collaborators</label>
+                    <MultiSelect
+                      options={agents.filter(a => a.id !== selectedAgent.id).map(a => ({ value: a.id, label: `${a.name} (${a.role})` }))}
+                      value={selectedAgent.collaborators || []}
+                      onChange={(values) => updateAgent(selectedAgent.id, { collaborators: values })}
+                      placeholder="Select collaborators"
+                    />
+                    <p className="text-xs text-zinc-500 mt-1">These agents exchange context horizontally.</p>
+                  </div>
                 </div>
-              </div>
+              </TabPanel>
 
-              <div className="pt-4 border-t border-zinc-800">
+              <TabPanel id="telegram" activeTab={activeAgentTab} className="space-y-4">
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Bot Token</label>
+                    <Input
+                      type="password"
+                      placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+                      value={selectedAgent.telegramConfig?.botToken || ''}
+                      onChange={(e) => {
+                        updateAgent(selectedAgent.id, {
+                          telegramConfig: {
+                            ...(selectedAgent.telegramConfig || { status: 'disconnected' }),
+                            botToken: e.target.value,
+                            status: e.target.value ? (selectedAgent.telegramConfig?.status || 'disconnected') : 'disconnected'
+                          }
+                        });
+                      }}
+                      className="bg-zinc-950 font-mono text-xs"
+                    />
+                  </div>
+                  <p className="text-xs text-zinc-500 leading-tight">Create a bot in @BotFather, paste the token here, and you can chat with {selectedAgent.name} directly from Telegram.</p>
+
+                  {selectedAgent.telegramConfig?.botToken && (
+                    <div className="flex flex-col gap-2 bg-zinc-950 p-3 rounded-md border border-zinc-800">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-xs">
+                          <div className={`w-2 h-2 rounded-full ${selectedAgent.telegramConfig.status === 'running' ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : selectedAgent.telegramConfig.status === 'error' ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 'bg-zinc-600'}`}></div>
+                          <span className="text-zinc-300 font-medium capitalize">{selectedAgent.telegramConfig.status}</span>
+                        </div>
+                        {selectedAgent.telegramConfig.lastError && (
+                          <span className="text-[10px] text-red-400 truncate max-w-[120px]" title={selectedAgent.telegramConfig.lastError}>
+                            {selectedAgent.telegramConfig.lastError}
+                          </span>
+                        )}
+                      </div>
+
+                      {selectedAgent.telegramConfig.status === 'running' && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full text-xs h-7"
+                          onClick={async () => {
+                            if (selectedAgent.telegramConfig?.lastChatId) {
+                              try {
+                                await fetch(`https://api.telegram.org/bot${selectedAgent.telegramConfig.botToken}/sendMessage`, {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    chat_id: selectedAgent.telegramConfig.lastChatId,
+                                    text: `Hello! I am ${selectedAgent.name}, your AI agent. Connection is working normally.`
+                                  })
+                                });
+                                addLog({ agentId: 'system', action: 'Telegram Test', details: 'Sent test message to Telegram.', type: 'success' });
+                              } catch (e: any) {
+                                addLog({ agentId: 'system', action: 'Telegram Test Failed', details: e.message, type: 'error' });
+                              }
+                            } else {
+                              addLog({ agentId: 'system', action: 'Telegram Setup', details: 'Please send me a message in Telegram first so I know your chat ID.', type: 'warning' });
+                            }
+                          }}
+                        >
+                          Send Test Message
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </TabPanel>
+
+              <TabPanel id="access" activeTab={activeAgentTab} className="space-y-4">
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Allowed Paths</label>
+                    <Input
+                      placeholder="/path/to/allowed"
+                      value={selectedAgent.allowedPaths?.join(', ') || ''}
+                      onChange={(e) => updateAgent(selectedAgent.id, {
+                        allowedPaths: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
+                      })}
+                      className="bg-zinc-950"
+                    />
+                    <p className="text-xs text-zinc-500">Comma-separated paths where agent can operate.</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Forbidden Paths</label>
+                    <Input
+                      placeholder="/path/to/forbidden"
+                      value={selectedAgent.forbiddenPaths?.join(', ') || ''}
+                      onChange={(e) => updateAgent(selectedAgent.id, {
+                        forbiddenPaths: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
+                      })}
+                      className="bg-zinc-950"
+                    />
+                    <p className="text-xs text-zinc-500">Comma-separated paths where agent cannot operate.</p>
+                  </div>
+                </div>
+              </TabPanel>
+
+              <div className="pt-4 border-t border-zinc-800 mt-4">
                 <Button variant="destructive" className="w-full flex justify-center items-center gap-2 bg-red-950/50 hover:bg-red-900 border border-red-900/50 text-red-200" onClick={() => {
                   removeAgent(selectedAgent.id);
                   setSelectedAgentId(null);
@@ -708,52 +871,66 @@ export function WorkspacesList() {
               <button onClick={() => setShowWorkspaceSettings(null)} className="text-zinc-500 hover:text-white">×</button>
             </div>
 
-            <div className="p-4 space-y-6">
-              <form onSubmit={(e) => {
-                e.preventDefault();
-                const formData = new FormData(e.currentTarget);
-                updateWorkspace(selectedWorkspace.id, {
-                  name: formData.get('name') as string,
-                  description: formData.get('description') as string,
-                  folderPath: settingsFolderPath || undefined
-                });
-                addLog({ agentId: 'system', action: 'Workspace Updated', details: `Updated workspace: ${formData.get('name')}`, type: 'info' });
-              }} className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Name</label>
-                  <Input name="name" defaultValue={selectedWorkspace.name} className="bg-zinc-950" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Description</label>
-                  <Input name="description" defaultValue={selectedWorkspace.description} className="bg-zinc-950" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Working Folder</label>
-                  <FolderPicker
-                    value={settingsFolderPath}
-                    onChange={setSettingsFolderPath}
-                    placeholder="Select a folder..."
-                    className="w-full"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Color</label>
-                  <div className="flex gap-2 flex-wrap">
-                    {WORKSPACE_COLORS.map(color => (
-                      <button
-                        key={color}
-                        type="button"
-                        onClick={() => updateWorkspace(selectedWorkspace.id, { color })}
-                        className={cn("w-7 h-7 rounded-md border-2 transition-all", selectedWorkspace.color === color ? "border-white scale-110" : "border-transparent")}
-                        style={{ backgroundColor: color }}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <Button type="submit" className="w-full">Save Changes</Button>
-              </form>
+            <Tabs
+              tabs={[
+                { id: 'settings', label: 'Settings', icon: <FolderKanban size={14} /> },
+                { id: 'agents', label: 'Agents', icon: <UsersIcon size={14} /> },
+              ]}
+              activeTab={activeWorkspaceTab}
+              onTabChange={setActiveWorkspaceTab}
+              className="px-4"
+            />
 
-              <div className="pt-4 border-t border-zinc-800 space-y-4">
+            <div className="p-4 flex-1 overflow-y-auto">
+              <TabPanel id="settings" activeTab={activeWorkspaceTab} className="space-y-4">
+                <form onSubmit={(e) => {
+                  e.preventDefault();
+                  const formData = new FormData(e.currentTarget);
+                  updateWorkspace(selectedWorkspace.id, {
+                    name: formData.get('name') as string,
+                    description: formData.get('description') as string,
+                    folderPath: settingsFolderPath || undefined
+                  });
+                  addLog({ agentId: 'system', action: 'Workspace Updated', details: `Updated workspace: ${formData.get('name')}`, type: 'info' });
+                }} className="space-y-4">
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Name</label>
+                      <Input name="name" defaultValue={selectedWorkspace.name} className="bg-zinc-950" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Description</label>
+                      <Input name="description" defaultValue={selectedWorkspace.description} className="bg-zinc-950" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Working Folder</label>
+                      <FolderPicker
+                        value={settingsFolderPath}
+                        onChange={setSettingsFolderPath}
+                        placeholder="Select a folder..."
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Color</label>
+                      <div className="flex gap-2 flex-wrap">
+                        {WORKSPACE_COLORS.map(color => (
+                          <button
+                            key={color}
+                            type="button"
+                            onClick={() => updateWorkspace(selectedWorkspace.id, { color })}
+                            className={cn("w-7 h-7 rounded-md border-2 transition-all", selectedWorkspace.color === color ? "border-white scale-110" : "border-transparent")}
+                            style={{ backgroundColor: color }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <Button type="submit" className="w-full">Save Changes</Button>
+                </form>
+              </TabPanel>
+
+              <TabPanel id="agents" activeTab={activeWorkspaceTab} className="space-y-4">
                 <h4 className="font-medium text-zinc-200">Agents in this Workspace</h4>
                 {agents.filter(a => a.workspaceId === selectedWorkspace.id).length === 0 ? (
                   <p className="text-xs text-zinc-500">No agents assigned yet.</p>
@@ -772,9 +949,9 @@ export function WorkspacesList() {
                     ))}
                   </div>
                 )}
-              </div>
+              </TabPanel>
 
-              <div className="pt-4 border-t border-zinc-800">
+              <div className="pt-4 border-t border-zinc-800 mt-4">
                 <Button
                   variant="destructive"
                   className="w-full flex justify-center items-center gap-2 bg-red-950/50 hover:bg-red-900 border border-red-900/50 text-red-200"
