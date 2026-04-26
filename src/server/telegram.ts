@@ -1,6 +1,7 @@
 import { mutateStore, getStore } from './store';
 import { Agent, Task, TaskRisk, TaskPriority, TaskStatus, AgentStatus, Comment } from '../types';
 import { OpenCodeChatSession } from './opencode';
+import { loadMemory, getMemoryContext, createMemory, appendMessage } from './agent-memory';
 
 const TELEGRAM_API = 'https://api.telegram.org/bot';
 
@@ -169,13 +170,27 @@ async function handleIncomingMessage(agentId: string, token: string, message: an
       body: JSON.stringify({ chat_id: chatId, action: 'typing' })
     });
 
-    const systemInstruction = `You are ${agentInfo.name}, an AI Agent in a company. Your role is ${agentInfo.role}. 
+    const store = getStore();
+    const workspace = agentInfo.workspaceId
+      ? store.workspaces.find(w => w.id === agentInfo.workspaceId)
+      : undefined;
+
+    let memory = loadMemory(agentId);
+    if (!memory) {
+      memory = createMemory(agentInfo, workspace);
+    }
+
+    const memoryContext = getMemoryContext(agentId);
+
+    const systemInstruction = `You are ${agentInfo.name}, an AI Agent in a company. Your role is ${agentInfo.role}.
 Description: ${agentInfo.description}
 Skills: ${agentInfo.skills.join(', ')}
 
-You are communicating with the user/boss via Telegram. 
+You are communicating with the user/boss via Telegram.
 Help them manage the company, answer questions, or use your tools to perform actions like creating tasks, moving tasks on the board, assigning tasks, updating agents, generating reports, etc.
-Be concise, professional, and act in-character!`;
+Be concise, professional, and act in-character!
+
+${memoryContext ? `CONTEXT FROM YOUR MEMORY:\n${memoryContext}` : ''}`;
 
     const chatSession = new OpenCodeChatSession(systemInstruction);
     let response = await chatSession.sendMessage(text);
@@ -198,6 +213,9 @@ Be concise, professional, and act in-character!`;
     if (!finalReply) {
       finalReply = 'Task executed successfully.';
     }
+
+    await appendMessage(agentId, { role: 'user', content: text, source: 'telegram' });
+    await appendMessage(agentId, { role: 'assistant', content: finalReply, source: 'telegram' });
 
     const res = await fetch(`${TELEGRAM_API}${token}/sendMessage`, {
       method: 'POST',

@@ -100,6 +100,29 @@ export interface Task {
   subtasks: SubTask[];
 }
 
+export interface MemoryMessage {
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: string;
+  timestamp: string;
+  source?: 'telegram' | 'api' | 'orchestrator' | 'system';
+}
+
+export interface AgentMemory {
+  agentId: string;
+  agentName: string;
+  workspaceId?: string;
+  workspaceName?: string;
+  workspaceFolder?: string;
+  summary: string;
+  keyFacts: string[];
+  activeTasks: { title: string; status: string }[];
+  recentMessages: MemoryMessage[];
+  lastSummarizedAt?: string;
+  totalMessages: number;
+  totalSessions: number;
+  createdAt: string;
+}
+
 export interface Log {
   id: string;
   timestamp: string;

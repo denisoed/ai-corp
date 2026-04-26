@@ -5,12 +5,14 @@ import apiRouter from './api';
 import { loadStore } from './store';
 import { startTelegramManager } from './telegram';
 import { startOrchestrator } from './orchestrator';
+import { initMemorySystem } from './agent-memory';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Load persisted state
+// Initialize storage systems
 loadStore();
+initMemorySystem();
 
 // Start background services
 startTelegramManager();

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getStore, mutateStore } from './store';
+import { createMemory, loadMemory, getMemoryContext, clearMemory } from './agent-memory';
 
 const router = Router();
 
@@ -90,25 +91,38 @@ router.post('/agents', (req, res) => {
   mutateStore(s => {
     s.agents.push(agent);
   });
+
+  const store = getStore();
+  const workspace = agent.workspaceId
+    ? store.workspaces.find(w => w.id === agent.workspaceId)
+    : undefined;
+  createMemory(agent, workspace);
+
   res.json(agent);
 });
 
 router.patch('/agents/:id', (req, res) => {
+  const store = getStore();
+  const agent = store.agents.find(a => a.id === req.params.id);
+  const oldWorkspaceId = agent?.workspaceId;
+  const newWorkspaceId = req.body.workspaceId;
+  const workspaceChanged = newWorkspaceId !== undefined && newWorkspaceId !== oldWorkspaceId;
+
   mutateStore(s => {
     const idx = s.agents.findIndex(a => a.id === req.params.id);
     if (idx !== -1) {
-      const oldWorkspaceId = s.agents[idx].workspaceId;
-      const newWorkspaceId = req.body.workspaceId;
+      const oldWsId = s.agents[idx].workspaceId;
+      const newWsId = req.body.workspaceId;
 
-      if (newWorkspaceId !== undefined && newWorkspaceId !== oldWorkspaceId) {
-        if (oldWorkspaceId) {
-          const oldWsIdx = s.workspaces.findIndex(w => w.id === oldWorkspaceId);
+      if (newWsId !== undefined && newWsId !== oldWsId) {
+        if (oldWsId) {
+          const oldWsIdx = s.workspaces.findIndex(w => w.id === oldWsId);
           if (oldWsIdx !== -1) {
             s.workspaces[oldWsIdx].agentIds = s.workspaces[oldWsIdx].agentIds.filter(id => id !== req.params.id);
           }
         }
-        if (newWorkspaceId) {
-          const newWsIdx = s.workspaces.findIndex(w => w.id === newWorkspaceId);
+        if (newWsId) {
+          const newWsIdx = s.workspaces.findIndex(w => w.id === newWsId);
           if (newWsIdx !== -1 && !s.workspaces[newWsIdx].agentIds.includes(req.params.id)) {
             s.workspaces[newWsIdx].agentIds.push(req.params.id);
           }
@@ -118,6 +132,19 @@ router.patch('/agents/:id', (req, res) => {
       s.agents[idx] = { ...s.agents[idx], ...req.body };
     }
   });
+
+  if (workspaceChanged) {
+    clearMemory(req.params.id);
+    const updatedStore = getStore();
+    const updatedAgent = updatedStore.agents.find(a => a.id === req.params.id);
+    const workspace = newWorkspaceId
+      ? updatedStore.workspaces.find(w => w.id === newWorkspaceId)
+      : undefined;
+    if (updatedAgent) {
+      createMemory(updatedAgent, workspace);
+    }
+  }
+
   const updated = getStore().agents.find(a => a.id === req.params.id);
   res.json(updated);
 });
@@ -126,7 +153,21 @@ router.delete('/agents/:id', (req, res) => {
   mutateStore(s => {
     s.agents = s.agents.filter(a => a.id !== req.params.id);
   });
+  clearMemory(req.params.id);
   res.json({ success: true });
+});
+
+router.get('/agents/:id/memory', (req, res) => {
+  const memory = loadMemory(req.params.id);
+  if (!memory) return res.status(404).json({ error: 'No memory found for this agent' });
+  res.json(memory);
+});
+
+router.get('/agents/:id/memory/context', (req, res) => {
+  const context = getMemoryContext(req.params.id);
+  if (!context) return res.status(404).json({ error: 'No memory context found for this agent' });
+  res.type('text/markdown');
+  res.send(context);
 });
 
 router.post('/tasks', (req, res) => {
@@ -283,6 +324,14 @@ router.post('/templates/apply', (req, res) => {
     }];
     s.isAutopilot = true;
   });
+
+  const storeAfter = getStore();
+  for (const agent of storeAfter.agents) {
+    const ws = agent.workspaceId
+      ? storeAfter.workspaces.find(w => w.id === agent.workspaceId)
+      : undefined;
+    createMemory(agent, ws);
+  }
 
   res.json(getStore());
 });

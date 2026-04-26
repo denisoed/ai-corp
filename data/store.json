@@ -94,6 +94,20 @@
       "parentId": "1ac13c32-258c-4f65-b794-3ab5ceec7abc",
       "status": "Idle",
       "workspaceId": "8bbe205c-7a44-4c7b-ba32-ee24629f3081"
+    },
+    {
+      "name": "Jane Smith Bobber",
+      "model": "OpenClw",
+      "role": "Developer",
+      "parentId": "1ac13c32-258c-4f65-b794-3ab5ceec7abc",
+      "status": "Idle",
+      "description": "sdsdf",
+      "skills": [
+        "3333"
+      ],
+      "collaborators": [],
+      "workspaceId": "8bbe205c-7a44-4c7b-ba32-ee24629f3081",
+      "id": "d37e2f8b-f54c-43fd-ae98-98e5b8df5b5e"
     }
   ],
   "workspaces": [
@@ -111,7 +125,7 @@
         "13117a26-f0f5-4463-a17e-33ded09bbae5"
       ],
       "createdAt": "2026-04-26T10:26:35.405Z",
-      "updatedAt": "2026-04-26T13:19:58.835Z",
+      "updatedAt": "2026-04-26T14:24:12.004Z",
       "folderPath": "/Users/denis/PROJECTS/salta-crm"
     }
   ],
@@ -240,6 +254,46 @@
     }
   ],
   "logs": [
+    {
+      "agentId": "system",
+      "action": "Agent Onboarded",
+      "details": "Jane Smith Bobber joined workspace SaltaCRM.",
+      "type": "info",
+      "id": "a91088d4-c0a2-42b2-af1e-d25a4f655e98",
+      "timestamp": "2026-04-26T15:45:52.766Z"
+    },
+    {
+      "agentId": "system",
+      "action": "Workspace Updated",
+      "details": "Updated workspace: SaltaCRM",
+      "type": "info",
+      "id": "7bd90ce2-1864-4e74-bf90-d3e561c2ce1d",
+      "timestamp": "2026-04-26T14:24:12.006Z"
+    },
+    {
+      "agentId": "system",
+      "action": "Workspace Updated",
+      "details": "Updated workspace: SaltaCRM",
+      "type": "info",
+      "id": "d2307d2e-ec45-43e9-87c3-586adb94adb0",
+      "timestamp": "2026-04-26T14:24:09.284Z"
+    },
+    {
+      "id": "97ccce2b-344c-40ff-9616-63e58088779d",
+      "timestamp": "2026-04-26T14:21:13.642Z",
+      "agentId": "system",
+      "action": "Autopilot Disabled",
+      "details": "System set to manual mode.",
+      "type": "info"
+    },
+    {
+      "id": "557d6a4b-e4a3-41b1-8bdc-0246d78831bd",
+      "timestamp": "2026-04-26T14:21:11.813Z",
+      "agentId": "system",
+      "action": "Autopilot Engaged",
+      "details": "AI Orchestration engine has taken over.",
+      "type": "info"
+    },
     {
       "agentId": "system",
       "action": "Workspace Updated",
