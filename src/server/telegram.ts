@@ -2,25 +2,36 @@ import { mutateStore, getStore } from './store';
 import { Agent, Task, TaskRisk, TaskPriority, TaskStatus, AgentStatus, Comment } from '../types';
 import { OpenCodeChatSession } from './opencode';
 import { loadMemory, createMemory, appendMessage, buildSystemPrompt, writePersonalityFile } from './agent-memory';
+import { marked, Renderer } from 'marked';
+import type { Tokens } from 'marked';
 
 const TELEGRAM_API = 'https://api.telegram.org/bot';
 
 const TELEGRAM_FORMATTING_RULES = `# TELEGRAM FORMATTING RULES — Must follow strictly
 
-You are responding via Telegram messenger. Follow these formatting rules:
+You are responding via Telegram messenger. Use standard Markdown. The system will convert it automatically.
 
-- Use Telegram Markdown formatting (legacy).
-- For bold use *single asterisks* like *bold text* (NOT **double**).
-- For italic use _underscores_ like _italic text_.
-- For inline code use backticks like \`code\`.
-- For pre-formatted code blocks use triple backticks like \`\`\`code\`\`\`.
-- For links use [text](URL).
-- NEVER use tables or table-like structures (no |---| grids, no ASCII tables).
-- NEVER use headers (#), HTML tags, or strikethrough (~~).
-- For lists, use simple bullet points with "-" or "•" and numbered lists with "1.", "2.", etc.
-- Structure your response with line breaks and blank lines between sections — not with visual dividers.
-- Keep responses concise. Telegram is a chat app, not a document.
-- Use short paragraphs (1-3 sentences), bullet lists, and numbers to organize information.`;
+Supported formatting:
+- **bold** or __bold__
+- _italic_ or *italic*
+- \`inline code\`
+- \`\`\` code blocks \`\`\`
+- [links](URL)
+- - bullet lists
+- 1. numbered lists
+
+NOT supported (will be removed):
+- Headers (#, ##, etc.)
+- Tables (|--|)
+- Images
+- HTML tags/entities
+- Strikethrough
+
+Rules:
+- Use "- " or "• " for bullet list items. Each item must start at the BEGINNING of a new line.
+- NEVER use indentation alone as a list marker — always include the "-" or "1." prefix.
+- Keep responses concise (1-3 sentences per paragraph).
+- Use short paragraphs, bullet lists, and numbers to organize information.`;
 
 interface BotState {
   token: string;
@@ -31,29 +42,96 @@ interface BotState {
 
 const runningBots: Map<string, BotState> = new Map();
 
-function normalizeTelegramMarkdown(text: string): string {
-  const codes: string[] = [];
-  let result = text;
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
-  // Protect inline code blocks
-  result = result.replace(/`[^`]+`/g, (match) => {
-    codes.push(match);
-    return `\x00${codes.length - 1}\x00`;
-  });
+function fixIndentedLists(text: string): string {
+  const lines = text.split('\n');
+  const result: string[] = [];
+  let inCodeBlock = false;
 
-  // Protect multiline code blocks
-  result = result.replace(/```[\s\S]*?```/g, (match) => {
-    codes.push(match);
-    return `\x00${codes.length - 1}\x00`;
-  });
+  for (const line of lines) {
+    const trimmed = line.trimStart();
 
-  // Convert **bold** to *bold* for Telegram legacy Markdown
-  result = result.replace(/\*\*(.+?)\*\*/g, '*$1*');
+    if (trimmed.startsWith('```')) {
+      inCodeBlock = !inCodeBlock;
+      result.push(line);
+      continue;
+    }
 
-  // Restore protected blocks
-  result = result.replace(/\x00(\d+)\x00/g, (_, index) => codes[Number(index)]);
+    if (inCodeBlock) {
+      result.push(line);
+      continue;
+    }
 
-  return result;
+    if (/^\s{2,}\S/.test(line) && !/^\s*[-•*+\d]/.test(line)) {
+      result.push('- ' + line.trim());
+    } else {
+      result.push(line);
+    }
+  }
+
+  return result.join('\n');
+}
+
+// Telegram HTML supports: <b>, <i>, <u>, <s>, <code>, <pre>, <a>, <tg-spoiler>.
+// Lists must be plain "- item" / "1. item" lines (Telegram renders them natively).
+class TelegramRenderer extends Renderer {
+  paragraph({ tokens }: Tokens.Paragraph): string {
+    return this.parser.parseInline(tokens) + '\n\n';
+  }
+  strong({ tokens }: Tokens.Strong): string {
+    return `<b>${this.parser.parseInline(tokens)}</b>`;
+  }
+  em({ tokens }: Tokens.Em): string {
+    return `<i>${this.parser.parseInline(tokens)}</i>`;
+  }
+  codespan({ text }: Tokens.Codespan): string {
+    return `<code>${escapeHtml(text)}</code>`;
+  }
+  code({ text }: Tokens.Code): string {
+    return `<pre>${escapeHtml(text)}</pre>\n\n`;
+  }
+  link({ href, tokens }: Tokens.Link): string {
+    return `<a href="${href}">${this.parser.parseInline(tokens)}</a>`;
+  }
+  list({ items, ordered, start }: Tokens.List): string {
+    const startNum = typeof start === 'number' ? start : 1;
+    return items.map((item, i) => {
+      const content = item.tokens ? this.parser.parseInline(item.tokens) : item.text;
+      const prefix = ordered ? `${startNum + i}.` : '-';
+      return `${prefix} ${content}\n`;
+    }).join('') + '\n';
+  }
+  listitem({ text, tokens }: Tokens.ListItem): string {
+    const content = tokens ? this.parser.parseInline(tokens) : text;
+    return `- ${content}\n`;
+  }
+  heading({ tokens }: Tokens.Heading): string {
+    return `<b>${this.parser.parseInline(tokens)}</b>\n\n`;
+  }
+  blockquote({ tokens }: Tokens.Blockquote): string {
+    return this.parser.parse(tokens);
+  }
+  del({ tokens }: Tokens.Del): string {
+    return this.parser.parseInline(tokens);
+  }
+  image(): string { return ''; }
+  hr(): string { return ''; }
+  table(): string { return ''; }
+  html(): string { return ''; }
+  br(): string { return '\n'; }
+  checkbox(): string { return ''; }
+  space(): string { return ''; }
+}
+
+marked.setOptions({ renderer: new TelegramRenderer() });
+
+function markdownToTelegramHtml(text: string): string {
+  const fixed = fixIndentedLists(text);
+  const html = marked.parse(fixed, { async: false }) as string;
+  return html.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 export function startTelegramManager() {
@@ -255,12 +333,12 @@ async function handleIncomingMessage(agentId: string, token: string, message: an
     await appendMessage(agentId, { role: 'user', content: text, source: 'telegram' });
     await appendMessage(agentId, { role: 'assistant', content: finalReply, source: 'telegram' });
 
-    const telegramText = normalizeTelegramMarkdown(finalReply);
+    const telegramText = markdownToTelegramHtml(finalReply);
 
     const res = await fetch(`${TELEGRAM_API}${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: telegramText, parse_mode: 'Markdown' })
+      body: JSON.stringify({ chat_id: chatId, text: telegramText, parse_mode: 'HTML' })
     });
 
     if (!res.ok) {
@@ -330,6 +408,7 @@ async function executeTool(name: string, args: any, executingAgentId: string, to
       s.agents.push({
         id: newAgentId,
         name: args.name,
+        slug: args.slug || args.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
         role: args.role as any,
         skills: args.skills || [],
         parentId,
@@ -730,7 +809,7 @@ async function executeTool(name: string, args: any, executingAgentId: string, to
 
     for (const agent of botsWithTokens) {
       try {
-        const broadcastText = normalizeTelegramMarkdown(
+        const broadcastText = markdownToTelegramHtml(
           `📢 Broadcast from ${state.agents.find(a => a.id === executingAgentId)?.name || 'Admin'}:\n\n${args.message}`
         );
         await fetch(`${TELEGRAM_API}${agent.telegramConfig!.botToken}/sendMessage`, {
@@ -739,7 +818,7 @@ async function executeTool(name: string, args: any, executingAgentId: string, to
           body: JSON.stringify({
             chat_id: agent.telegramConfig!.lastChatId,
             text: broadcastText,
-            parse_mode: 'Markdown'
+            parse_mode: 'HTML'
           })
         });
         sent++;

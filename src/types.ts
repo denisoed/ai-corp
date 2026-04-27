@@ -12,6 +12,7 @@ export interface WorkspaceSettings {
 export interface Workspace {
   id: string;
   name: string;
+  slug: string;
   description: string;
   folderPath?: string;
   settings?: WorkspaceSettings;
@@ -24,6 +25,7 @@ export interface Workspace {
 export interface Agent {
   id: string;
   name: string;
+  slug: string;
   model?: string; 
   role?: AgentRole;
   status: AgentStatus;
@@ -133,11 +135,11 @@ export interface Log {
 
 export interface AgentTemplate {
   name: string;
+  slug?: string;
   model?: string;
   role?: AgentRole;
   description?: string;
   skills: string[];
-  parentIndex?: number;
 }
 
 export interface TaskTemplate {
@@ -146,7 +148,6 @@ export interface TaskTemplate {
   status: TaskStatus;
   priority: TaskPriority;
   tags: string[];
-  assigneeIndex?: number;
   subtasks?: string[];
 }
 
@@ -156,4 +157,36 @@ export interface CompanyTemplate {
   description: string;
   agents: AgentTemplate[];
   tasks: TaskTemplate[];
+}
+
+export interface WorkspaceAgentDef {
+  name: string;
+  slug: string;
+  role?: AgentRole;
+  skills?: string[];
+  description?: string;
+  parent?: string;
+  collaborators?: string[];
+  role_doc?: string;
+  identity?: string;
+  soul?: string;
+}
+
+export interface WorkspaceTaskDef {
+  title: string;
+  description?: string;
+  status?: TaskStatus;
+  priority?: TaskPriority;
+  assignee?: string;
+  subtasks?: string[];
+  tags?: string[];
+}
+
+export interface WorkspaceDefinition {
+  workspace: {
+    slug: string;
+    description?: string;
+  };
+  agents?: WorkspaceAgentDef[];
+  tasks?: WorkspaceTaskDef[];
 }

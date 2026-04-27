@@ -3,9 +3,10 @@ import path from 'path';
 import os from 'os';
 import { Agent, Workspace, AgentMemory, MemoryMessage } from '../types';
 import { summarizeAgentMemory } from './opencode';
+import { getStore } from './store';
 
 const AICORP_DIR = path.join(os.homedir(), '.aicorp');
-const AGENTS_DIR = path.join(AICORP_DIR, 'agents');
+const WORKSPACES_DIR = path.join(AICORP_DIR, 'workspaces');
 
 const MAX_RECENT_MESSAGES = 30;
 const SUMMARIZE_THRESHOLD = 30;
@@ -16,13 +17,18 @@ export function ensureDir(dir: string) {
 }
 
 export function initMemorySystem(): void {
-  ensureDir(AICORP_DIR);
-  ensureDir(AGENTS_DIR);
-  console.log(`[Memory] System initialized at ${AICORP_DIR}`);
+  ensureDir(WORKSPACES_DIR);
+  console.log(`[Memory] System initialized at ${WORKSPACES_DIR}`);
 }
 
 export function getAgentDir(agentId: string): string {
-  return path.join(AGENTS_DIR, agentId);
+  const agent = getStore().agents.find(a => a.id === agentId);
+  const ws = agent?.workspaceId
+    ? getStore().workspaces.find(w => w.id === agent.workspaceId)
+    : undefined;
+  const wsSlug = ws?.slug || 'orphans';
+  const agentSlug = agent?.slug || agentId;
+  return path.join(WORKSPACES_DIR, wsSlug, 'agents', agentSlug);
 }
 
 function memoryJsonPath(agentId: string): string {

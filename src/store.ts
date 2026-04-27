@@ -66,6 +66,7 @@ interface AppState {
   resolveApproval: (id: string, approved: boolean) => Promise<void>;
 
   applyTemplate: (template: CompanyTemplate) => Promise<void>;
+  initWorkspaceFromYml: (folderPath: string) => Promise<void>;
   toggleAutopilot: () => Promise<void>;
 }
 
@@ -197,6 +198,16 @@ export const useStore = create<AppState>((set, get) => ({
       tasks: result.tasks,
       logs: result.logs,
       isAutopilot: result.isAutopilot
+    });
+  },
+
+  initWorkspaceFromYml: async (folderPath) => {
+    const result = await apiPost('/workspaces/init', { folderPath });
+    set({
+      agents: result.agents,
+      workspaces: result.workspaces,
+      tasks: result.tasks,
+      logs: result.logs
     });
   },
 

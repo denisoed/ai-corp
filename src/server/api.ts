@@ -1,8 +1,16 @@
 import { Router } from 'express';
 import { getStore, mutateStore } from './store';
 import { createMemory, loadMemory, getMemoryContext, clearMemory, readPersonalityFile, writePersonalityFile, getAllPersonalityFiles } from './agent-memory';
+import yaml from 'js-yaml';
+import fs from 'fs';
+import path from 'path';
+import { WorkspaceDefinition } from '../types';
 
 const router = Router();
+
+function generateSlug(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
 
 router.get('/state', (req, res) => {
   res.json(getStore());
@@ -12,6 +20,7 @@ router.post('/workspaces', (req, res) => {
   const workspace = {
     ...req.body,
     id: crypto.randomUUID(),
+    slug: req.body.slug || generateSlug(req.body.name),
     agentIds: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -103,7 +112,7 @@ router.post('/agents', (req, res) => {
     return res.status(400).json({ error: `Workspace ${agentData.workspaceId} not found` });
   }
 
-  const agent = { ...agentData, id: crypto.randomUUID() };
+  const agent = { ...agentData, id: crypto.randomUUID(), slug: agentData.slug || generateSlug(agentData.name) };
   mutateStore(s => {
     s.agents.push(agent);
     const ws = s.workspaces.find(w => w.id === agent.workspaceId);
@@ -333,7 +342,8 @@ router.post('/templates/apply', (req, res) => {
     const newAgents = template.agents.map((a: any, i: number) => ({
       ...a,
       id: newAgentIds[i],
-      parentId: a.parentIndex !== undefined ? newAgentIds[a.parentIndex] : undefined,
+      slug: a.slug || generateSlug(a.name),
+      parentId: undefined,
       status: 'Idle' as const,
       workspaceId
     }));
@@ -347,7 +357,7 @@ router.post('/templates/apply', (req, res) => {
       risk: 'medium' as const,
       cost: 0,
       tags: t.tags,
-      assigneeId: t.assigneeIndex !== undefined ? newAgentIds[t.assigneeIndex] : undefined,
+      assigneeId: undefined,
       creatorId: 'system',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -445,6 +455,123 @@ router.put('/agents/:id/personality/:filename', (req, res) => {
   } catch (e) {
     res.status(500).json({ error: 'Failed to write personality file' });
   }
+});
+
+router.post('/workspaces/init', (req, res) => {
+  const { folderPath } = req.body;
+  if (!folderPath) {
+    return res.status(400).json({ error: 'folderPath is required' });
+  }
+
+  const ymlPath = path.join(folderPath, '.aicorp.yml');
+  if (!fs.existsSync(ymlPath)) {
+    return res.status(404).json({ error: `.aicorp.yml not found in ${folderPath}` });
+  }
+
+  let def: WorkspaceDefinition;
+  try {
+    const raw = fs.readFileSync(ymlPath, 'utf8');
+    def = yaml.load(raw) as WorkspaceDefinition;
+  } catch (e: any) {
+    return res.status(400).json({ error: `Failed to parse .aicorp.yml: ${e.message}` });
+  }
+
+  if (!def.workspace?.slug) {
+    return res.status(400).json({ error: 'workspace.slug is required in .aicorp.yml' });
+  }
+
+  const existing = getStore().workspaces.find(w => w.slug === def.workspace.slug);
+  if (existing) {
+    return res.status(409).json({ error: `Workspace with slug "${def.workspace.slug}" already exists` });
+  }
+
+  const wsId = crypto.randomUUID();
+  const agentIds: string[] = [];
+  const slugToId = new Map<string, string>();
+
+  // Create agent IDs and slug→id mapping
+  for (const a of def.agents || []) {
+    const id = crypto.randomUUID();
+    slugToId.set(a.slug, id);
+    agentIds.push(id);
+  }
+
+  mutateStore(s => {
+    const ws = {
+      id: wsId,
+      name: def.workspace.slug,
+      slug: def.workspace.slug,
+      description: def.workspace.description || '',
+      folderPath,
+      agentIds,
+      color: '#6366f1',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    s.workspaces.push(ws);
+
+    for (const a of def.agents || []) {
+      const agentId = slugToId.get(a.slug)!;
+      s.agents.push({
+        id: agentId,
+        name: a.name,
+        slug: a.slug,
+        role: a.role,
+        skills: a.skills || [],
+        description: a.description || '',
+        parentId: a.parent ? slugToId.get(a.parent) : undefined,
+        collaborators: (a.collaborators || []).map(s => slugToId.get(s)).filter(Boolean) as string[],
+        status: 'Idle',
+        workspaceId: wsId
+      });
+    }
+
+    if (def.tasks) {
+      for (const t of def.tasks) {
+        s.tasks.push({
+          id: crypto.randomUUID(),
+          title: t.title,
+          description: t.description || '',
+          status: t.status || 'Backlog',
+          priority: t.priority || 'Medium',
+          risk: 'medium',
+          cost: 0,
+          assigneeId: t.assignee ? slugToId.get(t.assignee) : undefined,
+          creatorId: 'system',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          comments: [],
+          tags: t.tags || [],
+          subtasks: (t.subtasks || []).map(st => ({ id: crypto.randomUUID(), title: st, completed: false }))
+        });
+      }
+    }
+
+    s.logs.unshift({
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      agentId: 'system',
+      action: 'Workspace Initialized from .aicorp.yml',
+      details: `Initialized "${def.workspace.slug}" with ${def.agents?.length || 0} agents from ${folderPath}`,
+      type: 'success'
+    });
+    if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
+  });
+
+  // Create memory and personality files
+  const storeAfter = getStore();
+  const ws = storeAfter.workspaces.find(w => w.id === wsId)!;
+  for (const a of storeAfter.agents.filter(a => a.workspaceId === wsId)) {
+    createMemory(a, ws);
+    const defAgent = def.agents?.find(d => d.slug === a.slug);
+    if (defAgent) {
+      if (defAgent.soul) writePersonalityFile(a.id, 'SOUL.md', defAgent.soul);
+      if (defAgent.identity) writePersonalityFile(a.id, 'IDENTITY.md', defAgent.identity);
+      if (defAgent.role_doc) writePersonalityFile(a.id, 'ROLE.md', defAgent.role_doc);
+    }
+  }
+
+  res.json(getStore());
 });
 
 export default router;

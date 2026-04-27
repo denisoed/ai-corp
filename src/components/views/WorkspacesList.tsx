@@ -108,12 +108,15 @@ function computeTree(wsAgents: any[], rootId: string) {
 }
 
 export function WorkspacesList() {
-  const { agents, workspaces, addAgent, removeAgent, updateAgent, addWorkspace, updateWorkspace, removeWorkspace, assignAgentToWorkspace, applyTemplate, addLog } = useStore();
+  const { agents, workspaces, addAgent, removeAgent, updateAgent, addWorkspace, updateWorkspace, removeWorkspace, assignAgentToWorkspace, applyTemplate, initWorkspaceFromYml, addLog } = useStore();
   const [showAddAgent, setShowAddAgent] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
+  const [showInitYml, setShowInitYml] = useState(false);
+  const [initYmlFolder, setInitYmlFolder] = useState('');
   const [showWorkspaceSettings, setShowWorkspaceSettings] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [newAgentSlug, setNewAgentSlug] = useState('');
   const [newAgentParent, setNewAgentParent] = useState('');
   const [settingsFolderPath, setSettingsFolderPath] = useState('');
   const [newAgentCollabs, setNewAgentCollabs] = useState<string[]>([]);
@@ -133,6 +136,7 @@ export function WorkspacesList() {
   const [newWsDescription, setNewWsDescription] = useState('');
   const [newWsFolder, setNewWsFolder] = useState('');
   const [newWsColor, setNewWsColor] = useState(DEFAULT_COLOR);
+  const [newWsSlug, setNewWsSlug] = useState('');
 
   useEffect(() => {
     if (selectedAgentId) {
@@ -592,11 +596,23 @@ export function WorkspacesList() {
     setShowWorkspaceSettings(null);
   }, []);
 
+  const handleInitYml = async () => {
+    if (!initYmlFolder) return;
+    try {
+      await initWorkspaceFromYml(initYmlFolder);
+      setShowInitYml(false);
+      setInitYmlFolder('');
+    } catch (e: any) {
+      alert(e?.message || 'Failed to init from .aicorp.yml');
+    }
+  };
+
   const handleCreateWorkspace = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newWsName.trim()) return;
     addWorkspace({
       name: newWsName,
+      slug: newWsSlug || newWsName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
       description: newWsDescription,
       folderPath: newWsFolder || undefined,
       color: newWsColor
@@ -606,6 +622,7 @@ export function WorkspacesList() {
     setNewWsDescription('');
     setNewWsFolder('');
     setNewWsColor(DEFAULT_COLOR);
+    setNewWsSlug('');
     setShowCreateWorkspace(false);
   };
 
@@ -614,6 +631,7 @@ export function WorkspacesList() {
     const formData = new FormData(e.currentTarget);
     addAgent({
       name: formData.get('name') as string,
+      slug: (formData.get('slug') as string) || (formData.get('name') as string).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
       parentId: newAgentParent || undefined,
       status: 'Idle',
       skills: (formData.get('skills') as string).split(',').map(s => s.trim()).filter(Boolean),
@@ -632,6 +650,7 @@ export function WorkspacesList() {
     setNewAgentSoul('');
     setNewAgentIdentity('');
     setNewAgentRoleDoc('');
+    setNewAgentSlug('');
     setShowAddAgent(false);
   };
 
@@ -648,6 +667,10 @@ export function WorkspacesList() {
           <p className="text-sm text-zinc-400 mt-1">Organize agents into workspaces with shared settings and folder paths.</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowInitYml(true)}>
+            <FileText className="mr-2 h-4 w-4" />
+            Init from .aicorp.yml
+          </Button>
           <Button variant="outline" onClick={() => setShowTemplates(true)}>
             <Briefcase className="mr-2 h-4 w-4" />
             Templates
@@ -1015,7 +1038,7 @@ export function WorkspacesList() {
 
       {showAddAgent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="absolute inset-0" onClick={() => { setShowAddAgent(false); setNewAgentSoul(''); setNewAgentIdentity(''); setNewAgentRoleDoc(''); }} />
+          <div className="absolute inset-0" onClick={() => { setShowAddAgent(false); setNewAgentSoul(''); setNewAgentIdentity(''); setNewAgentRoleDoc(''); setNewAgentSlug(''); }} />
           <div className="relative w-full max-w-2xl bg-zinc-950 border border-zinc-800 xl:rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-6 border-b border-zinc-800 flex justify-between items-start bg-zinc-900/40 shrink-0">
               <div>
@@ -1036,6 +1059,10 @@ export function WorkspacesList() {
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Name</label>
                     <Input name="name" required placeholder="e.g. CodeLlama Assistant" className="bg-zinc-900 shadow-inner border-zinc-800" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Slug</label>
+                    <Input name="slug" placeholder="e.g. code-llama (auto-generated from name if empty)" className="bg-zinc-900 shadow-inner border-zinc-800 font-mono text-sm" />
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Workspace</label>
@@ -1091,7 +1118,7 @@ export function WorkspacesList() {
             </div>
 
             <div className="p-6 border-t border-zinc-800 bg-zinc-950 flex justify-end gap-3 shrink-0">
-              <Button variant="ghost" type="button" onClick={() => { setShowAddAgent(false); setNewAgentSoul(''); setNewAgentIdentity(''); setNewAgentRoleDoc(''); }}>Cancel</Button>
+              <Button variant="ghost" type="button" onClick={() => { setShowAddAgent(false); setNewAgentSoul(''); setNewAgentIdentity(''); setNewAgentRoleDoc(''); setNewAgentSlug(''); }}>Cancel</Button>
               <Button type="submit" form="add-agent-form" className="bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25">Hire Agent</Button>
             </div>
           </div>
@@ -1100,7 +1127,7 @@ export function WorkspacesList() {
 
       {showCreateWorkspace && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="absolute inset-0" onClick={() => setShowCreateWorkspace(false)} />
+          <div className="absolute inset-0" onClick={() => { setShowCreateWorkspace(false); setNewWsSlug(''); setNewWsColor(DEFAULT_COLOR); }} />
           <div className="relative w-full max-w-lg bg-zinc-950 border border-zinc-800 xl:rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-6 border-b border-zinc-800 flex justify-between items-start bg-zinc-900/40 shrink-0">
               <div>
@@ -1120,6 +1147,15 @@ export function WorkspacesList() {
                     required
                     placeholder="e.g. Frontend Team"
                     className="bg-zinc-900 shadow-inner border-zinc-800"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Slug</label>
+                  <Input
+                    value={newWsSlug}
+                    onChange={e => setNewWsSlug(e.target.value)}
+                    placeholder="e.g. frontend-team (auto-generated from name if empty)"
+                    className="bg-zinc-900 shadow-inner border-zinc-800 font-mono text-sm"
                   />
                 </div>
                 <div className="space-y-2">
@@ -1159,8 +1195,43 @@ export function WorkspacesList() {
             </div>
 
             <div className="p-6 border-t border-zinc-800 bg-zinc-950 flex justify-end gap-3 shrink-0">
-              <Button variant="ghost" type="button" onClick={() => setShowCreateWorkspace(false)}>Cancel</Button>
+              <Button variant="ghost" type="button" onClick={() => { setShowCreateWorkspace(false); setNewWsSlug(''); }}>Cancel</Button>
               <Button type="submit" form="create-workspace-form" className="bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25">Create Workspace</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showInitYml && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="absolute inset-0" onClick={() => { setShowInitYml(false); setInitYmlFolder(''); }} />
+          <div className="relative w-full max-w-lg bg-zinc-950 border border-zinc-800 xl:rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-6 border-b border-zinc-800 flex justify-between items-start bg-zinc-900/40 shrink-0">
+              <div>
+                <h3 className="text-xl font-semibold text-zinc-100">Init from .aicorp.yml</h3>
+                <p className="text-sm text-zinc-500 mt-1 mb-0">Select a folder containing an .aicorp.yml file to initialize a workspace with agents, connections, and tasks.</p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => { setShowInitYml(false); setInitYmlFolder(''); }} className="rounded-full w-8 h-8 p-0 flex items-center justify-center -mt-2 -mr-2">×</Button>
+            </div>
+
+            <div className="p-6 overflow-y-auto">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Project Folder</label>
+                  <FolderPicker
+                    value={initYmlFolder}
+                    onChange={setInitYmlFolder}
+                    placeholder="Select folder with .aicorp.yml..."
+                    className="w-full"
+                  />
+                  <p className="text-xs text-zinc-500 leading-tight">The folder must contain a valid .aicorp.yml file. All agents will work within this folder.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-zinc-800 bg-zinc-950 flex justify-end gap-3 shrink-0">
+              <Button variant="ghost" type="button" onClick={() => { setShowInitYml(false); setInitYmlFolder(''); }}>Cancel</Button>
+              <Button onClick={handleInitYml} disabled={!initYmlFolder} className="bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25">Initialize</Button>
             </div>
           </div>
         </div>

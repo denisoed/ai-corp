@@ -1,9 +1,10 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { Agent, Task, Log, ApprovalRequest, Workspace } from '../types';
 
 
-const DATA_DIR = path.join(process.cwd(), 'data');
+const DATA_DIR = path.join(os.homedir(), '.aicorp');
 const DATA_FILE = path.join(DATA_DIR, 'store.json');
 
 interface StoreData {
@@ -55,6 +56,7 @@ export function loadStore() {
         const fallbackWorkspace: Workspace = {
           id: crypto.randomUUID(),
           name: 'Fallback Workspace',
+          slug: 'fallback',
           description: 'Auto-created workspace for legacy agents',
           folderPath: process.cwd(),
           agentIds: orphanAgents.map(a => a.id),
