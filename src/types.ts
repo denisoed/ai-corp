@@ -140,6 +140,11 @@ export interface AgentTemplate {
   role?: AgentRole;
   description?: string;
   skills: string[];
+  parentSlug?: string;
+  collaborators?: string[];
+  identity?: string;
+  soul?: string;
+  role_doc?: string;
 }
 
 export interface TaskTemplate {
@@ -149,6 +154,7 @@ export interface TaskTemplate {
   priority: TaskPriority;
   tags: string[];
   subtasks?: string[];
+  assigneeSlug?: string;
 }
 
 export interface CompanyTemplate {
@@ -170,6 +176,22 @@ export interface WorkspaceAgentDef {
   role_doc?: string;
   identity?: string;
   soul?: string;
+}
+
+export interface CronJob {
+  id: string;
+  name: string;
+  description?: string;
+  agentId: string;
+  workspaceId: string;
+  schedule: string;
+  prompt: string;
+  enabled: boolean;
+  lastRunAt?: string;
+  lastResult?: string;
+  lastStatus?: 'success' | 'error' | 'running';
+  createdAt: string;
+  updatedAt?: string;
 }
 
 export interface WorkspaceTaskDef {

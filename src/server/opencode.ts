@@ -380,6 +380,82 @@ export const companyTools = [
         required: ['agentName']
       }
     }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'create_cron',
+      description: 'Create a scheduled cron job for an agent. The agent will execute the prompt on the given schedule using its AI capabilities and tools.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          name: { type: 'string' as const, description: 'Name of the cron job' },
+          agentName: { type: 'string' as const, description: 'Name of the agent who will execute this cron job' },
+          schedule: { type: 'string' as const, description: 'Cron expression. Examples: "*/30 * * * *" (every 30 min), "0 */6 * * *" (every 6 hours), "0 9 * * 1" (every Monday at 9am), "0 0 * * *" (daily at midnight)' },
+          prompt: { type: 'string' as const, description: 'Natural language instruction for the agent. What should it do when the cron fires?' },
+          description: { type: 'string' as const, description: 'Optional. Description of what this cron job does.' }
+        },
+        required: ['name', 'agentName', 'schedule', 'prompt']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'list_crons',
+      description: 'List all cron jobs in the current workspace, with their statuses and last run results.',
+      parameters: {
+        type: 'object' as const,
+        properties: {},
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'delete_cron',
+      description: 'Delete a cron job by name.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          cronName: { type: 'string' as const, description: 'Name of the cron job to delete' }
+        },
+        required: ['cronName']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'update_cron',
+      description: 'Update a cron job — change its schedule, prompt, enable/disable it.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          cronName: { type: 'string' as const, description: 'Name of the cron job to update' },
+          schedule: { type: 'string' as const, description: 'Optional. New cron expression' },
+          prompt: { type: 'string' as const, description: 'Optional. New instruction for the agent' },
+          enabled: { type: 'boolean' as const, description: 'Optional. Enable or disable the cron job' },
+          description: { type: 'string' as const, description: 'Optional. New description' }
+        },
+        required: ['cronName']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'run_cron_now',
+      description: 'Manually trigger a cron job to run immediately (for testing or ad-hoc execution).',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          cronName: { type: 'string' as const, description: 'Name of the cron job to run now' }
+        },
+        required: ['cronName']
+      }
+    }
   }
 ];
 

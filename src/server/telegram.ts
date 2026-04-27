@@ -382,7 +382,7 @@ function logAction(action: string, details: string, type: 'info' | 'success' | '
   });
 }
 
-async function executeTool(name: string, args: any, executingAgentId: string, token?: string): Promise<any> {
+export async function executeTool(name: string, args: any, executingAgentId: string, token?: string): Promise<any> {
   const state = getStore();
   const now = new Date().toISOString();
 
@@ -887,6 +887,90 @@ async function executeTool(name: string, args: any, executingAgentId: string, to
 
     logAction('Personality Updated', `Updated ${updated.join(', ')} for ${agent.name}.`, 'success', executingAgentId);
     return { success: true, message: `Updated ${updated.join(', ')} for ${agent.name}.` };
+  }
+
+  // --- CREATE CRON ---
+  if (name === 'create_cron') {
+    const agent = findAgent(args.agentName);
+    if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+
+    const cronModule = await import('./cron');
+    const job = cronModule.createCronJob({
+      name: args.name,
+      description: args.description,
+      agentId: agent.id,
+      workspaceId: executingAgent.workspaceId!,
+      schedule: args.schedule,
+      prompt: args.prompt,
+      enabled: true,
+    });
+
+    logAction('Cron Created', `Created cron "${args.name}" for ${agent.name} (${args.schedule}).`, 'success', executingAgentId);
+    return { success: true, message: `Cron job "${args.name}" created for ${agent.name} with schedule "${args.schedule}".`, job };
+  }
+
+  // --- LIST CRONS ---
+  if (name === 'list_crons') {
+    const cronModule = await import('./cron');
+    const jobs = cronModule.listCronJobs(executingAgent.workspaceId);
+    return {
+      count: jobs.length,
+      crons: jobs.map(j => ({
+        id: j.id,
+        name: j.name,
+        agentName: state.agents.find(a => a.id === j.agentId)?.name || 'unknown',
+        schedule: j.schedule,
+        enabled: j.enabled,
+        lastStatus: j.lastStatus,
+        lastRunAt: j.lastRunAt,
+        lastResult: j.lastResult,
+      }))
+    };
+  }
+
+  // --- DELETE CRON ---
+  if (name === 'delete_cron') {
+    const cronModule = await import('./cron');
+    const all = cronModule.listCronJobs(executingAgent.workspaceId);
+    const job = all.find(j => j.name.toLowerCase().includes(args.cronName.toLowerCase()));
+    if (!job) return { success: false, error: `Cron "${args.cronName}" not found in your workspace.` };
+
+    cronModule.deleteCronJob(job.id);
+    logAction('Cron Deleted', `Deleted cron "${job.name}".`, 'warning', executingAgentId);
+    return { success: true, message: `Cron job "${job.name}" deleted.` };
+  }
+
+  // --- UPDATE CRON ---
+  if (name === 'update_cron') {
+    const cronModule = await import('./cron');
+    const all = cronModule.listCronJobs(executingAgent.workspaceId);
+    const job = all.find(j => j.name.toLowerCase().includes(args.cronName.toLowerCase()));
+    if (!job) return { success: false, error: `Cron "${args.cronName}" not found in your workspace.` };
+
+    const updates: any = {};
+    if (args.schedule !== undefined) updates.schedule = args.schedule;
+    if (args.prompt !== undefined) updates.prompt = args.prompt;
+    if (args.enabled !== undefined) updates.enabled = args.enabled;
+    if (args.description !== undefined) updates.description = args.description;
+
+    const updated = cronModule.updateCronJob(job.id, updates);
+    logAction('Cron Updated', `Updated cron "${job.name}".`, 'info', executingAgentId);
+    return { success: true, message: `Cron job "${job.name}" updated.`, job: updated };
+  }
+
+  // --- RUN CRON NOW ---
+  if (name === 'run_cron_now') {
+    const cronModule = await import('./cron');
+    const all = cronModule.listCronJobs(executingAgent.workspaceId);
+    const job = all.find(j => j.name.toLowerCase().includes(args.cronName.toLowerCase()));
+    if (!job) return { success: false, error: `Cron "${args.cronName}" not found in your workspace.` };
+
+    const result = await cronModule.runCronNow(job.id);
+    if (result.success) {
+      logAction('Cron Run Manually', `Manually triggered cron "${job.name}".`, 'info', executingAgentId);
+      return { success: true, message: `Cron "${job.name}" executed successfully.` };
+    }
+    return { success: false, error: result.error };
   }
 
   return { success: false, error: 'Unknown tool' };

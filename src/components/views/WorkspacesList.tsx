@@ -6,7 +6,7 @@ import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Input } from '../ui/Input';
 import { FolderPicker } from '../ui/FolderPicker';
-import { Plus, Briefcase, Users as UsersIcon, Trash2, X, User, Link2, MessageCircle, AlertTriangle, FolderKanban, FileText, Pencil, Check } from 'lucide-react';
+import { Plus, Briefcase, Users as UsersIcon, Trash2, X, User, Link2, MessageCircle, AlertTriangle, FolderKanban, FileText, Pencil, Check, Clock, Play, RotateCw } from 'lucide-react';
 import { COMPANY_TEMPLATES } from '../../lib/templates';
 import { ReactFlow, Background, Controls, Node, Edge, useNodesState, useEdgesState } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -108,7 +108,7 @@ function computeTree(wsAgents: any[], rootId: string) {
 }
 
 export function WorkspacesList() {
-  const { agents, workspaces, addAgent, removeAgent, updateAgent, addWorkspace, updateWorkspace, removeWorkspace, assignAgentToWorkspace, applyTemplate, initWorkspaceFromYml, addLog } = useStore();
+  const { agents, workspaces, crons, addAgent, removeAgent, updateAgent, addWorkspace, updateWorkspace, removeWorkspace, assignAgentToWorkspace, applyTemplate, initWorkspaceFromYml, addLog, runCron, removeCron, updateCron, fetchCrons } = useStore();
   const [showAddAgent, setShowAddAgent] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
@@ -116,6 +116,7 @@ export function WorkspacesList() {
   const [initYmlFolder, setInitYmlFolder] = useState('');
   const [showWorkspaceSettings, setShowWorkspaceSettings] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [templateWorkspaceId, setTemplateWorkspaceId] = useState('');
   const [newAgentSlug, setNewAgentSlug] = useState('');
   const [newAgentParent, setNewAgentParent] = useState('');
   const [settingsFolderPath, setSettingsFolderPath] = useState('');
@@ -671,8 +672,10 @@ export function WorkspacesList() {
   };
 
   const handleApplyTemplate = (template: any) => {
-    applyTemplate(template);
+    if (!templateWorkspaceId) return;
+    applyTemplate(template, templateWorkspaceId);
     setShowTemplates(false);
+    setTemplateWorkspaceId('');
   };
 
   return (
@@ -687,10 +690,10 @@ export function WorkspacesList() {
             <FileText className="mr-2 h-4 w-4" />
             Init from .aicorp.yml
           </Button>
-          <Button variant="outline" onClick={() => setShowTemplates(true)}>
+          {/* <Button variant="outline" onClick={() => setShowTemplates(true)}>
             <Briefcase className="mr-2 h-4 w-4" />
             Templates
-          </Button>
+          </Button> */}
           <Button variant="outline" onClick={() => setShowCreateWorkspace(true)}>
             <Plus className="mr-2 h-4 w-4" />
             Create Workspace
@@ -958,6 +961,7 @@ export function WorkspacesList() {
               tabs={[
                 { id: 'settings', label: 'Settings', icon: <FolderKanban size={14} /> },
                 { id: 'agents', label: 'Agents', icon: <UsersIcon size={14} /> },
+                { id: 'crons', label: 'Crons', icon: <Clock size={14} /> },
               ]}
               activeTab={activeWorkspaceTab}
               onTabChange={setActiveWorkspaceTab}
@@ -1047,6 +1051,102 @@ export function WorkspacesList() {
                         </button>
                       </div>
                     ))}
+                  </div>
+                )}
+              </TabPanel>
+
+              <TabPanel id="crons" activeTab={activeWorkspaceTab} className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-medium text-zinc-200">Cron Jobs</h4>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs h-7"
+                    onClick={() => {
+                      const agent = agents.find(a => a.workspaceId === selectedWorkspace.id);
+                      if (!agent) {
+                        addLog({ agentId: 'system', action: 'Cron Create Failed', details: 'No agents in workspace to create cron for', type: 'error' });
+                        return;
+                      }
+                      setShowWorkspaceSettings(null);
+                      window.dispatchEvent(new CustomEvent('navigate', { detail: { view: 'crons' } }));
+                    }}
+                  >
+                    <Plus size={12} className="mr-1" /> New Cron
+                  </Button>
+                </div>
+
+                {crons.filter(c => c.workspaceId === selectedWorkspace.id).length === 0 ? (
+                  <p className="text-xs text-zinc-500">No cron jobs for this workspace.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {crons.filter(c => c.workspaceId === selectedWorkspace.id).map(cron => {
+                      const cronAgent = agents.find(a => a.id === cron.agentId);
+                      return (
+                        <div key={cron.id} className="p-3 bg-zinc-950 rounded-md border border-zinc-800 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-sm text-zinc-300 truncate">{cron.name}</span>
+                              <span className={cn(
+                                "text-[10px] px-1.5 py-0.5 rounded-full border",
+                                cron.enabled
+                                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                  : "bg-zinc-800 text-zinc-500 border-zinc-700"
+                              )}>
+                                {cron.enabled ? 'ON' : 'OFF'}
+                              </span>
+                            </div>
+                            <div className="flex gap-1 shrink-0">
+                              <button
+                                onClick={() => { runCron(cron.id).then(() => fetchCrons()); }}
+                                className="text-xs text-zinc-500 hover:text-emerald-400 p-1"
+                                title="Run Now"
+                              >
+                                <Play size={12} />
+                              </button>
+                              <button
+                                onClick={() => updateCron(cron.id, { enabled: !cron.enabled })}
+                                className="text-xs text-zinc-500 hover:text-zinc-300 p-1"
+                                title="Toggle"
+                              >
+                                <RotateCw size={12} />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  removeCron(cron.id);
+                                  addLog({ agentId: 'system', action: 'Cron Deleted', details: `Cron "${cron.name}" deleted`, type: 'warning' });
+                                }}
+                                className="text-xs text-zinc-500 hover:text-red-400 p-1"
+                                title="Delete"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-zinc-500">
+                            <User size={10} />
+                            <span>{cronAgent?.name || 'unknown'}</span>
+                          </div>
+                          <div className="text-xs text-zinc-600 font-mono">
+                            <Clock size={10} className="inline mr-1 text-indigo-400" />
+                            {cron.schedule}
+                          </div>
+                          <p className="text-xs text-zinc-500 line-clamp-2">{cron.prompt}</p>
+                          {cron.lastRunAt && (
+                            <div className="flex items-center gap-2 text-[10px] text-zinc-600">
+                              <span>Last: {new Date(cron.lastRunAt).toLocaleString()}</span>
+                              {cron.lastStatus && (
+                                <span className={cn(
+                                  "px-1 py-0.5 rounded",
+                                  cron.lastStatus === 'success' ? 'text-emerald-400' :
+                                  cron.lastStatus === 'error' ? 'text-red-400' : 'text-amber-400'
+                                )}>{cron.lastStatus}</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </TabPanel>
@@ -1272,14 +1372,31 @@ export function WorkspacesList() {
 
       {showTemplates && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="absolute inset-0" onClick={() => setShowTemplates(false)} />
+          <div className="absolute inset-0" onClick={() => { setShowTemplates(false); setTemplateWorkspaceId(''); }} />
           <div className="relative w-full max-w-5xl bg-zinc-950 border border-zinc-800 xl:rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
             <div className="p-6 border-b border-zinc-800 flex justify-between items-start bg-zinc-900/40 shrink-0">
               <div>
                 <h3 className="text-xl font-semibold text-zinc-100">Ready-Made Teams</h3>
                 <p className="text-sm text-zinc-500 mt-1 mb-0">Instantly deploy a fully configured AI workforce.</p>
               </div>
-              <Button variant="ghost" size="sm" onClick={() => setShowTemplates(false)} className="rounded-full w-8 h-8 p-0 flex items-center justify-center -mt-2 -mr-2">×</Button>
+              <Button variant="ghost" size="sm" onClick={() => { setShowTemplates(false); setTemplateWorkspaceId(''); }} className="rounded-full w-8 h-8 p-0 flex items-center justify-center -mt-2 -mr-2">×</Button>
+            </div>
+
+            <div className="px-6 pt-4 border-b border-zinc-800/50 pb-4">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">Target Workspace</label>
+              {workspaces.length === 0 ? (
+                <p className="text-xs text-amber-400">No workspaces available. Create a workspace first.</p>
+              ) : (
+                <CustomSelect
+                  value={templateWorkspaceId}
+                  onValueChange={setTemplateWorkspaceId}
+                  placeholder="Select a workspace to deploy into"
+                >
+                  {workspaces.map(w => (
+                    <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                  ))}
+                </CustomSelect>
+              )}
             </div>
 
             <div className="p-6 overflow-y-auto">
@@ -1314,8 +1431,9 @@ export function WorkspacesList() {
                     </CardContent>
                     <div className="p-5 pt-0 mt-auto">
                       <Button
-                        className="w-full bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600 hover:text-white transition-all shadow-none group-hover:shadow-[0_0_15px_rgba(79,70,229,0.3)]"
+                        className="w-full bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600 hover:text-white transition-all shadow-none group-hover:shadow-[0_0_15px_rgba(79,70,229,0.3)] disabled:opacity-30 disabled:cursor-not-allowed disabled:group-hover:shadow-none"
                         onClick={() => handleApplyTemplate(template)}
+                        disabled={!templateWorkspaceId}
                       >
                         Deploy {template.name}
                       </Button>

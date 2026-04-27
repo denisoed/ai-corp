@@ -6,6 +6,7 @@ import { loadStore } from './store';
 import { startTelegramManager } from './telegram';
 import { startOrchestrator } from './orchestrator';
 import { initMemorySystem } from './agent-memory';
+import { initCronManager } from './cron';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -17,6 +18,7 @@ initMemorySystem();
 // Start background services
 startTelegramManager();
 startOrchestrator();
+initCronManager();
 
 // Middleware
 app.use((req, res, next) => {

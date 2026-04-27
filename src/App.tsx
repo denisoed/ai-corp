@@ -9,6 +9,7 @@ import { Dashboard } from './components/views/Dashboard';
 import { WorkspacesList } from './components/views/WorkspacesList';
 import { TaskBoard } from './components/views/TaskBoard';
 import { ActivityLogs } from './components/views/ActivityLogs';
+import { CronJobs } from './components/views/CronJobs';
 import { useStore } from './store';
 import { useOrchestrator } from './lib/orchestrator';
 import { useTelegramManager } from './lib/telegramAdapter';
@@ -47,6 +48,8 @@ export default function App() {
         return <TaskBoard />;
       case 'logs':
         return <ActivityLogs />;
+      case 'crons':
+        return <CronJobs />;
       case 'settings':
         return <div className="p-4 border rounded-lg border-zinc-800 bg-zinc-900 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">Company Settings (Coming soon)</div>;
       default:

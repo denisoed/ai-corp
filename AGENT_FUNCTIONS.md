@@ -308,6 +308,76 @@ This document describes all available tools/functions that AI agents can use whe
 
 ---
 
+### Scheduling & Automation
+
+#### 22. `create_cron`
+
+**Description:** Create a scheduled cron job for an agent. The agent will execute the given prompt on the specified schedule using its AI capabilities and available tools.
+
+**Parameters:**
+- `name` (string, required): Name of the cron job
+- `agentName` (string, required): Name of the agent who will execute this job
+- `schedule` (string, required): Cron expression. Examples:
+  - `"*/30 * * * *"` — every 30 minutes
+  - `"0 */6 * * *"` — every 6 hours
+  - `"0 9 * * 1"` — every Monday at 9am
+  - `"0 0 * * *"` — daily at midnight
+- `prompt` (string, required): Natural language instruction for the agent
+- `description` (string, optional): Description of what this cron job does
+
+**Use Case:** Schedule agents to periodically check GitHub issues, generate reports, run maintenance tasks, etc.
+
+---
+
+#### 23. `list_crons`
+
+**Description:** List all cron jobs in the current workspace.
+
+**Parameters:** None
+
+**Returns:** List of cron jobs with names, agents, schedules, statuses, and last run results.
+
+**Use Case:** See what automated tasks are configured and their status.
+
+---
+
+#### 24. `delete_cron`
+
+**Description:** Delete a cron job by name.
+
+**Parameters:**
+- `cronName` (string, required): Name of the cron job to delete
+
+**Use Case:** Remove scheduled tasks that are no longer needed.
+
+---
+
+#### 25. `update_cron`
+
+**Description:** Update a cron job — change its schedule, prompt, or enable/disable it.
+
+**Parameters:**
+- `cronName` (string, required): Name of the cron job to update
+- `schedule` (string, optional): New cron expression
+- `prompt` (string, optional): New instruction for the agent
+- `enabled` (boolean, optional): Enable or disable the cron job
+- `description` (string, optional): New description
+
+**Use Case:** Modify when or what a scheduled agent should do.
+
+---
+
+#### 26. `run_cron_now`
+
+**Description:** Manually trigger a cron job to run immediately.
+
+**Parameters:**
+- `cronName` (string, required): Name of the cron job to run now
+
+**Use Case:** Test a cron job or execute it on demand without waiting for the schedule.
+
+---
+
 ## Implementation Priority
 
 ### Phase 1 — Core Operations (Must Have)
@@ -334,11 +404,18 @@ This document describes all available tools/functions that AI agents can use whe
 17. `send_broadcast`
 18. `generate_report`
 
+### Phase 4 — Scheduling & Automation (Implemented)
+19. `create_cron`
+20. `list_crons`
+21. `delete_cron`
+22. `update_cron`
+23. `run_cron_now`
+
 ---
 
 ## Technical Notes
 
-- All functions operate on the server-side store (`data/store.json`)
+- All functions operate on the server-side store (`~/.aicorp/settings.json` + `~/.aicorp/workspace/*.json`)
 - Changes are persisted immediately to disk
 - The store state is synchronized to all connected clients every 2 seconds
 - Each function should log its action to the company logs for audit purposes

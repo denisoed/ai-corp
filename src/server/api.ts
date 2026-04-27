@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getStore, mutateStore } from './store';
 import { createMemory, loadMemory, getMemoryContext, clearMemory, readPersonalityFile, writePersonalityFile, getAllPersonalityFiles } from './agent-memory';
+import { listCronJobs, createCronJob, updateCronJob, deleteCronJob, runCronNow } from './cron';
 import yaml from 'js-yaml';
 import fs from 'fs';
 import path from 'path';
@@ -336,16 +337,39 @@ router.post('/templates/apply', (req, res) => {
   }
 
   const newAgentIds = template.agents.map(() => crypto.randomUUID());
+  const slugToId: Record<string, string> = {};
 
   mutateStore(s => {
-    const newAgents = template.agents.map((a: any, i: number) => ({
-      ...a,
-      id: newAgentIds[i],
-      slug: a.slug || generateSlug(a.name),
-      parentId: undefined,
-      status: 'Idle' as const,
-      workspaceId
-    }));
+    const newAgents = template.agents.map((a: any, i: number) => {
+      const agentId = newAgentIds[i];
+      const slug = a.slug || generateSlug(a.name);
+      slugToId[slug] = agentId;
+      return {
+        id: agentId,
+        name: a.name,
+        slug,
+        model: a.model,
+        role: a.role,
+        description: a.description,
+        skills: a.skills,
+        parentId: undefined,
+        collaborators: [],
+        status: 'Idle' as const,
+        workspaceId
+      };
+    });
+
+    for (const agent of newAgents) {
+      const tmpl = template.agents.find((a: any) => (a.slug || generateSlug(a.name)) === agent.slug);
+      if (tmpl?.parentSlug && slugToId[tmpl.parentSlug]) {
+        agent.parentId = slugToId[tmpl.parentSlug];
+      }
+      if (tmpl?.collaborators) {
+        agent.collaborators = tmpl.collaborators
+          .map((cs: string) => slugToId[cs])
+          .filter(Boolean);
+      }
+    }
 
     const newTasks = template.tasks.map((t: any) => ({
       id: crypto.randomUUID(),
@@ -356,7 +380,7 @@ router.post('/templates/apply', (req, res) => {
       risk: 'medium' as const,
       cost: 0,
       tags: t.tags,
-      assigneeId: undefined,
+      assigneeId: t.assigneeSlug ? (slugToId[t.assigneeSlug] || undefined) : undefined,
       creatorId: 'system',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -364,8 +388,12 @@ router.post('/templates/apply', (req, res) => {
       subtasks: t.subtasks ? t.subtasks.map((st: string) => ({ id: crypto.randomUUID(), title: st, completed: false })) : []
     }));
 
-    s.agents = newAgents;
-    s.tasks = newTasks;
+    for (const agent of newAgents) {
+      s.agents.push(agent);
+    }
+    for (const task of newTasks) {
+      s.tasks.push(task);
+    }
 
     const ws = s.workspaces.find(w => w.id === workspaceId);
     if (ws) {
@@ -374,23 +402,31 @@ router.post('/templates/apply', (req, res) => {
       }
     }
 
-    s.logs = [{
+    s.logs.push({
       id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
       agentId: 'system',
       action: 'Template Applied',
-      details: `Started new company with template: ${template.name}`,
+      details: `Deployed template "${template.name}" to workspace "${targetWorkspace.name}"`,
       type: 'success'
-    }];
+    });
     s.isAutopilot = true;
   });
 
   const storeAfter = getStore();
-  for (const agent of storeAfter.agents) {
+  for (let i = 0; i < newAgentIds.length; i++) {
+    const agent = storeAfter.agents.find(a => a.id === newAgentIds[i]);
+    if (!agent) continue;
     const ws = agent.workspaceId
       ? storeAfter.workspaces.find(w => w.id === agent.workspaceId)
       : undefined;
-    if (ws) createMemory(agent, ws);
+    if (ws) {
+      createMemory(agent, ws);
+      const tmpl = template.agents[i];
+      if (tmpl?.soul) writePersonalityFile(agent.id, 'SOUL.md', tmpl.soul);
+      if (tmpl?.identity) writePersonalityFile(agent.id, 'IDENTITY.md', tmpl.identity);
+      if (tmpl?.role_doc) writePersonalityFile(agent.id, 'ROLE.md', tmpl.role_doc);
+    }
   }
 
   res.json(getStore());
@@ -571,6 +607,46 @@ router.post('/workspaces/init', (req, res) => {
   }
 
   res.json(getStore());
+});
+
+router.get('/crons', (req, res) => {
+  const workspaceId = req.query.workspaceId as string | undefined;
+  res.json(listCronJobs(workspaceId || undefined));
+});
+
+router.post('/crons', (req, res) => {
+  const { name, description, agentId, workspaceId, schedule, prompt } = req.body;
+  if (!name || !agentId || !workspaceId || !schedule || !prompt) {
+    return res.status(400).json({ error: 'name, agentId, workspaceId, schedule, and prompt are required' });
+  }
+  const job = createCronJob({
+    name,
+    description,
+    agentId,
+    workspaceId,
+    schedule,
+    prompt,
+    enabled: true,
+  });
+  res.json(job);
+});
+
+router.patch('/crons/:id', (req, res) => {
+  const updated = updateCronJob(req.params.id, req.body);
+  if (!updated) return res.status(404).json({ error: 'Cron job not found' });
+  res.json(updated);
+});
+
+router.delete('/crons/:id', (req, res) => {
+  const deleted = deleteCronJob(req.params.id);
+  if (!deleted) return res.status(404).json({ error: 'Cron job not found' });
+  res.json({ success: true });
+});
+
+router.post('/crons/:id/run', async (req, res) => {
+  const result = await runCronNow(req.params.id);
+  if (!result.success) return res.status(400).json({ error: result.error });
+  res.json({ success: true });
 });
 
 export default router;

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Agent, Task, Log, Comment, TaskStatus, CompanyTemplate, ApprovalRequest, Workspace } from './types';
+import { Agent, Task, Log, Comment, TaskStatus, CompanyTemplate, ApprovalRequest, Workspace, CronJob } from './types';
 
 const API_BASE = '/api';
 
@@ -41,6 +41,7 @@ interface AppState {
   tasks: Task[];
   logs: Log[];
   approvals: ApprovalRequest[];
+  crons: CronJob[];
   isAutopilot: boolean;
   totalCost: number;
   loading: boolean;
@@ -65,9 +66,15 @@ interface AppState {
   addApproval: (approval: Omit<ApprovalRequest, 'id' | 'createdAt' | 'status'>) => Promise<void>;
   resolveApproval: (id: string, approved: boolean) => Promise<void>;
 
-  applyTemplate: (template: CompanyTemplate) => Promise<void>;
+  applyTemplate: (template: CompanyTemplate, workspaceId: string) => Promise<void>;
   initWorkspaceFromYml: (folderPath: string) => Promise<void>;
   toggleAutopilot: () => Promise<void>;
+
+  fetchCrons: (workspaceId?: string) => Promise<void>;
+  addCron: (cron: Omit<CronJob, 'id' | 'createdAt'>) => Promise<void>;
+  updateCron: (id: string, updates: Partial<CronJob>) => Promise<void>;
+  removeCron: (id: string) => Promise<void>;
+  runCron: (id: string) => Promise<void>;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -76,6 +83,7 @@ export const useStore = create<AppState>((set, get) => ({
   tasks: [],
   logs: [],
   approvals: [],
+  crons: [],
   isAutopilot: false,
   totalCost: 0,
   loading: true,
@@ -191,8 +199,8 @@ export const useStore = create<AppState>((set, get) => ({
     });
   },
 
-  applyTemplate: async (template) => {
-    const result = await apiPost('/templates/apply', template);
+  applyTemplate: async (template, workspaceId) => {
+    const result = await apiPost('/templates/apply', { ...template, workspaceId });
     set({
       agents: result.agents,
       tasks: result.tasks,
@@ -217,5 +225,32 @@ export const useStore = create<AppState>((set, get) => ({
       isAutopilot: result.isAutopilot,
       logs: [result.log, ...get().logs].slice(0, 100)
     });
+  },
+
+  fetchCrons: async (workspaceId?) => {
+    const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : '';
+    const crons = await apiGet(`/crons${query}`);
+    set({ crons });
+  },
+
+  addCron: async (cron) => {
+    const newCron = await apiPost('/crons', cron);
+    set({ crons: [...get().crons, newCron] });
+  },
+
+  updateCron: async (id, updates) => {
+    const updated = await apiPatch(`/crons/${id}`, updates);
+    set({ crons: get().crons.map(c => c.id === id ? updated : c) });
+  },
+
+  removeCron: async (id) => {
+    await apiDelete(`/crons/${id}`);
+    set({ crons: get().crons.filter(c => c.id !== id) });
+  },
+
+  runCron: async (id) => {
+    await apiPost(`/crons/${id}/run`, {});
+    const crons = await apiGet('/crons');
+    set({ crons });
   }
 }));
