@@ -1035,7 +1035,20 @@ export function WorkspacesList() {
               </TabPanel>
 
               <TabPanel id="agents" activeTab={activeWorkspaceTab} className="space-y-4">
-                <h4 className="font-medium text-zinc-200">Agents in this Workspace</h4>
+                <div className="flex items-center justify-between">
+                  <h4 className="font-medium text-zinc-200">Agents in this Workspace</h4>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs h-7"
+                    onClick={() => {
+                      setTemplateWorkspaceId(selectedWorkspace.id);
+                      setShowTemplates(true);
+                    }}
+                  >
+                    <Briefcase size={12} className="mr-1" /> From Template
+                  </Button>
+                </div>
                 {agents.filter(a => a.workspaceId === selectedWorkspace.id).length === 0 ? (
                   <p className="text-xs text-zinc-500">No agents assigned yet.</p>
                 ) : (
@@ -1188,6 +1201,7 @@ export function WorkspacesList() {
 
             <div className="p-6 overflow-y-auto">
               <form id="add-agent-form" onSubmit={handleAddAgent} className="space-y-6">
+                {formTab === 'basic' && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Name</label>
@@ -1208,8 +1222,8 @@ export function WorkspacesList() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Manager (Reports To)</label>
-                    <CustomSelect value={newAgentParent} onValueChange={setNewAgentParent} placeholder="Select a manager">
-                      <SelectItem value="">No Parent (Root Hub)</SelectItem>
+                    <CustomSelect value={newAgentParent} onValueChange={(v) => setNewAgentParent(v === '__none__' ? '' : v)} placeholder="Select a manager">
+                      <SelectItem value="__none__">No Parent (Root Hub)</SelectItem>
                       {agents.map(a => (
                         <SelectItem key={a.id} value={a.id}>{a.name}{a.role ? ` (${a.role})` : ''}</SelectItem>
                       ))}
@@ -1229,6 +1243,7 @@ export function WorkspacesList() {
                     <Input name="skills" required placeholder="React, Node.js, Planning" className="bg-zinc-900 shadow-inner border-zinc-800" />
                   </div>
                 </div>
+                )}
 
                 {formTab === 'personality' && (
                   <div className="space-y-4 pt-2">
