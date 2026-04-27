@@ -1,5 +1,5 @@
 import { mutateStore, getStore, agentsAreConnected } from './store';
-import { Agent, Task, TaskRisk, TaskPriority, TaskStatus, AgentStatus, Comment } from '../types';
+import { Agent, Task, TaskRisk, TaskPriority, TaskStatus, AgentStatus, Comment, AgentMessage } from '../types';
 import { OpenCodeChatSession } from './opencode';
 import { loadMemory, createMemory, appendMessage, buildSystemPrompt, writePersonalityFile } from './agent-memory';
 import { marked, Renderer } from 'marked';
@@ -42,6 +42,7 @@ interface BotState {
 }
 
 const runningBots: Map<string, BotState> = new Map();
+const busyAgents = new Set<string>();
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -298,6 +299,28 @@ async function handleIncomingMessage(agentId: string, token: string, message: an
     });
 
     const store = getStore();
+
+    const undelivered = store.messages.filter(m =>
+      m.fromAgentId === agentId && m.status === 'replied' && m.reply &&
+      !m.replyDelivered && m.chatId == chatId && m.botToken
+    );
+    for (const msg of undelivered.slice(-3)) {
+      try {
+        const replyText = markdownToTelegramHtml(
+          `Ответ от ${store.agents.find(a => a.id === msg.toAgentId)?.name || 'Agent'}: ${msg.reply}`
+        );
+        await fetch(`${TELEGRAM_API}${msg.botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: msg.chatId, text: replyText, parse_mode: 'HTML' })
+        });
+        mutateStore(s2 => {
+          const m2 = s2.messages.find(x => x.id === msg.id);
+          if (m2) m2.replyDelivered = true;
+        });
+      } catch (_) {}
+    }
+
     const workspace = agentInfo.workspaceId
       ? store.workspaces.find(w => w.id === agentInfo.workspaceId)
       : undefined;
@@ -445,7 +468,11 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     let assigneeId = undefined;
     if (args.assigneeName) {
       const assignee = findAgent(args.assigneeName);
-      if (assignee) assigneeId = assignee.id;
+      if (!assignee) return { success: false, error: `Agent "${args.assigneeName}" not found.` };
+      if (assignee.id !== executingAgentId && !agentsAreConnected(executingAgentId, assignee.id, state.agents)) {
+        return { success: false, error: `You can only assign tasks to agents you have a relationship with. "${assignee.name}" is not connected to you.` };
+      }
+      assigneeId = assignee.id;
     }
 
     mutateStore(s => {
@@ -875,6 +902,258 @@ export async function executeTool(name: string, args: any, executingAgentId: str
 
     logAction('Broadcast Sent', `Broadcast sent to ${sent} agent(s).`, 'info', executingAgentId);
     return { success: true, message: `Broadcast sent to ${sent} agent(s).` };
+  }
+
+  // --- SEND MESSAGE (async, one-way) ---
+  if (name === 'send_message') {
+    const targetAgent = findAgent(args.agentName);
+    if (!targetAgent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+    if (targetAgent.id === executingAgentId) return { success: false, error: 'You cannot send a message to yourself.' };
+    if (!agentsAreConnected(executingAgentId, targetAgent.id, state.agents)) {
+      return { success: false, error: `You are not connected to "${targetAgent.name}".` };
+    }
+
+    const message: AgentMessage = {
+      id: crypto.randomUUID(),
+      fromAgentId: executingAgentId,
+      toAgentId: targetAgent.id,
+      content: args.content,
+      status: 'pending',
+      createdAt: now,
+      chatId: executingAgent?.telegramConfig?.lastChatId,
+      botToken: executingAgent?.telegramConfig?.botToken,
+    };
+
+    mutateStore(s => {
+      s.messages.push(message);
+    });
+
+    await appendMessage(executingAgentId, {
+      role: 'assistant',
+      content: `[Sent to ${targetAgent.name}]: ${args.content}`,
+      source: 'telegram'
+    });
+    await appendMessage(targetAgent.id, {
+      role: 'user',
+      content: `[From ${executingAgent?.name || 'Unknown'}]: ${args.content}`,
+      source: 'telegram'
+    });
+
+    logAction('Message Sent', `Sent message to ${targetAgent.name} (id: ${message.id}).`, 'info', executingAgentId);
+    return { success: true, messageId: message.id, to: targetAgent.name, status: 'delivered' };
+  }
+
+  // --- ASK AGENT (sync, waits for reply) ---
+  if (name === 'ask_agent') {
+    const targetAgent = findAgent(args.agentName);
+    if (!targetAgent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+    if (targetAgent.id === executingAgentId) return { success: false, error: 'You cannot ask yourself.' };
+    if (!agentsAreConnected(executingAgentId, targetAgent.id, state.agents)) {
+      return { success: false, error: `You are not connected to "${targetAgent.name}".` };
+    }
+    if (busyAgents.has(targetAgent.id)) {
+      return { success: false, error: `${targetAgent.name} is busy processing another request. Try again later.` };
+    }
+
+    busyAgents.add(targetAgent.id);
+
+    const senderName = executingAgent?.name || 'Unknown';
+    const senderRole = executingAgent?.role || 'Agent';
+    const chatId = executingAgent?.telegramConfig?.lastChatId;
+    const botToken = executingAgent?.telegramConfig?.botToken;
+
+    const messageId = crypto.randomUUID();
+    const message: AgentMessage = {
+      id: messageId,
+      fromAgentId: executingAgentId,
+      toAgentId: targetAgent.id,
+      content: args.content,
+      status: 'pending',
+      createdAt: now,
+      chatId,
+      botToken,
+    };
+
+    mutateStore(s => {
+      s.messages.push(message);
+    });
+
+    const targetSystemPrompt = buildSystemPrompt(targetAgent) +
+      `\n\nYou are responding to a request from ${senderName} (${senderRole}), a connected agent. Use reply_to_message("${messageId}", content) to send your reply. You have full tool access — do whatever work is needed before replying.`;
+
+    const TIMEOUT_MS = 120000;
+    const startTime = Date.now();
+
+    try {
+      const chatSession = new OpenCodeChatSession(targetSystemPrompt);
+      const userMessage = `Request from ${senderName} (${senderRole}):\n\n${args.content}\n\nDo the work, then call reply_to_message("${messageId}", "your response") to reply.`;
+      let response = await chatSession.sendMessage(userMessage);
+      let replyText = response.text;
+
+      while (response.toolCalls && response.toolCalls.length > 0) {
+        if (Date.now() - startTime > TIMEOUT_MS) {
+          mutateStore(s => {
+            const m = s.messages.find(x => x.id === messageId);
+            if (m) { m.status = 'delivered'; m.reply = 'Timeout — agent did not respond in 2 minutes.'; m.repliedAt = now; }
+          });
+          return { success: false, error: `Timeout waiting for ${targetAgent.name} to respond (2 min limit).` };
+        }
+
+        const results = [];
+        for (const call of response.toolCalls) {
+          const toolArgs = JSON.parse(call.function.arguments);
+          const result = await executeTool(call.function.name, toolArgs, targetAgent.id, undefined);
+          results.push(result);
+        }
+        response = await chatSession.sendToolResults(response.toolCalls, results);
+        if (response.text) {
+          replyText = response.text;
+        }
+      }
+
+      const stored = getStore().messages.find(m => m.id === messageId);
+      if (!stored?.reply) {
+        const finalReply = replyText || 'Done.';
+        mutateStore(s => {
+          const m = s.messages.find(x => x.id === messageId);
+          if (m) { m.reply = finalReply; m.status = 'replied'; m.repliedAt = now; }
+        });
+        if (botToken && chatId) {
+          try {
+            await fetch(`${TELEGRAM_API}${botToken}/sendMessage`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ chat_id: chatId, text: `Ответ от ${targetAgent.name}: ${finalReply}`, parse_mode: 'HTML' })
+            });
+            mutateStore(s2 => {
+              const m2 = s2.messages.find(x => x.id === messageId);
+              if (m2) m2.replyDelivered = true;
+            });
+          } catch (_) {}
+        }
+      }
+
+      await appendMessage(executingAgentId, {
+        role: 'assistant',
+        content: `[Asked ${targetAgent.name}]: ${args.content}`,
+        source: 'telegram'
+      });
+      await appendMessage(executingAgentId, {
+        role: 'user',
+        content: `[Reply from ${targetAgent.name}]: ${stored?.reply || replyText || ''}`,
+        source: 'telegram'
+      });
+      await appendMessage(targetAgent.id, {
+        role: 'user',
+        content: `[Request from ${senderName}]: ${args.content}`,
+        source: 'telegram'
+      });
+      await appendMessage(targetAgent.id, {
+        role: 'assistant',
+        content: `[Replied to ${senderName}]: ${stored?.reply || replyText || ''}`,
+        source: 'telegram'
+      });
+
+      logAction('Agent Asked', `Asked ${targetAgent.name} and got reply.`, 'info', executingAgentId);
+      return { success: true, from: targetAgent.name, role: targetAgent.role, reply: stored?.reply || replyText };
+    } catch (e: any) {
+      mutateStore(s => {
+        const m = s.messages.find(x => x.id === messageId);
+        if (m) { m.status = 'delivered'; m.reply = `Error: ${e.message}`; m.repliedAt = now; }
+      });
+      return { success: false, error: `Failed to get response from ${targetAgent.name}: ${e.message}` };
+    } finally {
+      busyAgents.delete(targetAgent.id);
+    }
+  }
+
+  // --- REPLY TO MESSAGE ---
+  if (name === 'reply_to_message') {
+    const msg = state.messages.find(m => m.id === args.messageId);
+    if (!msg) return { success: false, error: `Message "${args.messageId}" not found.` };
+    if (msg.toAgentId !== executingAgentId) return { success: false, error: 'You can only reply to messages addressed to you.' };
+    if (msg.status === 'replied') return { success: false, error: 'This message was already replied to.' };
+
+    mutateStore(s => {
+      const m = s.messages.find(x => x.id === args.messageId);
+      if (m) {
+        m.reply = args.content;
+        m.status = 'replied';
+        m.repliedAt = now;
+      }
+    });
+
+    const sender = state.agents.find(a => a.id === msg.fromAgentId);
+    const replier = executingAgent?.name || 'Agent';
+
+    if (msg.botToken && msg.chatId) {
+      try {
+        const replyText = markdownToTelegramHtml(
+          `Ответ от ${replier}: ${args.content}`
+        );
+        await fetch(`${TELEGRAM_API}${msg.botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: msg.chatId, text: replyText, parse_mode: 'HTML' })
+        });
+        mutateStore(s => {
+          const m = s.messages.find(x => x.id === args.messageId);
+          if (m) m.replyDelivered = true;
+        });
+      } catch (e) {
+        console.error(`[reply_to_message] Failed to deliver to Telegram:`, e);
+      }
+    }
+
+    await appendMessage(executingAgentId, {
+      role: 'assistant',
+      content: `[Replied to ${sender?.name || msg.fromAgentId}]: ${args.content}`,
+      source: 'telegram'
+    });
+    if (sender) {
+      await appendMessage(sender.id, {
+        role: 'user',
+        content: `[Reply from ${replier}]: ${args.content}`,
+        source: 'telegram'
+      });
+    }
+
+    logAction('Message Replied', `Replied to message from ${sender?.name || msg.fromAgentId}.`, 'info', executingAgentId);
+    return { success: true, message: 'Reply sent.' };
+  }
+
+  // --- CHECK MY INBOX ---
+  if (name === 'check_my_inbox') {
+    const incoming = state.messages.filter(m =>
+      m.toAgentId === executingAgentId && m.status !== 'replied'
+    ).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+    const sent = state.messages.filter(m =>
+      m.fromAgentId === executingAgentId
+    ).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20);
+
+    const incomings = incoming.map(m => ({
+      id: m.id,
+      from: state.agents.find(a => a.id === m.fromAgentId)?.name || m.fromAgentId,
+      content: m.content,
+      status: m.status,
+      createdAt: m.createdAt,
+    }));
+
+    const outgoing = sent.map(m => ({
+      id: m.id,
+      to: state.agents.find(a => a.id === m.toAgentId)?.name || m.toAgentId,
+      content: m.content,
+      status: m.status,
+      reply: m.reply || undefined,
+      createdAt: m.createdAt,
+    }));
+
+    return {
+      pendingIncoming: incomings.length,
+      incoming: incomings,
+      recentOutgoing: outgoing,
+    };
   }
 
   // --- GENERATE REPORT ---

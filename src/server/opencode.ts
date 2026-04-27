@@ -50,7 +50,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'create_task',
-      description: 'Create a new task on the Kanban board.',
+      description: 'Create a new task on the Kanban board. You can only assign tasks to agents you have a relationship with (manager/subordinate or collaborator).',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -348,6 +348,63 @@ export const companyTools = [
           message: { type: 'string' as const, description: 'Text to broadcast' }
         },
         required: ['message']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'send_message',
+      description: 'Send a one-way message to a connected agent. The message is saved in their inbox for later reading. Does NOT wait for a reply — use ask_agent if you need an immediate response.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          agentName: { type: 'string' as const, description: 'Name of the agent to message' },
+          content: { type: 'string' as const, description: 'Your message to the agent' }
+        },
+        required: ['agentName', 'content']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'ask_agent',
+      description: 'Ask a connected agent to do work and wait for their reply. The target agent gets full tool access and can call reply_to_message to respond. Waits up to 2 minutes. Use send_message for long-running tasks.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          agentName: { type: 'string' as const, description: 'Name of the agent to ask' },
+          content: { type: 'string' as const, description: 'Your request to the agent' }
+        },
+        required: ['agentName', 'content']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'reply_to_message',
+      description: 'Reply to a message you received (from your inbox). The reply is delivered to the sender — via Telegram if they have a bot configured, otherwise stored in their inbox.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          messageId: { type: 'string' as const, description: 'ID of the message you are replying to' },
+          content: { type: 'string' as const, description: 'Your reply text' }
+        },
+        required: ['messageId', 'content']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'check_my_inbox',
+      description: 'Show your pending incoming messages and the status of messages you sent.',
+      parameters: {
+        type: 'object' as const,
+        properties: {},
+        required: []
       }
     }
   },
