@@ -31,7 +31,8 @@ Rules:
 - Use "- " or "• " for bullet list items. Each item must start at the BEGINNING of a new line.
 - NEVER use indentation alone as a list marker — always include the "-" or "1." prefix.
 - Keep responses concise (1-3 sentences per paragraph).
-- Use short paragraphs, bullet lists, and numbers to organize information.`;
+- Use short paragraphs, bullet lists, and numbers to organize information.
+- When asked to "list" or "show" agents, tasks, crons, or any collection: ALWAYS enumerate each item individually on its own line with relevant details (name, role, status, etc.). NEVER reply with just a count or summary when the user asks for a list.`;
 
 interface BotState {
   token: string;

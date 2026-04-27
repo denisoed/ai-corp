@@ -69,7 +69,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'get_company_state',
-      description: 'Get a summary of the current agents and tasks in the company to help answer user questions.',
+      description: 'Get full details of agents and tasks in the company. ALWAYS present the complete list to the user — do NOT summarize or count. When asked about agents, list each agent with name, role, and status on separate bullet lines. When asked about tasks, list each task with title, status, and assignee.',
       parameters: {
         type: 'object' as const,
         properties: {
