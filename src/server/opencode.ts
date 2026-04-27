@@ -30,18 +30,19 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'create_agent',
-      description: 'Hire/Onboard a new AI agent into the company.',
+      description: 'Hire/Onboard a new AI agent into the company. Use soul/identity/roleDoc params to define their personality directly.',
       parameters: {
         type: 'object' as const,
         properties: {
           name: { type: 'string' as const, description: 'Name of the agent' },
-          model: { type: 'string' as const, description: 'Model to use (e.g. GPT 5.4 Mini)' },
-          role: { type: 'string' as const, description: 'Role (Must be one of: Manager, Developer, Analyst, Reviewer, Designer, DevOps, Research)' },
-          description: { type: 'string' as const, description: 'Description of responsibilities' },
           skills: { type: 'array' as const, items: { type: 'string' as const }, description: 'List of skills' },
-          managerName: { type: 'string' as const, description: 'Optional. The name of the manager agent they report to.' }
+          managerName: { type: 'string' as const, description: 'Optional. The name of the manager agent they report to.' },
+          role: { type: 'string' as const, description: 'Optional. Legacy role hint. Prefer defining behavior via soul/identity/roleDoc instead.' },
+          soul: { type: 'string' as const, description: 'Optional. SOUL.md content — core principles, values, and boundaries.' },
+          identity: { type: 'string' as const, description: 'Optional. IDENTITY.md content — personality, tone, communication style.' },
+          roleDoc: { type: 'string' as const, description: 'Optional. ROLE.md content — responsibilities, expertise, authority, collaboration.' }
         },
-        required: ['name', 'model', 'role', 'description', 'skills']
+        required: ['name', 'skills']
       }
     }
   },
@@ -360,6 +361,23 @@ export const companyTools = [
           type: { type: 'string' as const, description: 'Must be: dashboard, agents, tasks, or costs' }
         },
         required: ['type']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'set_agent_personality',
+      description: "Update an agent's SOUL, IDENTITY, and/or ROLE files. Use after creating a new agent to configure their personality, or to refine an existing agent's behavior.",
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          agentName: { type: 'string' as const, description: 'Name of the agent whose personality to update' },
+          soul: { type: 'string' as const, description: 'Optional. SOUL.md content — core values, ethics, boundaries, priority framework.' },
+          identity: { type: 'string' as const, description: 'Optional. IDENTITY.md content — personality traits, communication tone, behavioral patterns.' },
+          role: { type: 'string' as const, description: 'Optional. ROLE.md content — responsibilities, expertise, authority, collaboration rules.' }
+        },
+        required: ['agentName']
       }
     }
   }

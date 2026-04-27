@@ -46,7 +46,7 @@ interface AppState {
   loading: boolean;
 
   fetchState: () => Promise<void>;
-  addAgent: (agent: Omit<Agent, 'id'>) => Promise<void>;
+  addAgent: (agent: Omit<Agent, 'id'> & { soul?: string; identity?: string; roleDoc?: string }) => Promise<void>;
   updateAgent: (id: string, agent: Partial<Agent>) => Promise<void>;
   removeAgent: (id: string) => Promise<void>;
 

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getStore, mutateStore } from './store';
-import { createMemory, loadMemory, getMemoryContext, clearMemory } from './agent-memory';
+import { createMemory, loadMemory, getMemoryContext, clearMemory, readPersonalityFile, writePersonalityFile, getAllPersonalityFiles } from './agent-memory';
 
 const router = Router();
 
@@ -87,7 +87,8 @@ router.delete('/workspaces/:id', (req, res) => {
 });
 
 router.post('/agents', (req, res) => {
-  const agent = { ...req.body, id: crypto.randomUUID() };
+  const { soul, identity, roleDoc, ...agentData } = req.body;
+  const agent = { ...agentData, id: crypto.randomUUID() };
   mutateStore(s => {
     s.agents.push(agent);
   });
@@ -97,6 +98,10 @@ router.post('/agents', (req, res) => {
     ? store.workspaces.find(w => w.id === agent.workspaceId)
     : undefined;
   createMemory(agent, workspace);
+
+  if (soul) writePersonalityFile(agent.id, 'SOUL.md', soul);
+  if (identity) writePersonalityFile(agent.id, 'IDENTITY.md', identity);
+  if (roleDoc) writePersonalityFile(agent.id, 'ROLE.md', roleDoc);
 
   res.json(agent);
 });
@@ -352,6 +357,48 @@ router.post('/autopilot/toggle', (req, res) => {
     if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
   });
   res.json({ isAutopilot: getStore().isAutopilot, log });
+});
+
+router.get('/agents/:id/personality', (req, res) => {
+  const { id } = req.params;
+  try {
+    const files = getAllPersonalityFiles(id);
+    res.json(files);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to read personality files' });
+  }
+});
+
+router.get('/agents/:id/personality/:filename', (req, res) => {
+  const { id, filename } = req.params;
+  const allowed = ['SOUL.md', 'IDENTITY.md', 'ROLE.md'];
+  if (!allowed.includes(filename)) {
+    return res.status(400).json({ error: `Invalid file. Allowed: ${allowed.join(', ')}` });
+  }
+  try {
+    const content = readPersonalityFile(id, filename as any);
+    res.json({ filename, content });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to read personality file' });
+  }
+});
+
+router.put('/agents/:id/personality/:filename', (req, res) => {
+  const { id, filename } = req.params;
+  const allowed = ['SOUL.md', 'IDENTITY.md', 'ROLE.md'];
+  if (!allowed.includes(filename)) {
+    return res.status(400).json({ error: `Invalid file. Allowed: ${allowed.join(', ')}` });
+  }
+  const { content } = req.body;
+  if (typeof content !== 'string') {
+    return res.status(400).json({ error: 'Content must be a string' });
+  }
+  try {
+    writePersonalityFile(id, filename as any, content);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to write personality file' });
+  }
 });
 
 export default router;

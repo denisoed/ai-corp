@@ -1,9 +1,21 @@
 import { mutateStore, getStore } from './store';
 import { Agent, Task, TaskRisk, TaskPriority, TaskStatus, AgentStatus, Comment } from '../types';
 import { OpenCodeChatSession } from './opencode';
-import { loadMemory, getMemoryContext, createMemory, appendMessage } from './agent-memory';
+import { loadMemory, createMemory, appendMessage, buildSystemPrompt, writePersonalityFile } from './agent-memory';
 
 const TELEGRAM_API = 'https://api.telegram.org/bot';
+
+const TELEGRAM_FORMATTING_RULES = `# TELEGRAM FORMATTING RULES — Must follow strictly
+
+You are responding via Telegram messenger. Follow these formatting rules:
+
+- Use ONLY plain text. Do NOT use any markdown, HTML, or rich text formatting.
+- NEVER use tables or table-like structures (no |---| grids, no ASCII tables).
+- NEVER use code blocks (\`\`\`), bold (**), italic (*), strikethrough (~~), headers (#), inline code (\`), or markdown links.
+- For lists, use simple bullet points with "-" or "•" and numbered lists with "1.", "2.", etc.
+- Structure your response with line breaks and blank lines between sections — not with visual dividers.
+- Keep responses concise. Telegram is a chat app, not a document.
+- Use short paragraphs (1-3 sentences), bullet lists, and numbers to organize information.`;
 
 interface BotState {
   token: string;
@@ -180,17 +192,7 @@ async function handleIncomingMessage(agentId: string, token: string, message: an
       memory = createMemory(agentInfo, workspace);
     }
 
-    const memoryContext = getMemoryContext(agentId);
-
-    const systemInstruction = `You are ${agentInfo.name}, an AI Agent in a company. Your role is ${agentInfo.role}.
-Description: ${agentInfo.description}
-Skills: ${agentInfo.skills.join(', ')}
-
-You are communicating with the user/boss via Telegram.
-Help them manage the company, answer questions, or use your tools to perform actions like creating tasks, moving tasks on the board, assigning tasks, updating agents, generating reports, etc.
-Be concise, professional, and act in-character!
-
-${memoryContext ? `CONTEXT FROM YOUR MEMORY:\n${memoryContext}` : ''}`;
+    const systemInstruction = buildSystemPrompt(agentInfo) + '\n\n' + TELEGRAM_FORMATTING_RULES;
 
     const chatSession = new OpenCodeChatSession(systemInstruction);
     let response = await chatSession.sendMessage(text);
@@ -276,18 +278,31 @@ async function executeTool(name: string, args: any, executingAgentId: string, to
       if (parent) parentId = parent.id;
     }
 
+    const newAgentId = crypto.randomUUID();
+
     mutateStore(s => {
       s.agents.push({
-        id: crypto.randomUUID(),
+        id: newAgentId,
         name: args.name,
-        model: args.model,
         role: args.role as any,
-        description: args.description,
-        skills: args.skills,
+        skills: args.skills || [],
         parentId,
         status: 'Idle'
       });
     });
+
+    const newAgent = getStore().agents.find(a => a.id === newAgentId);
+    if (newAgent) {
+      const ws = newAgent.workspaceId
+        ? getStore().workspaces.find(w => w.id === newAgent.workspaceId)
+        : undefined;
+      createMemory(newAgent, ws);
+    }
+
+    if (args.soul) writePersonalityFile(newAgentId, 'SOUL.md', args.soul);
+    if (args.identity) writePersonalityFile(newAgentId, 'IDENTITY.md', args.identity);
+    if (args.roleDoc) writePersonalityFile(newAgentId, 'ROLE.md', args.roleDoc);
+
     logAction('Hired Agent via Telegram', `Hired ${args.name} (${args.role}).`, 'success', executingAgentId);
     return { success: true, message: `Agent ${args.name} created successfully.` };
   }
@@ -540,7 +555,7 @@ async function executeTool(name: string, args: any, executingAgentId: string, to
     if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
     const tasks = state.tasks.filter(t => t.assigneeId === agent.id);
     return {
-      agent: { name: agent.name, role: agent.role, status: agent.status, model: agent.model, skills: agent.skills, description: agent.description },
+      agent: { name: agent.name, role: agent.role, status: agent.status, skills: agent.skills },
       tasks: tasks.map(t => ({ title: t.title, status: t.status, priority: t.priority }))
     };
   }
@@ -688,8 +703,7 @@ async function executeTool(name: string, args: any, executingAgentId: string, to
   if (name === 'generate_report') {
     let report = '';
     if (args.type === 'dashboard' || args.type === 'all') {
-      report += `📊 COMPANY DASHBOARD\n`;
-      report += `━━━━━━━━━━━━━━━━━━━━\n`;
+      report += `DASHBOARD\n`;
       report += `Total Agents: ${state.agents.length}\n`;
       report += `Total Tasks: ${state.tasks.length}\n`;
       report += `Active Tasks: ${state.tasks.filter(t => t.status === 'In Progress').length}\n`;
@@ -697,17 +711,15 @@ async function executeTool(name: string, args: any, executingAgentId: string, to
       report += `Total Cost: $${state.totalCost.toFixed(2)}\n\n`;
     }
     if (args.type === 'agents' || args.type === 'all') {
-      report += `👥 AGENTS\n`;
-      report += `━━━━━━━━━━━━━━━━━━━━\n`;
+      report += `AGENTS\n`;
       state.agents.forEach(a => {
         const taskCount = state.tasks.filter(t => t.assigneeId === a.id).length;
-        report += `• ${a.name} (${a.role}) — ${a.status} — ${taskCount} tasks\n`;
+        report += `- ${a.name} (${a.role}) — ${a.status} — ${taskCount} tasks\n`;
       });
       report += `\n`;
     }
     if (args.type === 'tasks' || args.type === 'all') {
-      report += `📋 TASKS BY STATUS\n`;
-      report += `━━━━━━━━━━━━━━━━━━━━\n`;
+      report += `TASKS BY STATUS\n`;
       const statuses = ['Backlog', 'Planned', 'In Progress', 'Review', 'Needs Approval', 'Done'];
       statuses.forEach(st => {
         const count = state.tasks.filter(t => t.status === st).length;
@@ -716,16 +728,33 @@ async function executeTool(name: string, args: any, executingAgentId: string, to
       report += `\n`;
     }
     if (args.type === 'costs' || args.type === 'all') {
-      report += `💰 COSTS\n`;
-      report += `━━━━━━━━━━━━━━━━━━━━\n`;
+      report += `COSTS\n`;
       report += `Total: $${state.totalCost.toFixed(2)}\n`;
       const expensiveTasks = state.tasks.filter(t => t.cost > 0).sort((a, b) => b.cost - a.cost).slice(0, 5);
       if (expensiveTasks.length) {
         report += `Top 5 expensive tasks:\n`;
-        expensiveTasks.forEach(t => report += `• ${t.title}: $${t.cost.toFixed(2)}\n`);
+        expensiveTasks.forEach(t => report += `- ${t.title}: $${t.cost.toFixed(2)}\n`);
       }
     }
     return { success: true, report: report.trim() };
+  }
+
+  // --- SET AGENT PERSONALITY ---
+  if (name === 'set_agent_personality') {
+    const agent = findAgent(args.agentName);
+    if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+
+    const updated: string[] = [];
+    if (args.soul) { writePersonalityFile(agent.id, 'SOUL.md', args.soul); updated.push('SOUL'); }
+    if (args.identity) { writePersonalityFile(agent.id, 'IDENTITY.md', args.identity); updated.push('IDENTITY'); }
+    if (args.role) { writePersonalityFile(agent.id, 'ROLE.md', args.role); updated.push('ROLE'); }
+
+    if (updated.length === 0) {
+      return { success: false, error: 'At least one of soul, identity, or role must be provided.' };
+    }
+
+    logAction('Personality Updated', `Updated ${updated.join(', ')} for ${agent.name}.`, 'success', executingAgentId);
+    return { success: true, message: `Updated ${updated.join(', ')} for ${agent.name}.` };
   }
 
   return { success: false, error: 'Unknown tool' };

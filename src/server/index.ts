@@ -8,7 +8,7 @@ import { startOrchestrator } from './orchestrator';
 import { initMemorySystem } from './agent-memory';
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4000;
 
 // Initialize storage systems
 loadStore();

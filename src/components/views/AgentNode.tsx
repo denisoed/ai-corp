@@ -35,12 +35,12 @@ export function AgentNode({ data, selected }: any) {
           
           <div className="space-y-0.5 w-full">
             <h3 className="text-sm font-medium text-zinc-100 line-clamp-1">{data.name}</h3>
-            <p className="text-xs text-zinc-500 line-clamp-1">{isRoot ? 'Orchestration Engine' : data.model}</p>
+            <p className="text-xs text-zinc-500 line-clamp-1">{isRoot ? 'Orchestration Engine' : (data.role || (data.skills?.length ? data.skills[0] : ''))}</p>
           </div>
 
           {!isRoot && (
              <div className="mt-3 flex items-center gap-2 flex-wrap justify-center">
-                <Badge variant="outline" className="text-[10px] bg-zinc-950/50 py-0.5 font-medium">{data.role}</Badge>
+                {data.role && <Badge variant="outline" className="text-[10px] bg-zinc-950/50 py-0.5 font-medium">{data.role}</Badge>}
                 {data.collaborators?.length > 0 && (
                    <Badge variant="outline" className="text-[10px] bg-indigo-950/30 text-indigo-400 border-indigo-800/50 py-0.5">
                       <UsersIcon size={10} className="mr-1 inline" /> {data.collaborators.length}

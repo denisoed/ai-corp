@@ -6,7 +6,7 @@ import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Input } from '../ui/Input';
 import { FolderPicker } from '../ui/FolderPicker';
-import { Plus, Briefcase, Users as UsersIcon, Trash2, X, User, Link2, MessageCircle, Shield, AlertTriangle, FolderKanban } from 'lucide-react';
+import { Plus, Briefcase, Users as UsersIcon, Trash2, X, User, Link2, MessageCircle, Shield, AlertTriangle, FolderKanban, FileText, Pencil, Check } from 'lucide-react';
 import { COMPANY_TEMPLATES } from '../../lib/templates';
 import { ReactFlow, Background, Controls, Node, Edge, useNodesState, useEdgesState } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -114,11 +114,18 @@ export function WorkspacesList() {
   const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
   const [showWorkspaceSettings, setShowWorkspaceSettings] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
-  const [newAgentRole, setNewAgentRole] = useState('Developer');
   const [newAgentParent, setNewAgentParent] = useState('');
   const [settingsFolderPath, setSettingsFolderPath] = useState('');
   const [newAgentCollabs, setNewAgentCollabs] = useState<string[]>([]);
   const [newAgentWorkspace, setNewAgentWorkspace] = useState('');
+  const [newAgentSoul, setNewAgentSoul] = useState('');
+  const [newAgentIdentity, setNewAgentIdentity] = useState('');
+  const [newAgentRoleDoc, setNewAgentRoleDoc] = useState('');
+  const [formTab, setFormTab] = useState<'basic' | 'personality'>('basic');
+  const [personalityFiles, setPersonalityFiles] = useState<Record<string, string> | null>(null);
+  const [editingFile, setEditingFile] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState('');
+  const [savingFile, setSavingFile] = useState(false);
   const [activeAgentTab, setActiveAgentTab] = useState('info');
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('settings');
 
@@ -126,6 +133,47 @@ export function WorkspacesList() {
   const [newWsDescription, setNewWsDescription] = useState('');
   const [newWsFolder, setNewWsFolder] = useState('');
   const [newWsColor, setNewWsColor] = useState(DEFAULT_COLOR);
+
+  useEffect(() => {
+    if (selectedAgentId) {
+      fetch(`/api/agents/${selectedAgentId}/personality`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.error) {
+            setPersonalityFiles(null);
+          } else {
+            setPersonalityFiles(data);
+          }
+        })
+        .catch(() => setPersonalityFiles(null));
+    } else {
+      setPersonalityFiles(null);
+    }
+    setEditingFile(null);
+  }, [selectedAgentId]);
+
+  const startEdit = (filename: string) => {
+    setEditContent(personalityFiles?.[filename] || '');
+    setEditingFile(filename);
+  };
+
+  const saveFile = async () => {
+    if (!selectedAgentId || !editingFile) return;
+    setSavingFile(true);
+    try {
+      await fetch(`/api/agents/${selectedAgentId}/personality/${editingFile}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: editContent })
+      });
+      setPersonalityFiles(prev => prev ? { ...prev, [editingFile]: editContent } : null);
+      setEditingFile(null);
+    } catch (e) {
+      console.error('Failed to save', e);
+    } finally {
+      setSavingFile(false);
+    }
+  };
 
   const nodeTypes = useMemo(() => ({
     agent: AgentNode,
@@ -566,14 +614,14 @@ export function WorkspacesList() {
     const formData = new FormData(e.currentTarget);
     addAgent({
       name: formData.get('name') as string,
-      model: formData.get('model') as string,
-      role: newAgentRole as any,
       parentId: newAgentParent || undefined,
       status: 'Idle',
-      description: formData.get('description') as string,
-      skills: (formData.get('skills') as string).split(',').map(s => s.trim()),
+      skills: (formData.get('skills') as string).split(',').map(s => s.trim()).filter(Boolean),
       collaborators: newAgentCollabs,
-      workspaceId: newAgentWorkspace || undefined
+      workspaceId: newAgentWorkspace || undefined,
+      soul: newAgentSoul || undefined,
+      identity: newAgentIdentity || undefined,
+      roleDoc: newAgentRoleDoc || undefined,
     });
     addLog({
       agentId: 'system',
@@ -581,6 +629,9 @@ export function WorkspacesList() {
       details: `${formData.get('name')} joined${newAgentWorkspace ? ` workspace ${workspaces.find(w => w.id === newAgentWorkspace)?.name}` : ''}.`,
       type: 'info'
     });
+    setNewAgentSoul('');
+    setNewAgentIdentity('');
+    setNewAgentRoleDoc('');
     setShowAddAgent(false);
   };
 
@@ -657,6 +708,7 @@ export function WorkspacesList() {
             <Tabs
               tabs={[
                 { id: 'info', label: 'Info', icon: <User size={14} /> },
+                { id: 'personality', label: 'Personality', icon: <FileText size={14} /> },
                 { id: 'relationships', label: 'Team', icon: <Link2 size={14} /> },
                 { id: 'telegram', label: 'Telegram', icon: <MessageCircle size={14} /> },
                 { id: 'access', label: 'Access', icon: <Shield size={14} /> },
@@ -678,35 +730,6 @@ export function WorkspacesList() {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Model</label>
-                    <Input
-                      value={selectedAgent.model}
-                      onChange={(e) => updateAgent(selectedAgent.id, { model: e.target.value })}
-                      className="bg-zinc-950"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Role</label>
-                    <CustomSelect
-                      value={selectedAgent.role}
-                      onValueChange={(val) => updateAgent(selectedAgent.id, { role: val })}
-                    >
-                      <SelectItem value="Developer">Developer</SelectItem>
-                      <SelectItem value="Manager">Manager</SelectItem>
-                      <SelectItem value="Reviewer">Reviewer</SelectItem>
-                      <SelectItem value="Analyst">Analyst</SelectItem>
-                      <SelectItem value="Designer">Designer</SelectItem>
-                    </CustomSelect>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Description</label>
-                    <Input
-                      value={selectedAgent.description}
-                      onChange={(e) => updateAgent(selectedAgent.id, { description: e.target.value })}
-                      className="bg-zinc-950"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Workspace</label>
                     <CustomSelect
                       value={selectedAgent.workspaceId || ''}
@@ -720,6 +743,35 @@ export function WorkspacesList() {
                     </CustomSelect>
                   </div>
                 </div>
+              </TabPanel>
+
+              <TabPanel id="personality" activeTab={activeAgentTab} className="space-y-3">
+                <p className="text-xs text-zinc-500 leading-tight">SOUL, IDENTITY, and ROLE files define how {selectedAgent.name} thinks, communicates, and behaves.</p>
+                {(['ROLE.md', 'IDENTITY.md', 'SOUL.md'] as const).map(file => {
+                  const label = file.replace('.md', '');
+                  const content = personalityFiles?.[file] || '';
+                  const isEditing = editingFile === file;
+                  return (
+                    <div key={file} className="space-y-2 bg-zinc-950 rounded-lg border border-zinc-800 p-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{label}</label>
+                        {!isEditing ? (
+                          <Button variant="ghost" size="sm" onClick={() => startEdit(file)} className="h-6 px-2 text-xs text-zinc-500 hover:text-zinc-300"><Pencil size={12} className="mr-1" /> Edit</Button>
+                        ) : (
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="sm" onClick={() => setEditingFile(null)} className="h-6 px-2 text-xs text-zinc-500 hover:text-zinc-300"><X size={12} className="mr-1" /> Cancel</Button>
+                            <Button variant="ghost" size="sm" onClick={saveFile} disabled={savingFile} className="h-6 px-2 text-xs text-emerald-400 hover:text-emerald-300"><Check size={12} className="mr-1" /> {savingFile ? 'Saving...' : 'Save'}</Button>
+                          </div>
+                        )}
+                      </div>
+                      {isEditing ? (
+                        <textarea value={editContent} onChange={e => setEditContent(e.target.value)} rows={6} className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 font-mono focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500 focus-visible:border-indigo-500" />
+                      ) : (
+                        <p className="text-[11px] text-zinc-500 leading-relaxed whitespace-pre-wrap line-clamp-4">{content || '(empty)'}</p>
+                      )}
+                    </div>
+                  );
+                })}
               </TabPanel>
 
               <TabPanel id="relationships" activeTab={activeAgentTab} className="space-y-4">
@@ -740,7 +792,7 @@ export function WorkspacesList() {
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Collaborators</label>
                     <MultiSelect
-                      options={agents.filter(a => a.id !== selectedAgent.id).map(a => ({ value: a.id, label: `${a.name} (${a.role})` }))}
+                      options={agents.filter(a => a.id !== selectedAgent.id).map(a => ({ value: a.id, label: `${a.name}${a.role ? ` (${a.role})` : ''}` }))}
                       value={selectedAgent.collaborators || []}
                       onChange={(values) => updateAgent(selectedAgent.id, { collaborators: values })}
                       placeholder="Select collaborators"
@@ -971,14 +1023,19 @@ export function WorkspacesList() {
 
       {showAddAgent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="absolute inset-0" onClick={() => setShowAddAgent(false)} />
+          <div className="absolute inset-0" onClick={() => { setShowAddAgent(false); setNewAgentSoul(''); setNewAgentIdentity(''); setNewAgentRoleDoc(''); }} />
           <div className="relative w-full max-w-2xl bg-zinc-950 border border-zinc-800 xl:rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-6 border-b border-zinc-800 flex justify-between items-start bg-zinc-900/40 shrink-0">
               <div>
                 <h3 className="text-xl font-semibold text-zinc-100">Onboard New Agent</h3>
-                <p className="text-sm text-zinc-500 mt-1 mb-0">Configure agent and assign to a workspace.</p>
+                <p className="text-sm text-zinc-500 mt-1 mb-0">Define basic info and customize personality via SOUL / IDENTITY / ROLE.</p>
               </div>
               <Button variant="ghost" size="sm" onClick={() => setShowAddAgent(false)} className="rounded-full w-8 h-8 p-0 flex items-center justify-center -mt-2 -mr-2">×</Button>
+            </div>
+
+            <div className="flex border-b border-zinc-800 bg-zinc-950/50 shrink-0">
+              <button type="button" onClick={() => setFormTab('basic')} className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${formTab === 'basic' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}>Basic Info</button>
+              <button type="button" onClick={() => setFormTab('personality')} className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${formTab === 'personality' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}>Personality</button>
             </div>
 
             <div className="p-6 overflow-y-auto">
@@ -989,22 +1046,8 @@ export function WorkspacesList() {
                     <Input name="name" required placeholder="e.g. CodeLlama Assistant" className="bg-zinc-900 shadow-inner border-zinc-800" />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Model / Engine</label>
-                    <Input name="model" required placeholder="e.g. OpenClaw, Codex" className="bg-zinc-900 shadow-inner border-zinc-800" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Role</label>
-                    <CustomSelect value={newAgentRole} onValueChange={setNewAgentRole} placeholder="Select a role">
-                      <SelectItem value="Developer">Developer</SelectItem>
-                      <SelectItem value="Manager">Manager</SelectItem>
-                      <SelectItem value="Reviewer">Reviewer</SelectItem>
-                      <SelectItem value="Analyst">Analyst</SelectItem>
-                      <SelectItem value="Designer">Designer</SelectItem>
-                    </CustomSelect>
-                  </div>
-                  <div className="space-y-2">
                     <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Workspace</label>
-                    <CustomSelect value={newAgentWorkspace} onValueChange={setNewAgentWorkspace} placeholder="No workspace">
+                    <CustomSelect value={newAgentWorkspace} onValueChange={(v) => setNewAgentWorkspace(v === '__none__' ? '' : v)} placeholder="No workspace">
                       <SelectItem value="__none__">No Workspace</SelectItem>
                       {workspaces.map(w => (
                         <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
@@ -1013,17 +1056,17 @@ export function WorkspacesList() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Manager (Reports To)</label>
-                    <CustomSelect value={newAgentParent} onValueChange={(v) => setNewAgentParent(v === '__root__' ? '' : v)} placeholder="Select a manager">
-                      <SelectItem value="__root__">No Parent (Root Hub)</SelectItem>
+                    <CustomSelect value={newAgentParent} onValueChange={setNewAgentParent} placeholder="Select a manager">
+                      <SelectItem value="">No Parent (Root Hub)</SelectItem>
                       {agents.map(a => (
-                        <SelectItem key={a.id} value={a.id}>{a.name} ({a.role})</SelectItem>
+                        <SelectItem key={a.id} value={a.id}>{a.name}{a.role ? ` (${a.role})` : ''}</SelectItem>
                       ))}
                     </CustomSelect>
                   </div>
                   <div className="space-y-2 sm:col-span-2 text-zinc-300">
                     <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Collaborators (Optional)</label>
                     <MultiSelect
-                      options={agents.map(a => ({ value: a.id, label: `${a.name} (${a.role})` }))}
+                      options={agents.map(a => ({ value: a.id, label: `${a.name}${a.role ? ` (${a.role})` : ''}` }))}
                       value={newAgentCollabs}
                       onChange={setNewAgentCollabs}
                       placeholder="Select collaborators"
@@ -1033,22 +1076,30 @@ export function WorkspacesList() {
                     <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Skills (comma separated)</label>
                     <Input name="skills" required placeholder="React, Node.js, Planning" className="bg-zinc-900 shadow-inner border-zinc-800" />
                   </div>
-                  <div className="space-y-2 flex flex-col sm:col-span-2">
-                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Description</label>
-                    <textarea
-                      name="description"
-                      required
-                      rows={3}
-                      className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus-visible:outline-none shadow-inner focus-visible:ring-1 focus-visible:ring-indigo-500 focus-visible:border-indigo-500"
-                      placeholder="Agent responsibilities..."
-                    />
-                  </div>
                 </div>
+
+                {formTab === 'personality' && (
+                  <div className="space-y-4 pt-2">
+                    <p className="text-xs text-zinc-500 leading-tight">Define how this agent thinks, communicates, and behaves. Leave empty to auto-generate sensible defaults.</p>
+                    <div className="space-y-2 flex flex-col">
+                      <label className="text-xs font-bold text-zinc-400 uppercase tracking-widest">ROLE — What the agent does</label>
+                      <textarea value={newAgentRoleDoc} onChange={e => setNewAgentRoleDoc(e.target.value)} rows={5} className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 font-mono focus-visible:outline-none shadow-inner focus-visible:ring-1 focus-visible:ring-indigo-500 focus-visible:border-indigo-500" placeholder="# Role: AgentName&#10;&#10;## Responsibilities&#10;- ...&#10;&#10;## Expertise & Skills&#10;- ...&#10;&#10;## Authority&#10;- ..." />
+                    </div>
+                    <div className="space-y-2 flex flex-col">
+                      <label className="text-xs font-bold text-zinc-400 uppercase tracking-widest">IDENTITY — How the agent communicates</label>
+                      <textarea value={newAgentIdentity} onChange={e => setNewAgentIdentity(e.target.value)} rows={5} className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 font-mono focus-visible:outline-none shadow-inner focus-visible:ring-1 focus-visible:ring-indigo-500 focus-visible:border-indigo-500" placeholder="# Identity: AgentName&#10;&#10;## Personality&#10;...&#10;&#10;## Communication Style&#10;- Tone: ...&#10;- Verbosity: ..." />
+                    </div>
+                    <div className="space-y-2 flex flex-col">
+                      <label className="text-xs font-bold text-zinc-400 uppercase tracking-widest">SOUL — Core principles and boundaries</label>
+                      <textarea value={newAgentSoul} onChange={e => setNewAgentSoul(e.target.value)} rows={5} className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 font-mono focus-visible:outline-none shadow-inner focus-visible:ring-1 focus-visible:ring-indigo-500 focus-visible:border-indigo-500" placeholder="# Core Principles&#10;&#10;## Values&#10;...&#10;&#10;## Boundaries — NEVER&#10;- ...&#10;&#10;## Priority Framework&#10;1. ..." />
+                    </div>
+                  </div>
+                )}
               </form>
             </div>
 
             <div className="p-6 border-t border-zinc-800 bg-zinc-950 flex justify-end gap-3 shrink-0">
-              <Button variant="ghost" type="button" onClick={() => setShowAddAgent(false)}>Cancel</Button>
+              <Button variant="ghost" type="button" onClick={() => { setShowAddAgent(false); setNewAgentSoul(''); setNewAgentIdentity(''); setNewAgentRoleDoc(''); }}>Cancel</Button>
               <Button type="submit" form="add-agent-form" className="bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25">Hire Agent</Button>
             </div>
           </div>

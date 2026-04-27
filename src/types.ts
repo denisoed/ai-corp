@@ -24,11 +24,11 @@ export interface Workspace {
 export interface Agent {
   id: string;
   name: string;
-  model: string; 
-  role: AgentRole;
+  model?: string; 
+  role?: AgentRole;
   status: AgentStatus;
   avatarUrl?: string;
-  description: string;
+  description?: string;
   skills: string[];
   parentId?: string;
   collaborators?: string[];
@@ -134,11 +134,11 @@ export interface Log {
 
 export interface AgentTemplate {
   name: string;
-  model: string;
-  role: AgentRole;
-  description: string;
+  model?: string;
+  role?: AgentRole;
+  description?: string;
   skills: string[];
-  parentIndex?: number; // Index of the manager in the template's agents array
+  parentIndex?: number;
 }
 
 export interface TaskTemplate {

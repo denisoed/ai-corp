@@ -46,7 +46,10 @@
       "id": "9390f1cf-6a14-4985-b061-99310921ae69",
       "parentId": "54821884-711a-4b05-8577-f7752f5e6c6e",
       "status": "Idle",
-      "workspaceId": "8bbe205c-7a44-4c7b-ba32-ee24629f3081"
+      "workspaceId": "8bbe205c-7a44-4c7b-ba32-ee24629f3081",
+      "collaborators": [
+        "13117a26-f0f5-4463-a17e-33ded09bbae5"
+      ]
     },
     {
       "name": "Sec-Reviewer",
@@ -59,7 +62,7 @@
       ],
       "parentIndex": 2,
       "id": "369b5c0f-3d76-4642-80e1-ca8a8c73b66c",
-      "parentId": "9390f1cf-6a14-4985-b061-99310921ae69",
+      "parentId": "1ac13c32-258c-4f65-b794-3ab5ceec7abc",
       "status": "Idle",
       "workspaceId": "8bbe205c-7a44-4c7b-ba32-ee24629f3081"
     },
@@ -99,15 +102,15 @@
       "name": "Jane Smith Bobber",
       "model": "OpenClw",
       "role": "Developer",
-      "parentId": "1ac13c32-258c-4f65-b794-3ab5ceec7abc",
       "status": "Idle",
-      "description": "sdsdf",
+      "description": "фывфыв",
       "skills": [
-        "3333"
+        "ывфыв"
       ],
       "collaborators": [],
       "workspaceId": "8bbe205c-7a44-4c7b-ba32-ee24629f3081",
-      "id": "d37e2f8b-f54c-43fd-ae98-98e5b8df5b5e"
+      "id": "406142a4-828b-4ca3-a42b-d4e8a0584837",
+      "parentId": "1ac13c32-258c-4f65-b794-3ab5ceec7abc"
     }
   ],
   "workspaces": [
@@ -254,6 +257,22 @@
     }
   ],
   "logs": [
+    {
+      "agentId": "system",
+      "action": "Agent Onboarded",
+      "details": "Jane Smith Bobber joined workspace SaltaCRM.",
+      "type": "info",
+      "id": "a5383688-a111-424a-8e41-ba4057aed0c0",
+      "timestamp": "2026-04-26T16:27:08.111Z"
+    },
+    {
+      "agentId": "system",
+      "action": "Agent Removed",
+      "details": "Jane Smith Bobber left the company.",
+      "type": "warning",
+      "id": "176ad2dc-d5b6-4060-b371-54e3fa3bba79",
+      "timestamp": "2026-04-26T16:26:40.221Z"
+    },
     {
       "agentId": "system",
       "action": "Agent Onboarded",
