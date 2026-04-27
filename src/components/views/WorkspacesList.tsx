@@ -129,6 +129,8 @@ export function WorkspacesList() {
   const [editingFile, setEditingFile] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
   const [savingFile, setSavingFile] = useState(false);
+  const [savingWorkspace, setSavingWorkspace] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [activeAgentTab, setActiveAgentTab] = useState('info');
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('settings');
 
@@ -186,6 +188,20 @@ export function WorkspacesList() {
 
   const selectedWorkspace = workspaces.find(w => w.id === showWorkspaceSettings);
   const selectedAgent = agents.find(a => a.id === selectedAgentId);
+
+  useEffect(() => {
+    if (selectedWorkspace) {
+      setSettingsFolderPath(selectedWorkspace.folderPath || '');
+      setSaveStatus('idle');
+    }
+  }, [showWorkspaceSettings]);
+
+  useEffect(() => {
+    if (!showWorkspaceSettings) {
+      setSavingWorkspace(false);
+      setSaveStatus('idle');
+    }
+  }, [showWorkspaceSettings]);
 
   const layoutNodes = useMemo(() => {
     const nodes: Node[] = [];
@@ -950,15 +966,24 @@ export function WorkspacesList() {
 
             <div className="p-4 flex-1 overflow-y-auto">
               <TabPanel id="settings" activeTab={activeWorkspaceTab} className="space-y-4">
-                <form onSubmit={(e) => {
+                <form onSubmit={async (e) => {
                   e.preventDefault();
+                  setSavingWorkspace(true);
+                  setSaveStatus('idle');
                   const formData = new FormData(e.currentTarget);
-                  updateWorkspace(selectedWorkspace.id, {
-                    name: formData.get('name') as string,
-                    description: formData.get('description') as string,
-                    folderPath: settingsFolderPath || undefined
-                  });
-                  addLog({ agentId: 'system', action: 'Workspace Updated', details: `Updated workspace: ${formData.get('name')}`, type: 'info' });
+                  try {
+                    await updateWorkspace(selectedWorkspace.id, {
+                      name: formData.get('name') as string,
+                      description: formData.get('description') as string,
+                      folderPath: settingsFolderPath || undefined
+                    });
+                    addLog({ agentId: 'system', action: 'Workspace Updated', details: `Updated workspace: ${formData.get('name')}`, type: 'info' });
+                    setSaveStatus('success');
+                  } catch {
+                    setSaveStatus('error');
+                  } finally {
+                    setSavingWorkspace(false);
+                  }
                 }} className="space-y-4">
                   <div className="space-y-3">
                     <div className="space-y-1.5">
@@ -993,7 +1018,15 @@ export function WorkspacesList() {
                       </div>
                     </div>
                   </div>
-                  <Button type="submit" className="w-full">Save Changes</Button>
+                  <Button type="submit" className="w-full" disabled={savingWorkspace}>
+                    {savingWorkspace ? 'Saving...' : 'Save Changes'}
+                  </Button>
+                  {saveStatus === 'success' && (
+                    <p className="text-xs text-emerald-400 text-center">Workspace saved successfully</p>
+                  )}
+                  {saveStatus === 'error' && (
+                    <p className="text-xs text-red-400 text-center">Failed to save workspace</p>
+                  )}
                 </form>
               </TabPanel>
 

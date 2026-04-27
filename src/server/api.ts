@@ -35,8 +35,7 @@ router.get('/folders', async (req, res) => {
   const fs = await import('fs');
   const path = await import('path');
 
-  function readDir(dir: string, depth: number = 0): any {
-    if (depth > 2) return null;
+  function readDir(dir: string): any {
     try {
       const entries = fs.readdirSync(dir, { withFileTypes: true });
       const items = [];
@@ -48,7 +47,7 @@ router.get('/folders', async (req, res) => {
             name: entry.name,
             path: fullPath,
             type: 'directory',
-            children: depth < 2 ? undefined : undefined
+            children: undefined
           });
         } else {
           items.push({ name: entry.name, path: fullPath, type: 'file' });

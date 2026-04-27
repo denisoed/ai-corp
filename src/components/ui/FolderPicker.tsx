@@ -16,28 +16,34 @@ interface FolderPickerProps {
   className?: string;
 }
 
+interface TreeNodeProps {
+  key?: React.Key;
+  node: FolderNode;
+  depth: number;
+  selectedPath: string | undefined;
+  onSelect: (path: string) => void;
+  onExpand: (path: string) => Promise<void>;
+  loadingPaths: Set<string>;
+}
+
 function TreeNode({
   node,
   depth,
   selectedPath,
   onSelect,
   onExpand,
-}: {
-  node: FolderNode;
-  depth: number;
-  selectedPath: string | undefined;
-  onSelect: (path: string) => void;
-  onExpand: (path: string) => void;
-}) {
+  loadingPaths,
+}: TreeNodeProps) {
   const [expanded, setExpanded] = useState(false);
   const isDir = node.type === 'directory';
   const isSelected = selectedPath === node.path;
+  const isLoading = loadingPaths.has(node.path);
 
-  const handleToggle = (e: React.MouseEvent) => {
+  const handleToggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isDir) {
       if (!expanded) {
-        onExpand(node.path);
+        await onExpand(node.path);
       }
       setExpanded(prev => !prev);
     }
@@ -77,7 +83,9 @@ function TreeNode({
             onClick={handleToggle}
             className="p-0.5 hover:bg-zinc-700 rounded flex items-center justify-center shrink-0"
           >
-            {expanded ? (
+            {isLoading ? (
+              <Loader2 className="w-3.5 h-3.5 text-zinc-400 animate-spin" />
+            ) : expanded ? (
               <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
             ) : (
               <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />
@@ -97,24 +105,36 @@ function TreeNode({
         </span>
       </div>
 
-      {isDir && expanded && node.children && (
+      {isDir && expanded && (
         <div>
-          {node.children.map(child => (
-            <TreeNode
-              key={child.path}
-              node={child}
-              depth={depth + 1}
-              selectedPath={selectedPath}
-              onSelect={onSelect}
-              onExpand={onExpand}
-            />
-          ))}
-          {node.children.length === 0 && (
+          {node.children ? (
+            node.children.length > 0 ? (
+              node.children.map(child => (
+                <TreeNode
+                  key={child.path}
+                  node={child}
+                  depth={depth + 1}
+                  selectedPath={selectedPath}
+                  onSelect={onSelect}
+                  onExpand={onExpand}
+                  loadingPaths={loadingPaths}
+                />
+              ))
+            ) : (
+              <div
+                className="text-xs text-zinc-600 py-1"
+                style={{ paddingLeft: `${(depth + 1) * 16 + 8}px` }}
+              >
+                Empty
+              </div>
+            )
+          ) : (
             <div
               className="text-xs text-zinc-600 py-1"
               style={{ paddingLeft: `${(depth + 1) * 16 + 8}px` }}
             >
-              Empty
+              <Loader2 className="w-3 h-3 animate-spin inline mr-1" />
+              Loading...
             </div>
           )}
         </div>
@@ -127,7 +147,10 @@ export function FolderPicker({ value, onChange, placeholder = "Select a folder",
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [tree, setTree] = useState<FolderNode[]>([]);
+  const [treeKey, setTreeKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const loadingPaths = useRef<Set<string>>(new Set());
+  const [, forceRender] = useState(0);
 
   const loadFolder = useCallback(async (folderPath: string): Promise<FolderNode[]> => {
     try {
@@ -150,44 +173,71 @@ export function FolderPicker({ value, onChange, placeholder = "Select a folder",
   }, [onChange]);
 
   const handleExpand = useCallback(async (path: string) => {
-    const items = await loadFolder(path);
-    if (items.length === 0) return;
+    if (loadingPaths.current.has(path)) return;
+    loadingPaths.current.add(path);
+    forceRender(n => n + 1);
 
-    setTree(prev => {
-      const updateNode = (nodes: FolderNode[]): FolderNode[] => {
-        return nodes.map(node => {
-          if (node.path === path) {
-            return { ...node, children: items };
-          }
-          if (node.children) {
-            return { ...node, children: updateNode(node.children) };
-          }
-          return node;
-        });
-      };
-      return updateNode(prev);
-    });
+    try {
+      const items = await loadFolder(path);
+      const children = items.length > 0 ? (items[0]?.children || []) : [];
+
+      setTree(prev => {
+        const updateNode = (nodes: FolderNode[]): FolderNode[] => {
+          return nodes.map(node => {
+            if (node.path === path) {
+              return { ...node, children };
+            }
+            if (node.children) {
+              return { ...node, children: updateNode(node.children) };
+            }
+            return node;
+          });
+        };
+        return updateNode(prev);
+      });
+    } finally {
+      loadingPaths.current.delete(path);
+      forceRender(n => n + 1);
+    }
   }, [loadFolder]);
+
+  const handleOpen = useCallback(() => {
+    setOpen(prev => !prev);
+  }, []);
 
   useEffect(() => {
     if (open && tree.length === 0) {
       setLoading(true);
       setError(null);
+      let cancelled = false;
       loadFolder('').then(items => {
+        if (cancelled) return;
         if (items.length > 0) {
           setTree(items[0].children || []);
         }
       }).catch(() => {
+        if (cancelled) return;
         setError('Failed to load root folder');
-      }).finally(() => setLoading(false));
+      }).finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+      return () => { cancelled = true; };
     }
   }, [open, tree.length, loadFolder]);
+
+  useEffect(() => {
+    if (!open) {
+      loadingPaths.current.clear();
+      setTreeKey(k => k + 1);
+      setTree([]);
+    }
+  }, [open]);
 
   return (
     <div className={cn("relative", className)}>
       <button
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={handleOpen}
         className={cn(
           "flex h-10 w-full items-center justify-between rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 shadow-inner focus:outline-none focus:ring-1 focus:ring-indigo-500",
           !value && "text-zinc-500"
@@ -196,7 +246,7 @@ export function FolderPicker({ value, onChange, placeholder = "Select a folder",
         <span className={cn("truncate", value ? "font-mono text-xs" : "")}>
           {value || placeholder}
         </span>
-        <ChevronDown className="w-4 h-4 opacity-50 shrink-0" />
+        <ChevronDown className={cn("w-4 h-4 opacity-50 shrink-0 transition-transform", open && "rotate-180")} />
       </button>
 
       {open && (
@@ -208,8 +258,10 @@ export function FolderPicker({ value, onChange, placeholder = "Select a folder",
               </div>
             ) : error ? (
               <div className="text-xs text-red-400 py-4 text-center">{error}</div>
+            ) : tree.length === 0 ? (
+              <div className="text-xs text-zinc-600 py-4 text-center">No folders found</div>
             ) : (
-              <div>
+              <div key={treeKey}>
                 {value && (
                   <button
                     type="button"
@@ -227,6 +279,7 @@ export function FolderPicker({ value, onChange, placeholder = "Select a folder",
                     selectedPath={value}
                     onSelect={handleSelect}
                     onExpand={handleExpand}
+                    loadingPaths={loadingPaths.current}
                   />
                 ))}
               </div>
