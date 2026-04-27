@@ -688,25 +688,6 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     };
   }
 
-  // --- TOGGLE AUTOPILOT ---
-  if (name === 'toggle_autopilot') {
-    let newState = false;
-    mutateStore(s => {
-      s.isAutopilot = !s.isAutopilot;
-      newState = s.isAutopilot;
-      s.logs.unshift({
-        id: crypto.randomUUID(),
-        timestamp: now,
-        agentId: executingAgentId,
-        action: newState ? 'Autopilot Engaged' : 'Autopilot Disabled',
-        details: newState ? 'AI Orchestration engine has taken over.' : 'System set to manual mode.',
-        type: 'info'
-      });
-      if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
-    });
-    return { success: true, message: `Autopilot is now ${newState ? 'ON' : 'OFF'}.` };
-  }
-
   // --- RESOLVE APPROVAL ---
   if (name === 'resolve_approval') {
     let result: any = {};

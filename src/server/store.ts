@@ -17,7 +17,6 @@ interface StoreData {
   tasks: Task[];
   logs: Log[];
   approvals: ApprovalRequest[];
-  isAutopilot: boolean;
   totalCost: number;
 }
 
@@ -63,7 +62,6 @@ let store: StoreData = {
     }
   ],
   approvals: [],
-  isAutopilot: false,
   totalCost: 0
 };
 
@@ -143,8 +141,8 @@ function partitionStore(): Map<string, WorkspaceData> {
 export function loadStore() {
   try {
     if (fs.existsSync(SETTINGS_FILE)) {
-      const settings = readJson<{ isAutopilot: boolean; totalCost: number }>(
-        SETTINGS_FILE, { isAutopilot: false, totalCost: 0 }
+      const settings = readJson<{ totalCost: number }>(
+        SETTINGS_FILE, { totalCost: 0 }
       );
       let workspaces = readJson<Workspace[]>(WORKSPACES_LIST_FILE, []);
 
@@ -166,7 +164,6 @@ export function loadStore() {
         tasks: allTasks,
         logs: allLogs,
         approvals: allApprovals,
-        isAutopilot: settings.isAutopilot,
         totalCost: settings.totalCost
       };
 
@@ -181,7 +178,6 @@ export function loadStore() {
         tasks: old.tasks || [],
         logs: old.logs || [],
         approvals: old.approvals || [],
-        isAutopilot: old.isAutopilot ?? false,
         totalCost: old.totalCost ?? 0
       };
 
@@ -206,7 +202,7 @@ export function loadStore() {
 }
 
 export function saveStore() {
-  writeJson(SETTINGS_FILE, { isAutopilot: store.isAutopilot, totalCost: store.totalCost });
+  writeJson(SETTINGS_FILE, { totalCost: store.totalCost });
   writeJson(WORKSPACES_LIST_FILE, store.workspaces);
 
   const buckets = partitionStore();

@@ -1,12 +1,12 @@
 import React from 'react';
 import { useStore } from '../../store';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/Card';
-import { Activity, AlertTriangle, CheckCircle2, Clock, DollarSign, ShieldAlert, Users } from 'lucide-react';
+import { Activity, CheckCircle2, ShieldAlert } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 
 export function Dashboard() {
-  const { agents, tasks, logs, totalCost, approvals, resolveApproval, isAutopilot, toggleAutopilot } = useStore();
+  const { agents, tasks, logs, totalCost, approvals, resolveApproval } = useStore();
 
   const activeTasks = tasks.filter(t => t.status === 'In Progress').length;
   const blockedTasks = tasks.filter(t => t.status === 'Blocked' || t.status === 'Failed').length;
@@ -17,28 +17,6 @@ export function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center bg-zinc-950 border border-zinc-800 p-4 rounded-xl">
-        <div className="flex items-center gap-3">
-           <div className={`p-2 rounded-lg ${isAutopilot ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-800 text-zinc-400'}`}>
-             <Activity className="h-5 w-5" />
-           </div>
-           <div>
-             <h2 className="text-lg font-semibold text-zinc-100 flex items-center gap-2">
-               Autopilot Engine
-               {isAutopilot && <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />}
-             </h2>
-             <p className="text-xs text-zinc-500">Autonomous task execution and agent orchestration</p>
-           </div>
-        </div>
-        <Button 
-           variant={isAutopilot ? 'outline' : 'default'}
-           className={isAutopilot ? 'border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}
-           onClick={toggleAutopilot}
-        >
-          {isAutopilot ? 'Disable Autopilot' : 'Engage Autopilot'}
-        </Button>
-      </div>
-
       {/* Top Overview Ribbon */}
       <div className="grid gap-4 md:grid-cols-5">
         <Card className="bg-zinc-950/50">

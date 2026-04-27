@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { LayoutDashboard, FolderKanban, KanbanSquare, Activity, Clock, Settings, Menu } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/Button';
-import { useStore } from '../../store';
 
 interface SidebarItemProps {
   key?: React.Key;
@@ -38,7 +37,6 @@ interface LayoutProps {
 export function Layout(props: LayoutProps) {
   const { activeView, onViewChange, children } = props;
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { isAutopilot, toggleAutopilot } = useStore();
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -103,13 +101,9 @@ export function Layout(props: LayoutProps) {
             <span className="hidden md:inline-block px-2 py-0.5 bg-emerald-500/10 text-emerald-400 text-xs rounded border border-emerald-500/20">SYSTEM STABLE</span>
           </div>
           <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2 border border-zinc-800 bg-zinc-900 rounded-full px-3 py-1 cursor-pointer hover:border-zinc-700 transition" onClick={toggleAutopilot}>
-              <div className={cn("w-2 h-2 rounded-full", isAutopilot ? "bg-emerald-500 animate-pulse" : "bg-zinc-600")} />
-              <span className="text-xs font-semibold text-zinc-300 tracking-wider uppercase">AutoPilot</span>
-            </div>
             <div className="hidden sm:flex items-center gap-2 text-xs">
               <span className="text-zinc-500">Tokens/min:</span>
-              <span className="text-indigo-400 font-mono">{isAutopilot ? '45.1k' : '14.2k'}</span>
+              <span className="text-indigo-400 font-mono">14.2k</span>
             </div>
           </div>
         </header>

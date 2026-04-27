@@ -4,7 +4,6 @@ import path from 'path';
 import apiRouter from './api';
 import { loadStore } from './store';
 import { startTelegramManager } from './telegram';
-import { startOrchestrator } from './orchestrator';
 import { initMemorySystem } from './agent-memory';
 import { initCronManager } from './cron';
 
@@ -17,7 +16,6 @@ initMemorySystem();
 
 // Start background services
 startTelegramManager();
-startOrchestrator();
 initCronManager();
 
 // Middleware

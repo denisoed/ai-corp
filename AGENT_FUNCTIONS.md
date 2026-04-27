@@ -233,17 +233,7 @@ This document describes all available tools/functions that AI agents can use whe
 
 ### Process Control
 
-#### 16. `toggle_autopilot`
-
-**Description:** Enable or disable the autonomous orchestrator.
-
-**Parameters:** None
-
-**Use Case:** Bot can activate/deactivate automatic task progression.
-
----
-
-#### 17. `resolve_approval`
+#### 16. `resolve_approval`
 
 **Description:** Approve or reject a pending approval request.
 
@@ -255,7 +245,7 @@ This document describes all available tools/functions that AI agents can use whe
 
 ---
 
-#### 18. `search_tasks`
+#### 17. `search_tasks`
 
 **Description:** Find tasks matching criteria.
 
@@ -269,7 +259,7 @@ This document describes all available tools/functions that AI agents can use whe
 
 ---
 
-#### 19. `get_task_details`
+#### 18. `get_task_details`
 
 **Description:** Get full information about a task including comments, subtasks, and history.
 
@@ -284,7 +274,7 @@ This document describes all available tools/functions that AI agents can use whe
 
 ### Communication & Reporting
 
-#### 20. `send_broadcast`
+#### 19. `send_broadcast`
 
 **Description:** Send a message to all agents that have Telegram bots configured.
 
@@ -295,7 +285,7 @@ This document describes all available tools/functions that AI agents can use whe
 
 ---
 
-#### 21. `generate_report`
+#### 20. `generate_report`
 
 **Description:** Generate a textual summary report of the company state.
 
@@ -310,7 +300,7 @@ This document describes all available tools/functions that AI agents can use whe
 
 ### Scheduling & Automation
 
-#### 22. `create_cron`
+#### 21. `create_cron`
 
 **Description:** Create a scheduled cron job for an agent. The agent will execute the given prompt on the specified schedule using its AI capabilities and available tools.
 
@@ -329,7 +319,7 @@ This document describes all available tools/functions that AI agents can use whe
 
 ---
 
-#### 23. `list_crons`
+#### 22. `list_crons`
 
 **Description:** List all cron jobs in the current workspace.
 
@@ -341,7 +331,7 @@ This document describes all available tools/functions that AI agents can use whe
 
 ---
 
-#### 24. `delete_cron`
+#### 23. `delete_cron`
 
 **Description:** Delete a cron job by name.
 
@@ -352,7 +342,7 @@ This document describes all available tools/functions that AI agents can use whe
 
 ---
 
-#### 25. `update_cron`
+#### 24. `update_cron`
 
 **Description:** Update a cron job — change its schedule, prompt, or enable/disable it.
 
@@ -367,7 +357,7 @@ This document describes all available tools/functions that AI agents can use whe
 
 ---
 
-#### 26. `run_cron_now`
+#### 25. `run_cron_now`
 
 **Description:** Manually trigger a cron job to run immediately.
 
@@ -386,30 +376,29 @@ This document describes all available tools/functions that AI agents can use whe
 3. `update_task`
 4. `delete_task`
 5. `add_task_comment`
-6. `toggle_autopilot`
-7. `resolve_approval`
+6. `resolve_approval`
 
 ### Phase 2 — Enhanced Control
-8. `search_tasks`
-9. `get_task_details`
-10. `get_agent_details`
-11. `update_agent`
-12. `set_agent_status`
-13. `delete_agent`
+7. `search_tasks`
+8. `get_task_details`
+9. `get_agent_details`
+10. `update_agent`
+11. `set_agent_status`
+12. `delete_agent`
 
 ### Phase 3 — Advanced Features
-14. `create_subtask`
-15. `complete_subtask`
-16. `add_task_tag` / `remove_task_tag`
-17. `send_broadcast`
-18. `generate_report`
+13. `create_subtask`
+14. `complete_subtask`
+15. `add_task_tag` / `remove_task_tag`
+16. `send_broadcast`
+17. `generate_report`
 
 ### Phase 4 — Scheduling & Automation (Implemented)
-19. `create_cron`
-20. `list_crons`
-21. `delete_cron`
-22. `update_cron`
-23. `run_cron_now`
+18. `create_cron`
+19. `list_crons`
+20. `delete_cron`
+21. `update_cron`
+22. `run_cron_now`
 
 ---
 

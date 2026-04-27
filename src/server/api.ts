@@ -410,7 +410,6 @@ router.post('/templates/apply', (req, res) => {
       details: `Deployed template "${template.name}" to workspace "${targetWorkspace.name}"`,
       type: 'success'
     });
-    s.isAutopilot = true;
   });
 
   const storeAfter = getStore();
@@ -430,24 +429,6 @@ router.post('/templates/apply', (req, res) => {
   }
 
   res.json(getStore());
-});
-
-router.post('/autopilot/toggle', (req, res) => {
-  let log: any;
-  mutateStore(s => {
-    s.isAutopilot = !s.isAutopilot;
-    log = {
-      id: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-      agentId: 'system',
-      action: s.isAutopilot ? 'Autopilot Engaged' : 'Autopilot Disabled',
-      details: s.isAutopilot ? 'AI Orchestration engine has taken over.' : 'System set to manual mode.',
-      type: 'info'
-    };
-    s.logs.unshift(log);
-    if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
-  });
-  res.json({ isAutopilot: getStore().isAutopilot, log });
 });
 
 router.get('/agents/:id/personality', (req, res) => {

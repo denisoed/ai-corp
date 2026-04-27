@@ -11,7 +11,6 @@ import { TaskBoard } from './components/views/TaskBoard';
 import { ActivityLogs } from './components/views/ActivityLogs';
 import { CronJobs } from './components/views/CronJobs';
 import { useStore } from './store';
-import { useOrchestrator } from './lib/orchestrator';
 import { useTelegramManager } from './lib/telegramAdapter';
 
 function useSync() {
@@ -34,8 +33,6 @@ export default function App() {
   // Sync state with backend server every 2 seconds
   useSync();
 
-  // These are now server-side only (kept for compatibility)
-  useOrchestrator();
   useTelegramManager();
 
   const renderView = () => {

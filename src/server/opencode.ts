@@ -282,17 +282,6 @@ export const companyTools = [
   {
     type: 'function' as const,
     function: {
-      name: 'toggle_autopilot',
-      description: 'Enable or disable the autonomous orchestrator.',
-      parameters: {
-        type: 'object' as const,
-        properties: {}
-      }
-    }
-  },
-  {
-    type: 'function' as const,
-    function: {
       name: 'resolve_approval',
       description: 'Approve or reject a pending approval request.',
       parameters: {

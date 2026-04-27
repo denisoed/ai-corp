@@ -42,7 +42,6 @@ interface AppState {
   logs: Log[];
   approvals: ApprovalRequest[];
   crons: CronJob[];
-  isAutopilot: boolean;
   totalCost: number;
   loading: boolean;
 
@@ -68,7 +67,6 @@ interface AppState {
 
   applyTemplate: (template: CompanyTemplate, workspaceId: string) => Promise<void>;
   initWorkspaceFromYml: (folderPath: string) => Promise<void>;
-  toggleAutopilot: () => Promise<void>;
 
   fetchCrons: (workspaceId?: string) => Promise<void>;
   addCron: (cron: Omit<CronJob, 'id' | 'createdAt'>) => Promise<void>;
@@ -84,7 +82,6 @@ export const useStore = create<AppState>((set, get) => ({
   logs: [],
   approvals: [],
   crons: [],
-  isAutopilot: false,
   totalCost: 0,
   loading: true,
 
@@ -204,8 +201,7 @@ export const useStore = create<AppState>((set, get) => ({
     set({
       agents: result.agents,
       tasks: result.tasks,
-      logs: result.logs,
-      isAutopilot: result.isAutopilot
+      logs: result.logs
     });
   },
 
@@ -216,14 +212,6 @@ export const useStore = create<AppState>((set, get) => ({
       workspaces: result.workspaces,
       tasks: result.tasks,
       logs: result.logs
-    });
-  },
-
-  toggleAutopilot: async () => {
-    const result = await apiPost('/autopilot/toggle', {});
-    set({
-      isAutopilot: result.isAutopilot,
-      logs: [result.log, ...get().logs].slice(0, 100)
     });
   },
 
