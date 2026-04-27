@@ -247,3 +247,13 @@ export function mutateStore(updater: (draft: StoreData) => void) {
   updater(store);
   saveStore();
 }
+
+export function agentsAreConnected(aId: string, bId: string, agents: Agent[]): boolean {
+  if (aId === bId) return true;
+  const a = agents.find(x => x.id === aId);
+  const b = agents.find(x => x.id === bId);
+  if (!a || !b) return false;
+  if (a.parentId === bId || b.parentId === aId) return true;
+  if (a.collaborators?.includes(bId) || b.collaborators?.includes(aId)) return true;
+  return false;
+}

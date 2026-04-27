@@ -1,4 +1,4 @@
-import { mutateStore, getStore } from './store';
+import { mutateStore, getStore, agentsAreConnected } from './store';
 import { Agent, Task, TaskRisk, TaskPriority, TaskStatus, AgentStatus, Comment } from '../types';
 import { OpenCodeChatSession } from './opencode';
 import { loadMemory, createMemory, appendMessage, buildSystemPrompt, writePersonalityFile } from './agent-memory';
@@ -399,7 +399,11 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     let parentId = undefined;
     if (args.managerName) {
       const parent = findAgent(args.managerName);
-      if (parent) parentId = parent.id;
+      if (!parent) return { success: false, error: `Manager "${args.managerName}" not found.` };
+      if (!agentsAreConnected(executingAgentId, parent.id, state.agents)) {
+        return { success: false, error: `You can only create agents under your manager or collaborator. You are not connected to "${parent.name}".` };
+      }
+      parentId = parent.id;
     }
 
     const newAgentId = crypto.randomUUID();
@@ -469,7 +473,8 @@ export async function executeTool(name: string, args: any, executingAgentId: str
   // --- GET COMPANY STATE ---
   if (name === 'get_company_state') {
     if (args.focus === 'agents') {
-      return { agents: state.agents.map(a => ({ name: a.name, role: a.role, status: a.status })) };
+      const connected = state.agents.filter(a => agentsAreConnected(executingAgentId, a.id, state.agents));
+      return { agents: connected.map(a => ({ name: a.name, role: a.role, status: a.status })) };
     }
     if (args.focus === 'tasks') {
       return { tasks: state.tasks.map(t => ({ title: t.title, status: t.status, assignee: state.agents.find(a => a.id === t.assigneeId)?.name || 'unassigned' })) };
@@ -504,6 +509,9 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     if (!task) return { success: false, error: `Task "${args.taskTitle}" not found.` };
     const agent = findAgent(args.agentName);
     if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+    if (agent.id !== executingAgentId && !agentsAreConnected(executingAgentId, agent.id, state.agents)) {
+      return { success: false, error: `You can only assign tasks to agents you have a relationship with (manager/subordinate or collaborator). "${agent.name}" is not connected to you.` };
+    }
 
     mutateStore(s => {
       const t = s.tasks.find(x => x.id === task.id);
@@ -551,6 +559,11 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     const task = findTask(args.taskTitle);
     if (!task) return { success: false, error: `Task "${args.taskTitle}" not found.` };
     const agent = state.agents.find(a => a.id === executingAgentId);
+
+    if (task.assigneeId && !agentsAreConnected(executingAgentId, task.assigneeId, state.agents)) {
+      const assignee = state.agents.find(a => a.id === task.assigneeId);
+      return { success: false, error: `You can only comment on tasks assigned to agents you are connected to. "${assignee?.name || task.assigneeId}" is not connected to you.` };
+    }
 
     mutateStore(s => {
       const t = s.tasks.find(x => x.id === task.id);
@@ -683,9 +696,52 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     const agent = findAgent(args.agentName);
     if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
     const tasks = state.tasks.filter(t => t.assigneeId === agent.id);
+    const manager = agent.parentId ? state.agents.find(a => a.id === agent.parentId) : null;
+    const collaborators = (agent.collaborators || []).map(id => state.agents.find(a => a.id === id)).filter(Boolean) as Agent[];
+    const subordinates = state.agents.filter(a => a.parentId === agent.id);
+
+    let connection: string;
+    if (agent.id === executingAgentId) {
+      connection = 'self';
+    } else if (agent.parentId === executingAgentId) {
+      connection = 'subordinate';
+    } else if (executingAgent?.parentId === agent.id) {
+      connection = 'manager';
+    } else if (agentsAreConnected(executingAgentId, agent.id, state.agents)) {
+      connection = 'collaborator';
+    } else {
+      connection = 'none';
+    }
+
     return {
-      agent: { name: agent.name, role: agent.role, status: agent.status, skills: agent.skills },
+      agent: {
+        name: agent.name,
+        role: agent.role,
+        status: agent.status,
+        skills: agent.skills,
+        description: agent.description,
+        manager: manager ? { name: manager.name, role: manager.role } : null,
+        collaborators: collaborators.map(c => ({ name: c.name, role: c.role })),
+        subordinates: subordinates.map(s => ({ name: s.name, role: s.role })),
+      },
+      connection,
       tasks: tasks.map(t => ({ title: t.title, status: t.status, priority: t.priority }))
+    };
+  }
+
+  // --- GET MY CONNECTIONS ---
+  if (name === 'get_my_connections') {
+    const manager = executingAgent?.parentId ? state.agents.find(a => a.id === executingAgent.parentId) : null;
+    const subordinates = state.agents.filter(a => a.parentId === executingAgentId);
+    const collaborators = (executingAgent?.collaborators || [])
+      .map(id => state.agents.find(a => a.id === id))
+      .filter(Boolean) as Agent[];
+
+    return {
+      manager: manager ? { name: manager.name, role: manager.role, status: manager.status } : null,
+      subordinates: subordinates.map(a => ({ name: a.name, role: a.role, status: a.status })),
+      collaborators: collaborators.map(a => ({ name: a.name, role: a.role, status: a.status })),
+      totalConnections: (manager ? 1 : 0) + subordinates.length + collaborators.length
     };
   }
 
@@ -786,7 +842,15 @@ export async function executeTool(name: string, args: any, executingAgentId: str
 
   // --- SEND BROADCAST ---
   if (name === 'send_broadcast') {
-    const botsWithTokens = state.agents.filter(a => a.telegramConfig?.botToken && a.telegramConfig?.lastChatId);
+    const botsWithTokens = state.agents.filter(a =>
+      a.telegramConfig?.botToken && a.telegramConfig?.lastChatId &&
+      agentsAreConnected(executingAgentId, a.id, state.agents)
+    );
+
+    if (botsWithTokens.length === 0) {
+      return { success: false, error: 'No connected agents with Telegram bots configured.' };
+    }
+
     let sent = 0;
 
     for (const agent of botsWithTokens) {

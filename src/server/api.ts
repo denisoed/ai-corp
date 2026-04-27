@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getStore, mutateStore } from './store';
+import { getStore, mutateStore, agentsAreConnected } from './store';
 import { createMemory, loadMemory, getMemoryContext, clearMemory, readPersonalityFile, writePersonalityFile, getAllPersonalityFiles } from './agent-memory';
 import { listCronJobs, createCronJob, updateCronJob, deleteCronJob, runCronNow } from './cron';
 import yaml from 'js-yaml';
@@ -103,6 +103,13 @@ router.delete('/workspaces/:id', (req, res) => {
 
 router.post('/agents', (req, res) => {
   const { soul, identity, roleDoc, ...agentData } = req.body;
+  const agentId = req.headers['x-agent-id'] as string | undefined;
+  const store = getStore();
+
+  if (agentId && agentData.parentId && !agentsAreConnected(agentId, agentData.parentId, store.agents)) {
+    const parent = store.agents.find(a => a.id === agentData.parentId);
+    return res.status(403).json({ error: `Agent is not connected to "${parent?.name || agentData.parentId}".` });
+  }
 
   if (!agentData.workspaceId) {
     return res.status(400).json({ error: 'workspaceId is required. Agents must be assigned to a workspace.' });
@@ -229,6 +236,16 @@ router.post('/tasks', (req, res) => {
 });
 
 router.patch('/tasks/:id', (req, res) => {
+  const agentId = req.headers['x-agent-id'] as string | undefined;
+  const store = getStore();
+
+  if (agentId && req.body.assigneeId) {
+    if (!agentsAreConnected(agentId, req.body.assigneeId, store.agents)) {
+      const assignee = store.agents.find(a => a.id === req.body.assigneeId);
+      return res.status(403).json({ error: `Agent is not connected to "${assignee?.name || req.body.assigneeId}".` });
+    }
+  }
+
   mutateStore(s => {
     const idx = s.tasks.findIndex(t => t.id === req.params.id);
     if (idx !== -1) {
@@ -240,6 +257,17 @@ router.patch('/tasks/:id', (req, res) => {
 });
 
 router.post('/tasks/:taskId/comments', (req, res) => {
+  const agentId = req.headers['x-agent-id'] as string | undefined;
+  const store = getStore();
+
+  if (agentId) {
+    const task = store.tasks.find(t => t.id === req.params.taskId);
+    if (task?.assigneeId && !agentsAreConnected(agentId, task.assigneeId, store.agents)) {
+      const assignee = store.agents.find(a => a.id === task.assigneeId);
+      return res.status(403).json({ error: `Agent is not connected to "${assignee?.name || task.assigneeId}".` });
+    }
+  }
+
   const comment = { ...req.body, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
   mutateStore(s => {
     const task = s.tasks.find(t => t.id === req.params.taskId);
