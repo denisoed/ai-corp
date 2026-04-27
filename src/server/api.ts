@@ -54,13 +54,19 @@ router.get('/folders', async (req, res) => {
     }
   }
 
-  const targetPath = (req.query.path as string) || (process.env.HOME || '');
+  let targetPath = (req.query.path as string) || (process.env.HOME || '');
   if (!targetPath) {
     return res.status(400).json({ error: 'No path specified and HOME not set' });
   }
-  const name = targetPath.split('/').pop() || targetPath;
-  const items = readDir(targetPath) || [];
-  res.json([{ name, path: targetPath, type: 'directory', children: items }]);
+
+  const resolvedTarget = path.resolve(targetPath);
+  if (!path.isAbsolute(targetPath)) {
+    return res.status(400).json({ error: 'Path must be absolute' });
+  }
+
+  const name = resolvedTarget.split('/').pop() || resolvedTarget;
+  const items = readDir(resolvedTarget) || [];
+  res.json([{ name, path: resolvedTarget, type: 'directory', children: items }]);
 });
 
 router.patch('/workspaces/:id', (req, res) => {
@@ -88,15 +94,24 @@ router.delete('/workspaces/:id', (req, res) => {
 
 router.post('/agents', (req, res) => {
   const { soul, identity, roleDoc, ...agentData } = req.body;
+
+  if (!agentData.workspaceId) {
+    return res.status(400).json({ error: 'workspaceId is required. Agents must be assigned to a workspace.' });
+  }
+  const workspace = getStore().workspaces.find(w => w.id === agentData.workspaceId);
+  if (!workspace) {
+    return res.status(400).json({ error: `Workspace ${agentData.workspaceId} not found` });
+  }
+
   const agent = { ...agentData, id: crypto.randomUUID() };
   mutateStore(s => {
     s.agents.push(agent);
+    const ws = s.workspaces.find(w => w.id === agent.workspaceId);
+    if (ws && !ws.agentIds.includes(agent.id)) {
+      ws.agentIds.push(agent.id);
+    }
   });
 
-  const store = getStore();
-  const workspace = agent.workspaceId
-    ? store.workspaces.find(w => w.id === agent.workspaceId)
-    : undefined;
   createMemory(agent, workspace);
 
   if (soul) writePersonalityFile(agent.id, 'SOUL.md', soul);
@@ -109,9 +124,22 @@ router.post('/agents', (req, res) => {
 router.patch('/agents/:id', (req, res) => {
   const store = getStore();
   const agent = store.agents.find(a => a.id === req.params.id);
+
+  // Prevent removing an agent from its workspace
+  if (req.body.workspaceId === null || req.body.workspaceId === '') {
+    return res.status(400).json({ error: 'workspaceId cannot be removed. Agents must always belong to a workspace.' });
+  }
+
   const oldWorkspaceId = agent?.workspaceId;
   const newWorkspaceId = req.body.workspaceId;
   const workspaceChanged = newWorkspaceId !== undefined && newWorkspaceId !== oldWorkspaceId;
+
+  if (workspaceChanged) {
+    const targetWorkspace = store.workspaces.find(w => w.id === newWorkspaceId);
+    if (!targetWorkspace) {
+      return res.status(400).json({ error: `Workspace ${newWorkspaceId} not found` });
+    }
+  }
 
   mutateStore(s => {
     const idx = s.agents.findIndex(a => a.id === req.params.id);
@@ -289,7 +317,16 @@ router.post('/approvals/:id/resolve', (req, res) => {
 });
 
 router.post('/templates/apply', (req, res) => {
-  const template = req.body;
+  const { workspaceId, ...template } = req.body;
+
+  if (!workspaceId) {
+    return res.status(400).json({ error: 'workspaceId is required to apply a template' });
+  }
+  const targetWorkspace = getStore().workspaces.find(w => w.id === workspaceId);
+  if (!targetWorkspace) {
+    return res.status(400).json({ error: `Workspace ${workspaceId} not found` });
+  }
+
   const newAgentIds = template.agents.map(() => crypto.randomUUID());
 
   mutateStore(s => {
@@ -297,7 +334,8 @@ router.post('/templates/apply', (req, res) => {
       ...a,
       id: newAgentIds[i],
       parentId: a.parentIndex !== undefined ? newAgentIds[a.parentIndex] : undefined,
-      status: 'Idle' as const
+      status: 'Idle' as const,
+      workspaceId
     }));
 
     const newTasks = template.tasks.map((t: any) => ({
@@ -319,6 +357,14 @@ router.post('/templates/apply', (req, res) => {
 
     s.agents = newAgents;
     s.tasks = newTasks;
+
+    const ws = s.workspaces.find(w => w.id === workspaceId);
+    if (ws) {
+      for (const id of newAgentIds) {
+        if (!ws.agentIds.includes(id)) ws.agentIds.push(id);
+      }
+    }
+
     s.logs = [{
       id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
@@ -335,7 +381,7 @@ router.post('/templates/apply', (req, res) => {
     const ws = agent.workspaceId
       ? storeAfter.workspaces.find(w => w.id === agent.workspaceId)
       : undefined;
-    createMemory(agent, ws);
+    if (ws) createMemory(agent, ws);
   }
 
   res.json(getStore());

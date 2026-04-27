@@ -9,9 +9,14 @@ const TELEGRAM_FORMATTING_RULES = `# TELEGRAM FORMATTING RULES — Must follow s
 
 You are responding via Telegram messenger. Follow these formatting rules:
 
-- Use ONLY plain text. Do NOT use any markdown, HTML, or rich text formatting.
+- Use Telegram Markdown formatting (legacy).
+- For bold use *single asterisks* like *bold text* (NOT **double**).
+- For italic use _underscores_ like _italic text_.
+- For inline code use backticks like \`code\`.
+- For pre-formatted code blocks use triple backticks like \`\`\`code\`\`\`.
+- For links use [text](URL).
 - NEVER use tables or table-like structures (no |---| grids, no ASCII tables).
-- NEVER use code blocks (\`\`\`), bold (**), italic (*), strikethrough (~~), headers (#), inline code (\`), or markdown links.
+- NEVER use headers (#), HTML tags, or strikethrough (~~).
 - For lists, use simple bullet points with "-" or "•" and numbered lists with "1.", "2.", etc.
 - Structure your response with line breaks and blank lines between sections — not with visual dividers.
 - Keep responses concise. Telegram is a chat app, not a document.
@@ -25,6 +30,31 @@ interface BotState {
 }
 
 const runningBots: Map<string, BotState> = new Map();
+
+function normalizeTelegramMarkdown(text: string): string {
+  const codes: string[] = [];
+  let result = text;
+
+  // Protect inline code blocks
+  result = result.replace(/`[^`]+`/g, (match) => {
+    codes.push(match);
+    return `\x00${codes.length - 1}\x00`;
+  });
+
+  // Protect multiline code blocks
+  result = result.replace(/```[\s\S]*?```/g, (match) => {
+    codes.push(match);
+    return `\x00${codes.length - 1}\x00`;
+  });
+
+  // Convert **bold** to *bold* for Telegram legacy Markdown
+  result = result.replace(/\*\*(.+?)\*\*/g, '*$1*');
+
+  // Restore protected blocks
+  result = result.replace(/\x00(\d+)\x00/g, (_, index) => codes[Number(index)]);
+
+  return result;
+}
 
 export function startTelegramManager() {
   setInterval(() => {
@@ -154,6 +184,12 @@ async function handleIncomingMessage(agentId: string, token: string, message: an
   const agentInfo = getStore().agents.find(a => a.id === agentId);
   if (!agentInfo) return;
 
+  const senderId = message.from?.id;
+  const allowedIds = agentInfo.telegramConfig?.allowedChatIds;
+
+  if (!allowedIds || allowedIds.length === 0) return;
+  if (!senderId || !allowedIds.includes(senderId)) return;
+
   mutateStore(s => {
     s.logs.unshift({
       id: crypto.randomUUID(),
@@ -219,10 +255,12 @@ async function handleIncomingMessage(agentId: string, token: string, message: an
     await appendMessage(agentId, { role: 'user', content: text, source: 'telegram' });
     await appendMessage(agentId, { role: 'assistant', content: finalReply, source: 'telegram' });
 
+    const telegramText = normalizeTelegramMarkdown(finalReply);
+
     const res = await fetch(`${TELEGRAM_API}${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: finalReply })
+      body: JSON.stringify({ chat_id: chatId, text: telegramText, parse_mode: 'Markdown' })
     });
 
     if (!res.ok) {
@@ -270,6 +308,13 @@ async function executeTool(name: string, args: any, executingAgentId: string, to
   const state = getStore();
   const now = new Date().toISOString();
 
+  const executingAgent = state.agents.find(a => a.id === executingAgentId);
+
+  // Every agent must belong to a workspace to act
+  if (!executingAgent?.workspaceId) {
+    return { success: false, error: 'You are not assigned to a workspace and cannot perform actions.' };
+  }
+
   // --- CREATE AGENT ---
   if (name === 'create_agent') {
     let parentId = undefined;
@@ -279,6 +324,7 @@ async function executeTool(name: string, args: any, executingAgentId: string, to
     }
 
     const newAgentId = crypto.randomUUID();
+    const workspaceId = executingAgent.workspaceId;
 
     mutateStore(s => {
       s.agents.push({
@@ -287,15 +333,18 @@ async function executeTool(name: string, args: any, executingAgentId: string, to
         role: args.role as any,
         skills: args.skills || [],
         parentId,
-        status: 'Idle'
+        status: 'Idle',
+        workspaceId
       });
+      const ws = s.workspaces.find(w => w.id === workspaceId);
+      if (ws && !ws.agentIds.includes(newAgentId)) {
+        ws.agentIds.push(newAgentId);
+      }
     });
 
     const newAgent = getStore().agents.find(a => a.id === newAgentId);
     if (newAgent) {
-      const ws = newAgent.workspaceId
-        ? getStore().workspaces.find(w => w.id === newAgent.workspaceId)
-        : undefined;
+      const ws = getStore().workspaces.find(w => w.id === workspaceId);
       createMemory(newAgent, ws);
     }
 
@@ -303,8 +352,8 @@ async function executeTool(name: string, args: any, executingAgentId: string, to
     if (args.identity) writePersonalityFile(newAgentId, 'IDENTITY.md', args.identity);
     if (args.roleDoc) writePersonalityFile(newAgentId, 'ROLE.md', args.roleDoc);
 
-    logAction('Hired Agent via Telegram', `Hired ${args.name} (${args.role}).`, 'success', executingAgentId);
-    return { success: true, message: `Agent ${args.name} created successfully.` };
+    logAction('Hired Agent via Telegram', `Hired ${args.name} (${args.role}) into workspace.`, 'success', executingAgentId);
+    return { success: true, message: `Agent ${args.name} created successfully in your workspace.` };
   }
 
   // --- CREATE TASK ---
@@ -681,12 +730,16 @@ async function executeTool(name: string, args: any, executingAgentId: string, to
 
     for (const agent of botsWithTokens) {
       try {
+        const broadcastText = normalizeTelegramMarkdown(
+          `📢 Broadcast from ${state.agents.find(a => a.id === executingAgentId)?.name || 'Admin'}:\n\n${args.message}`
+        );
         await fetch(`${TELEGRAM_API}${agent.telegramConfig!.botToken}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: agent.telegramConfig!.lastChatId,
-            text: `📢 Broadcast from ${state.agents.find(a => a.id === executingAgentId)?.name || 'Admin'}:\n\n${args.message}`
+            text: broadcastText,
+            parse_mode: 'Markdown'
           })
         });
         sent++;

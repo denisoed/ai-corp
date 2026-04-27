@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { Agent, Task, Log, ApprovalRequest, Workspace } from '../types';
 
+
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DATA_FILE = path.join(DATA_DIR, 'store.json');
 
@@ -46,6 +47,27 @@ export function loadStore() {
         ...parsed,
         workspaces: parsed.workspaces || []
       };
+
+      // Migration: legacy agents without workspace get a fallback workspace
+      const orphanAgents = store.agents.filter(a => !a.workspaceId);
+      if (orphanAgents.length > 0) {
+        console.warn(`[Store] Found ${orphanAgents.length} agents without workspace. Creating fallback workspace...`);
+        const fallbackWorkspace: Workspace = {
+          id: crypto.randomUUID(),
+          name: 'Fallback Workspace',
+          description: 'Auto-created workspace for legacy agents',
+          folderPath: process.cwd(),
+          agentIds: orphanAgents.map(a => a.id),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        store.workspaces.push(fallbackWorkspace);
+        orphanAgents.forEach(a => {
+          a.workspaceId = fallbackWorkspace.id;
+        });
+        saveStore();
+      }
+
       console.log('[Store] Loaded from', DATA_FILE);
     } else {
       console.log('[Store] No data file found, using defaults');

@@ -6,7 +6,7 @@ import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Input } from '../ui/Input';
 import { FolderPicker } from '../ui/FolderPicker';
-import { Plus, Briefcase, Users as UsersIcon, Trash2, X, User, Link2, MessageCircle, Shield, AlertTriangle, FolderKanban, FileText, Pencil, Check } from 'lucide-react';
+import { Plus, Briefcase, Users as UsersIcon, Trash2, X, User, Link2, MessageCircle, AlertTriangle, FolderKanban, FileText, Pencil, Check } from 'lucide-react';
 import { COMPANY_TEMPLATES } from '../../lib/templates';
 import { ReactFlow, Background, Controls, Node, Edge, useNodesState, useEdgesState } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -711,7 +711,6 @@ export function WorkspacesList() {
                 { id: 'personality', label: 'Personality', icon: <FileText size={14} /> },
                 { id: 'relationships', label: 'Team', icon: <Link2 size={14} /> },
                 { id: 'telegram', label: 'Telegram', icon: <MessageCircle size={14} /> },
-                { id: 'access', label: 'Access', icon: <Shield size={14} /> },
               ]}
               activeTab={activeAgentTab}
               onTabChange={setActiveAgentTab}
@@ -822,7 +821,29 @@ export function WorkspacesList() {
                       className="bg-zinc-950 font-mono text-xs"
                     />
                   </div>
-                  <p className="text-xs text-zinc-500 leading-tight">Create a bot in @BotFather, paste the token here, and you can chat with {selectedAgent.name} directly from Telegram.</p>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Allowed Telegram IDs</label>
+                    <Input
+                      placeholder="123456789, 987654321"
+                      value={selectedAgent.telegramConfig?.allowedChatIds?.join(', ') || ''}
+                      onChange={(e) => {
+                        const ids = e.target.value
+                          .split(',')
+                          .map(s => s.trim())
+                          .filter(Boolean)
+                          .map(Number)
+                          .filter(n => !isNaN(n));
+                        updateAgent(selectedAgent.id, {
+                          telegramConfig: {
+                            ...(selectedAgent.telegramConfig || { status: 'disconnected', botToken: '' }),
+                            allowedChatIds: ids.length ? ids : undefined
+                          }
+                        });
+                      }}
+                      className="bg-zinc-950 font-mono text-xs"
+                    />
+                  </div>
+                  <p className="text-xs text-zinc-500 leading-tight">Create a bot in @BotFather, paste the token here, and you can chat with {selectedAgent.name} directly from Telegram. The bot will only respond to the Telegram IDs listed above. Leave the IDs field empty to block all incoming messages.</p>
 
                   {selectedAgent.telegramConfig?.botToken && (
                     <div className="flex flex-col gap-2 bg-zinc-950 p-3 rounded-md border border-zinc-800">
@@ -868,35 +889,6 @@ export function WorkspacesList() {
                       )}
                     </div>
                   )}
-                </div>
-              </TabPanel>
-
-              <TabPanel id="access" activeTab={activeAgentTab} className="space-y-4">
-                <div className="space-y-3">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Allowed Paths</label>
-                    <Input
-                      placeholder="/path/to/allowed"
-                      value={selectedAgent.allowedPaths?.join(', ') || ''}
-                      onChange={(e) => updateAgent(selectedAgent.id, {
-                        allowedPaths: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
-                      })}
-                      className="bg-zinc-950"
-                    />
-                    <p className="text-xs text-zinc-500">Comma-separated paths where agent can operate.</p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Forbidden Paths</label>
-                    <Input
-                      placeholder="/path/to/forbidden"
-                      value={selectedAgent.forbiddenPaths?.join(', ') || ''}
-                      onChange={(e) => updateAgent(selectedAgent.id, {
-                        forbiddenPaths: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
-                      })}
-                      className="bg-zinc-950"
-                    />
-                    <p className="text-xs text-zinc-500">Comma-separated paths where agent cannot operate.</p>
-                  </div>
                 </div>
               </TabPanel>
 

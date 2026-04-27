@@ -32,15 +32,14 @@ export interface Agent {
   skills: string[];
   parentId?: string;
   collaborators?: string[];
-  workspaceId?: string;
+  workspaceId: string;
   telegramConfig?: {
     botToken: string;
     status: 'disconnected' | 'running' | 'error';
     lastError?: string;
     lastChatId?: number | string;
+    allowedChatIds?: (number | string)[];
   };
-  allowedPaths?: string[];
-  forbiddenPaths?: string[];
   budgetToday?: number;
   spentToday?: number;
   currentTaskId?: string;

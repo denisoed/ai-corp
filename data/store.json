@@ -13,7 +13,10 @@
       "telegramConfig": {
         "status": "running",
         "botToken": "8681255478:AAFmCTv8_5l-Ci68vaXrFHi71qdYhWuY7Xc",
-        "lastChatId": 430385670
+        "lastChatId": 430385670,
+        "allowedChatIds": [
+          430385670
+        ]
       },
       "workspaceId": "8bbe205c-7a44-4c7b-ba32-ee24629f3081",
       "collaborators": []
@@ -257,6 +260,70 @@
     }
   ],
   "logs": [
+    {
+      "id": "69fa26a8-c9e5-4a2c-b7f7-fda86e14a51a",
+      "timestamp": "2026-04-27T08:48:51.030Z",
+      "agentId": "system",
+      "action": "Telegram Message Received",
+      "details": "CEO Bot received a message: \"Куда имеешь доступы?\"",
+      "type": "info"
+    },
+    {
+      "id": "f4fe9601-f7ff-41e4-bf18-f210b5f9b509",
+      "timestamp": "2026-04-27T08:39:20.132Z",
+      "agentId": "system",
+      "action": "Telegram Message Received",
+      "details": "CEO Bot received a message: \"Куда имеешь доступы?\"",
+      "type": "info"
+    },
+    {
+      "id": "21f60f6f-86fa-48fd-90ec-e683f908c4a6",
+      "timestamp": "2026-04-27T07:20:20.120Z",
+      "agentId": "system",
+      "action": "Telegram Message Received",
+      "details": "CEO Bot received a message: \"привет\"",
+      "type": "info"
+    },
+    {
+      "id": "56fdbb3b-8e8a-4085-a8a1-063ccdff71a4",
+      "timestamp": "2026-04-27T07:16:02.594Z",
+      "agentId": "system",
+      "action": "Telegram Message Received",
+      "details": "CEO Bot received a message: \"ПРивет\"",
+      "type": "info"
+    },
+    {
+      "id": "d4a26996-b41d-4a57-8653-d79cfefa8553",
+      "timestamp": "2026-04-27T07:15:11.859Z",
+      "agentId": "system",
+      "action": "Telegram Message Received",
+      "details": "CEO Bot received a message: \"ПРивет\"",
+      "type": "info"
+    },
+    {
+      "id": "72846c12-beb1-49b9-8cb7-94c1a64481c0",
+      "timestamp": "2026-04-27T07:12:42.499Z",
+      "agentId": "system",
+      "action": "Telegram Message Received",
+      "details": "CEO Bot received a message: \"привет\"",
+      "type": "info"
+    },
+    {
+      "agentId": "system",
+      "action": "Telegram Test",
+      "details": "Sent test message to Telegram.",
+      "type": "success",
+      "id": "04fd374e-2bf3-4dcd-9b84-904bef6c1ddf",
+      "timestamp": "2026-04-27T07:09:41.660Z"
+    },
+    {
+      "agentId": "system",
+      "action": "Telegram Test",
+      "details": "Sent test message to Telegram.",
+      "type": "success",
+      "id": "8848368a-b6ca-4775-adfd-153d632a42c3",
+      "timestamp": "2026-04-27T07:08:58.778Z"
+    },
     {
       "agentId": "system",
       "action": "Agent Onboarded",
