@@ -11,6 +11,7 @@ import { COMPANY_TEMPLATES } from '../../lib/templates';
 import { ReactFlow, Background, Controls, Node, Edge, useNodesState, useEdgesState } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { AgentNode } from './AgentNode';
+import { ParallelBezierEdge } from './ParallelBezierEdge';
 import { CustomSelect, SelectItem } from '../ui/CustomSelect';
 import { MultiSelect } from '../ui/MultiSelect';
 import { Tabs, TabPanel } from '../ui/Tabs';
@@ -137,6 +138,7 @@ export function WorkspacesList() {
   const [activeAgentTab, setActiveAgentTab] = useState('info');
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('settings');
   const [showChatPanel, setShowChatPanel] = useState(false);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
 
   const [newWsName, setNewWsName] = useState('');
   const [newWsDescription, setNewWsDescription] = useState('');
@@ -191,6 +193,10 @@ export function WorkspacesList() {
   const nodeTypes = useMemo(() => ({
     agent: AgentNode,
     workspaceGroup: WorkspaceGroupNodeComponent
+  }), []);
+
+  const edgeTypes = useMemo(() => ({
+    parallelBezier: ParallelBezierEdge,
   }), []);
 
   const selectedWorkspace = workspaces.find(w => w.id === showWorkspaceSettings);
@@ -304,6 +310,7 @@ export function WorkspacesList() {
         type: 'workspaceGroup',
         position: { x: layout.x, y: layout.y },
         draggable: true,
+        selectable: false,
         zIndex: 0,
         data: {
           workspaceId: layout.wsId,
@@ -312,7 +319,6 @@ export function WorkspacesList() {
           agentCount: layout.agents.length,
           width: layout.width,
           height: layout.height,
-          zIndex: 0
         }
       });
 
@@ -322,7 +328,7 @@ export function WorkspacesList() {
           type: 'agent',
           position: { x: layout.x + a.relX, y: layout.y + a.relY },
           draggable: true,
-          zIndex: 1,
+          zIndex: 2,
           data: { ...a.data, selected: selectedAgentId === a.id, workspaceColor: layout.color }
         });
       });
@@ -337,6 +343,7 @@ export function WorkspacesList() {
         type: 'workspaceGroup',
         position: { x: 60, y: unassignedY },
         draggable: true,
+        selectable: false,
         zIndex: 0,
         data: {
           workspaceId: '__unassigned',
@@ -345,7 +352,6 @@ export function WorkspacesList() {
           agentCount: layout.agents.length,
           width: layout.width,
           height: layout.height,
-          zIndex: 0
         }
       });
 
@@ -355,7 +361,7 @@ export function WorkspacesList() {
           type: 'agent',
           position: { x: 60 + a.relX, y: unassignedY + a.relY },
           draggable: true,
-          zIndex: 1,
+          zIndex: 2,
           data: { ...a.data, selected: selectedAgentId === a.id, workspaceColor: '#52525b' }
         });
       });
@@ -389,6 +395,9 @@ export function WorkspacesList() {
           sourceHandle: 'bottom',
           targetHandle: 'top',
           type: 'smoothstep',
+          zIndex: 1,
+          selectable: true,
+          interactionWidth: 20,
           style: { stroke: 'rgba(161, 161, 170, 0.4)', strokeWidth: 1.5, strokeDasharray: '4 4' }
         });
       });
@@ -410,16 +419,52 @@ export function WorkspacesList() {
         }
       });
 
+      const collabEdges: { source: string, target: string, sourceHandle: string, targetHandle: string }[] = [];
       horizontalLinks.forEach(link => {
         const sx = desc.find(n => n.data.id === link.source.data.id)?.x || 0;
         const tx = desc.find(n => n.data.id === link.target.data.id)?.x || 0;
-        const handles = sx < tx ? { sourceHandle: 'right', targetHandle: 'left' } : { sourceHandle: 'left', targetHandle: 'right' };
-        edges.push({
-          id: `h-${link.source.data.id}-${link.target.data.id}`,
+        const handles = sx < tx
+          ? { sourceHandle: 'right', targetHandle: 'left' }
+          : { sourceHandle: 'left', targetHandle: 'right' };
+        collabEdges.push({
           source: link.source.data.id,
           target: link.target.data.id,
           ...handles,
-          type: 'bezier',
+        });
+      });
+
+      const sourceGroups = new Map<string, number[]>();
+      const targetGroups = new Map<string, number[]>();
+      collabEdges.forEach((edge, i) => {
+        const srcKey = `${edge.source}:${edge.sourceHandle}`;
+        const tgtKey = `${edge.target}:${edge.targetHandle}`;
+        if (!sourceGroups.has(srcKey)) sourceGroups.set(srcKey, []);
+        sourceGroups.get(srcKey)!.push(i);
+        if (!targetGroups.has(tgtKey)) targetGroups.set(tgtKey, []);
+        targetGroups.get(tgtKey)!.push(i);
+      });
+
+      collabEdges.forEach((edge, i) => {
+        const srcKey = `${edge.source}:${edge.sourceHandle}`;
+        const tgtKey = `${edge.target}:${edge.targetHandle}`;
+        const srcIndices = sourceGroups.get(srcKey)!;
+        const tgtIndices = targetGroups.get(tgtKey)!;
+        const sourceIndex = srcIndices.indexOf(i);
+        const sourceTotal = srcIndices.length;
+        const targetIndex = tgtIndices.indexOf(i);
+        const targetTotal = tgtIndices.length;
+
+        edges.push({
+          id: `h-${edge.source}-${edge.target}-${i}`,
+          source: edge.source,
+          target: edge.target,
+          sourceHandle: edge.sourceHandle,
+          targetHandle: edge.targetHandle,
+          type: 'parallelBezier',
+          zIndex: 1,
+          selectable: true,
+          interactionWidth: 20,
+          data: { sourceIndex, sourceTotal, targetIndex, targetTotal },
           style: { stroke: 'rgba(99, 102, 241, 0.5)', strokeWidth: 2, strokeDasharray: '4 4' }
         });
       });
@@ -437,6 +482,9 @@ export function WorkspacesList() {
           sourceHandle: 'bottom',
           targetHandle: 'top',
           type: 'smoothstep',
+          zIndex: 1,
+          selectable: true,
+          interactionWidth: 20,
           style: { stroke: 'rgba(161, 161, 170, 0.4)', strokeWidth: 1.5, strokeDasharray: '4 4' }
         });
       });
@@ -449,6 +497,7 @@ export function WorkspacesList() {
   const [edges, setEdges, onEdgesChange] = useEdgesState(layoutEdges);
 
   const prevAgentWsRef = useRef<string>('');
+  const deletedEdgeIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const agentWsKey = agents.map(a => `${a.id}:${a.workspaceId}`).sort().join(',') + '|' + workspaces.map(w => w.id).sort().join(',');
@@ -459,7 +508,8 @@ export function WorkspacesList() {
   }, [agents, workspaces, layoutNodes, setNodes]);
 
   useEffect(() => {
-    setEdges(layoutEdges);
+    const filtered = layoutEdges.filter(e => !deletedEdgeIdsRef.current.has(e.id));
+    setEdges(filtered);
   }, [layoutEdges, setEdges]);
 
   useEffect(() => {
@@ -473,6 +523,74 @@ export function WorkspacesList() {
       return n;
     }));
   }, [selectedAgentId, setNodes]);
+
+  useEffect(() => {
+    setEdges(edges => edges.map(e => {
+      const isSelected = e.id === selectedEdgeId;
+      if (e.selected === isSelected) return e;
+      return { ...e, selected: isSelected };
+    }));
+  }, [selectedEdgeId, setEdges]);
+
+  const selectedEdgeIdRef = useRef(selectedEdgeId);
+  selectedEdgeIdRef.current = selectedEdgeId;
+  const agentsRef = useRef(agents);
+  agentsRef.current = agents;
+
+  const deleteSelectedEdge = useCallback(() => {
+    const edgeId = selectedEdgeIdRef.current;
+    const currentAgents = agentsRef.current;
+    if (!edgeId) return;
+    console.log('[deleteSelectedEdge] Deleting edge:', edgeId);
+    deletedEdgeIdsRef.current.add(edgeId);
+    setEdges((eds: any) => eds.filter((e: any) => e.id !== edgeId));
+    if (edgeId.startsWith('h-')) {
+      const parts = edgeId.split('-');
+      if (parts.length >= 3) {
+        const sourceId = parts[1];
+        const targetId = parts[2];
+        const sourceAgent = currentAgents.find(a => a.id === sourceId);
+        if (sourceAgent) {
+          const newCollabs = (sourceAgent.collaborators || []).filter(c => c !== targetId);
+          console.log('[deleteSelectedEdge] Removing collaborator', targetId, 'from', sourceId, 'newCollabs:', newCollabs);
+          updateAgent(sourceId, { collaborators: newCollabs }).then(() => {
+            console.log('[deleteSelectedEdge] Collaborator removed successfully');
+            deletedEdgeIdsRef.current.delete(edgeId);
+          }).catch(err => {
+            console.error('[deleteSelectedEdge] Failed to remove collaborator:', err);
+            deletedEdgeIdsRef.current.delete(edgeId);
+          });
+        }
+      }
+    }
+    if (edgeId.startsWith('e-')) {
+      const parts = edgeId.split('-');
+      const childId = parts[parts.length - 1];
+      const childAgent = currentAgents.find(a => a.id === childId);
+      if (childAgent) {
+        console.log('[deleteSelectedEdge] Clearing parentId for', childId);
+        updateAgent(childId, { parentId: null as any }).then(() => {
+          console.log('[deleteSelectedEdge] ParentId cleared successfully');
+          deletedEdgeIdsRef.current.delete(edgeId);
+        }).catch(err => {
+          console.error('[deleteSelectedEdge] Failed to clear parentId:', err);
+          deletedEdgeIdsRef.current.delete(edgeId);
+        });
+      }
+    }
+    setSelectedEdgeId(null);
+  }, [updateAgent, setEdges]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedEdgeIdRef.current) {
+        event.preventDefault();
+        deleteSelectedEdge();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [deleteSelectedEdge]);
 
   const onNodeDrag = useCallback((_: any, node: any) => {
     if (node.type !== 'agent') return;
@@ -567,6 +685,9 @@ export function WorkspacesList() {
         source, target,
         sourceHandle: 'bottom', targetHandle: 'top',
         type: 'smoothstep',
+        zIndex: 1,
+        selectable: true,
+        interactionWidth: 20,
         style: { stroke: 'rgba(161, 161, 170, 0.4)', strokeWidth: 1.5, strokeDasharray: '4 4' }
       }]);
 
@@ -593,6 +714,9 @@ export function WorkspacesList() {
             source, target,
             ...handles,
             type: 'bezier',
+            zIndex: 1,
+            selectable: true,
+            interactionWidth: 20,
             style: { stroke: 'rgba(99, 102, 241, 0.5)', strokeWidth: 2, strokeDasharray: '4 4' }
           }]);
         } else {
@@ -615,6 +739,13 @@ export function WorkspacesList() {
   }, []);
 
   const onPaneClick = useCallback(() => {
+    setSelectedAgentId(null);
+    setShowWorkspaceSettings(null);
+    setSelectedEdgeId(null);
+  }, []);
+
+  const onEdgeClick = useCallback((_: any, edge: any) => {
+    setSelectedEdgeId(edge.id);
     setSelectedAgentId(null);
     setShowWorkspaceSettings(null);
   }, []);
@@ -719,26 +850,49 @@ export function WorkspacesList() {
               No agents yet. Create a workspace or use Templates to get started.
             </div>
           ) : (
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              nodeTypes={nodeTypes}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onNodeClick={onNodeClick}
-              onNodeDrag={onNodeDrag}
-              onNodeDragStop={onNodeDragStop}
-              onPaneClick={onPaneClick}
-              fitView
-              fitViewOptions={{ padding: 0.2 }}
-              minZoom={0.1}
-              maxZoom={1.5}
-              className="bg-zinc-950"
-            >
-              <Background color="#3f3f46" gap={24} size={1} />
-              <Controls className="!bg-zinc-900 border !border-zinc-800 !fill-white opacity-0 group-hover:opacity-100 transition-opacity" showInteractive={false} />
-            </ReactFlow>
+            <>
+              {selectedEdgeId && (
+                <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 shadow-lg">
+                  <span className="text-xs text-zinc-300">Line selected</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); deleteSelectedEdge(); }}
+                    className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-md px-2.5 py-1 transition-colors"
+                  >
+                    <Trash2 size={12} /> Delete
+                  </button>
+                  <span className="text-[10px] text-zinc-500">or press Backspace</span>
+                  <button
+                    onClick={() => setSelectedEdgeId(null)}
+                    className="text-zinc-500 hover:text-zinc-300 ml-1"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                nodeTypes={nodeTypes}
+                edgeTypes={edgeTypes}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onConnect={onConnect}
+                onNodeClick={onNodeClick}
+                onEdgeClick={onEdgeClick}
+                onNodeDrag={onNodeDrag}
+                onNodeDragStop={onNodeDragStop}
+                onPaneClick={onPaneClick}
+                fitView
+                fitViewOptions={{ padding: 0.2 }}
+                minZoom={0.1}
+                maxZoom={1.5}
+                className="bg-zinc-950"
+                selectNodesOnDrag={false}
+              >
+                <Background color="#3f3f46" gap={24} size={1} />
+                <Controls className="!bg-zinc-900 border !border-zinc-800 !fill-white opacity-0 group-hover:opacity-100 transition-opacity" showInteractive={false} />
+              </ReactFlow>
+            </>
           )}
         </div>
 

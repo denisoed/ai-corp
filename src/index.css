@@ -125,3 +125,23 @@ body {
   opacity: 0.6;
 }
 
+/* ReactFlow edge hover and selection styles */
+.react-flow__edge-path {
+  transition: stroke 0.15s ease, stroke-width 0.15s ease;
+}
+
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke: #a5b4fc !important;
+  stroke-width: 3px !important;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #818cf8 !important;
+  stroke-width: 3px !important;
+}
+
+.react-flow__edge.selected:hover .react-flow__edge-path {
+  stroke: #a5b4fc !important;
+  stroke-width: 3px !important;
+}
+
