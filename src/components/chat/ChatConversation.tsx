@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { ChatThread } from '../../store';
+import { AgentMessage } from '../../types';
 import { MessageBubble } from './MessageBubble';
 
 interface ChatConversationProps {
@@ -40,15 +41,36 @@ export function ChatConversation({ thread, onBack }: ChatConversationProps) {
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
-        {thread.messages.map((msg) => (
-          <div key={msg.id}>
-            <MessageBubble
-              message={msg}
-              senderName={getSenderName(msg.fromAgentId)}
-              isFromMe={false}
-            />
-          </div>
-        ))}
+        {thread.messages.flatMap((msg) => {
+          const items = [
+            <div key={msg.id}>
+              <MessageBubble
+                message={msg}
+                senderName={getSenderName(msg.fromAgentId)}
+                isFromMe={msg.fromAgentId === agentA.id}
+              />
+            </div>
+          ];
+          if (msg.status === 'replied' && msg.reply) {
+            items.push(
+              <div key={msg.id + '-reply'}>
+                <MessageBubble
+                  message={{
+                    id: msg.id + '-reply',
+                    fromAgentId: msg.toAgentId,
+                    toAgentId: msg.fromAgentId,
+                    content: msg.reply,
+                    status: 'delivered' as AgentMessage['status'],
+                    createdAt: msg.repliedAt || msg.createdAt,
+                  }}
+                  senderName={getSenderName(msg.toAgentId)}
+                  isFromMe={msg.toAgentId === agentA.id}
+                />
+              </div>
+            );
+          }
+          return items;
+        })}
 
         {thread.messages.length === 0 && (
           <div className="text-center text-zinc-500 text-sm py-12">

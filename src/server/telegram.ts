@@ -104,17 +104,10 @@ async function processPendingMessage(agent: Agent): Promise<void> {
         if (m) { m.reply = finalReply; m.status = 'replied'; m.repliedAt = new Date().toISOString(); }
       });
       if (pending.botToken && pending.chatId) {
-        try {
-          await fetch(`${TELEGRAM_API}${pending.botToken}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: pending.chatId, text: `Ответ от ${agent.name}: ${finalReply}`, parse_mode: 'HTML' })
-          });
-          mutateStore(s => {
-            const m = s.messages.find(x => x.id === pending.id);
-            if (m) m.replyDelivered = true;
-          });
-        } catch (_) {}
+        mutateStore(s => {
+          const m = s.messages.find(x => x.id === pending.id);
+          if (m) m.replyDelivered = true;
+        });
       }
     }
 
@@ -415,27 +408,6 @@ async function handleIncomingMessage(agentId: string, token: string, message: an
     });
 
     const store = getStore();
-
-    const undelivered = store.messages.filter(m =>
-      m.fromAgentId === agentId && m.status === 'replied' && m.reply &&
-      !m.replyDelivered && m.chatId == chatId && m.botToken
-    );
-    for (const msg of undelivered.slice(-3)) {
-      try {
-        const replyText = markdownToTelegramHtml(
-          `Ответ от ${store.agents.find(a => a.id === msg.toAgentId)?.name || 'Agent'}: ${msg.reply}`
-        );
-        await fetch(`${TELEGRAM_API}${msg.botToken}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: msg.chatId, text: replyText, parse_mode: 'HTML' })
-        });
-        mutateStore(s2 => {
-          const m2 = s2.messages.find(x => x.id === msg.id);
-          if (m2) m2.replyDelivered = true;
-        });
-      } catch (_) {}
-    }
 
     const workspace = agentInfo.workspaceId
       ? store.workspaces.find(w => w.id === agentInfo.workspaceId)
@@ -1210,17 +1182,10 @@ export async function executeTool(name: string, args: any, executingAgentId: str
           if (m) { m.reply = finalReply; m.status = 'replied'; m.repliedAt = now; }
         });
         if (botToken && chatId) {
-          try {
-            await fetch(`${TELEGRAM_API}${botToken}/sendMessage`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ chat_id: chatId, text: `Ответ от ${targetAgent.name}: ${finalReply}`, parse_mode: 'HTML' })
-            });
-            mutateStore(s2 => {
-              const m2 = s2.messages.find(x => x.id === messageId);
-              if (m2) m2.replyDelivered = true;
-            });
-          } catch (_) {}
+          mutateStore(s2 => {
+            const m2 = s2.messages.find(x => x.id === messageId);
+            if (m2) m2.replyDelivered = true;
+          });
         }
       }
 
@@ -1282,22 +1247,10 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     const replier = executingAgent?.name || 'Agent';
 
     if (msg.botToken && msg.chatId) {
-      try {
-        const replyText = markdownToTelegramHtml(
-          `Ответ от ${replier}: ${args.content}`
-        );
-        await fetch(`${TELEGRAM_API}${msg.botToken}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: msg.chatId, text: replyText, parse_mode: 'HTML' })
-        });
-        mutateStore(s => {
-          const m = s.messages.find(x => x.id === args.messageId);
-          if (m) m.replyDelivered = true;
-        });
-      } catch (e) {
-        console.error(`[reply_to_message] Failed to deliver to Telegram:`, e);
-      }
+      mutateStore(s => {
+        const m = s.messages.find(x => x.id === args.messageId);
+        if (m) m.replyDelivered = true;
+      });
     }
 
     await appendMessage(executingAgentId, {

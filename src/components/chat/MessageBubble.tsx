@@ -11,14 +11,12 @@ interface MessageBubbleProps {
 
 export function MessageBubble({ message, senderName, isFromMe, compact }: MessageBubbleProps) {
   const time = message.createdAt.slice(11, 16);
-  const hasReply = message.status === 'replied' && message.reply;
 
   const contentHtml = renderMarkdown(
     compact && message.content.length > 60
       ? message.content.slice(0, 60) + '...'
       : message.content
   );
-  const replyHtml = hasReply ? renderMarkdown(message.reply!) : null;
 
   return (
     <div className={cn('flex flex-col gap-1', isFromMe ? 'items-end' : 'items-start')}>
@@ -45,20 +43,6 @@ export function MessageBubble({ message, senderName, isFromMe, compact }: Messag
         )}
         dangerouslySetInnerHTML={{ __html: contentHtml }}
       />
-
-      {replyHtml && (
-        <div
-          className={cn(
-            'max-w-[85%] rounded-xl px-3 py-2 text-sm leading-relaxed mt-0.5 border-l-2 border-emerald-400 markdown-body',
-            isFromMe
-              ? 'bg-zinc-800/50 text-zinc-400 rounded-tr-sm'
-              : 'bg-zinc-800/50 text-zinc-400 rounded-tl-sm'
-          )}
-        >
-          <span className="text-[10px] uppercase tracking-wider text-emerald-400 font-medium mr-1.5">Reply</span>
-          <span dangerouslySetInnerHTML={{ __html: replyHtml }} />
-        </div>
-      )}
     </div>
   );
 }
