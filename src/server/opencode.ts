@@ -269,7 +269,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'get_agent_details',
-      description: 'Get detailed information about a specific agent and their current workload.',
+      description: 'Get detailed information about a specific agent: name, role, status, skills, workspace, their manager (who they report to), collaborators (who they work with), and their assigned tasks.',
       parameters: {
         type: 'object' as const,
         properties: {

@@ -683,8 +683,24 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     const agent = findAgent(args.agentName);
     if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
     const tasks = state.tasks.filter(t => t.assigneeId === agent.id);
+    const manager = agent.parentId ? state.agents.find(a => a.id === agent.parentId) : undefined;
+    const collaborators = (agent.collaborators || [])
+      .map(id => state.agents.find(a => a.id === id))
+      .filter(Boolean)
+      .map(a => ({ name: a!.name, role: a!.role }));
+    const workspace = agent.workspaceId
+      ? state.workspaces.find(w => w.id === agent.workspaceId)
+      : undefined;
     return {
-      agent: { name: agent.name, role: agent.role, status: agent.status, skills: agent.skills },
+      agent: {
+        name: agent.name,
+        role: agent.role,
+        status: agent.status,
+        skills: agent.skills,
+        workspace: workspace?.name,
+        manager: manager ? { name: manager.name, role: manager.role } : null,
+        collaborators,
+      },
       tasks: tasks.map(t => ({ title: t.title, status: t.status, priority: t.priority }))
     };
   }
