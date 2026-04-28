@@ -42,7 +42,126 @@ interface BotState {
 }
 
 const runningBots: Map<string, BotState> = new Map();
-const busyAgents = new Set<string>();
+const STALE_BUSY_MS = 5 * 60 * 1000;
+
+async function processPendingMessage(agent: Agent): Promise<void> {
+  const store = getStore();
+  const freshAgent = store.agents.find(a => a.id === agent.id);
+  if (!freshAgent) return;
+
+  const pending = store.messages.find(m =>
+    m.toAgentId === agent.id && m.status === 'pending'
+  );
+  if (!pending) return;
+
+  const nowStr = new Date().toISOString();
+  mutateStore(s => {
+    const a = s.agents.find(x => x.id === agent.id);
+    if (a) a.busySince = nowStr;
+    const m = s.messages.find(x => x.id === pending.id);
+    if (m) m.status = 'delivered';
+  });
+
+  const sender = store.agents.find(a => a.id === pending.fromAgentId);
+  const senderName = sender?.name || 'Unknown';
+  const senderRole = sender?.role || 'Agent';
+
+  const targetSystemPrompt = buildSystemPrompt(freshAgent) +
+    `\n\nYou are responding to a queued request from ${senderName} (${senderRole}), a connected agent. Use reply_to_message("${pending.id}", content) to send your reply. You have full tool access — do whatever work is needed before replying.`;
+
+  const TIMEOUT_MS = 120000;
+  const startTime = Date.now();
+
+  try {
+    const chatSession = new OpenCodeChatSession(targetSystemPrompt);
+    const userMessage = `Request from ${senderName} (${senderRole}):\n\n${pending.content}\n\nDo the work, then call reply_to_message("${pending.id}", "your response") to reply.`;
+    let response = await chatSession.sendMessage(userMessage);
+    let replyText = response.text;
+
+    while (response.toolCalls && response.toolCalls.length > 0) {
+      if (Date.now() - startTime > TIMEOUT_MS) {
+        mutateStore(s => {
+          const m = s.messages.find(x => x.id === pending.id);
+          if (m) { m.status = 'delivered'; m.reply = 'Timeout — agent did not respond in 2 minutes.'; m.repliedAt = new Date().toISOString(); }
+        });
+        break;
+      }
+
+      const results = [];
+      for (const call of response.toolCalls) {
+        const toolArgs = JSON.parse(call.function.arguments);
+        const result = await executeTool(call.function.name, toolArgs, agent.id, undefined);
+        results.push(result);
+      }
+      response = await chatSession.sendToolResults(response.toolCalls, results);
+      if (response.text) {
+        replyText = response.text;
+      }
+    }
+
+    const stored = getStore().messages.find(m => m.id === pending.id);
+    if (!stored?.reply) {
+      const finalReply = replyText || 'Done.';
+      mutateStore(s => {
+        const m = s.messages.find(x => x.id === pending.id);
+        if (m) { m.reply = finalReply; m.status = 'replied'; m.repliedAt = new Date().toISOString(); }
+      });
+      if (pending.botToken && pending.chatId) {
+        try {
+          await fetch(`${TELEGRAM_API}${pending.botToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: pending.chatId, text: `Ответ от ${agent.name}: ${finalReply}`, parse_mode: 'HTML' })
+          });
+          mutateStore(s => {
+            const m = s.messages.find(x => x.id === pending.id);
+            if (m) m.replyDelivered = true;
+          });
+        } catch (_) {}
+      }
+    }
+
+    if (pending.fromAgentId) {
+      await appendMessage(pending.fromAgentId, {
+        role: 'user',
+        content: `[Reply from ${agent.name}]: ${stored?.reply || replyText || ''}`,
+        source: 'system'
+      });
+    }
+    await appendMessage(agent.id, {
+      role: 'assistant',
+      content: `[Replied to ${senderName}]: ${stored?.reply || replyText || ''}`,
+      source: 'system'
+    });
+
+    logAction('Queued Request Processed', `Processed queued request from ${senderName}.`, 'info', agent.id);
+  } catch (e: any) {
+    mutateStore(s => {
+      const m = s.messages.find(x => x.id === pending.id);
+      if (m) { m.status = 'delivered'; m.reply = `Error: ${e.message}`; m.repliedAt = new Date().toISOString(); }
+    });
+    console.error(`[processPendingMessage] Failed for agent ${agent.name}:`, e.message);
+  } finally {
+    mutateStore(s => {
+      const a = s.agents.find(x => x.id === agent.id);
+      if (a) a.busySince = undefined;
+    });
+    chainProcessNext(agent);
+  }
+}
+
+function chainProcessNext(agent: Agent): void {
+  const store = getStore();
+  const nextPending = store.messages.find(m =>
+    m.toAgentId === agent.id && m.status === 'pending'
+  );
+  if (nextPending) {
+    const nextAgent = store.agents.find(a => a.id === agent.id);
+    if (nextAgent && !nextAgent.busySince) {
+      processPendingMessage(nextAgent);
+    }
+  }
+}
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -943,7 +1062,7 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     return { success: true, messageId: message.id, to: targetAgent.name, status: 'delivered' };
   }
 
-  // --- ASK AGENT (sync, waits for reply) ---
+  // --- ASK AGENT (sync, waits for reply; queues if busy) ---
   if (name === 'ask_agent') {
     const targetAgent = findAgent(args.agentName);
     if (!targetAgent) return { success: false, error: `Agent "${args.agentName}" not found.` };
@@ -951,11 +1070,6 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     if (!agentsAreConnected(executingAgentId, targetAgent.id, state.agents)) {
       return { success: false, error: `You are not connected to "${targetAgent.name}".` };
     }
-    if (busyAgents.has(targetAgent.id)) {
-      return { success: false, error: `${targetAgent.name} is busy processing another request. Try again later.` };
-    }
-
-    busyAgents.add(targetAgent.id);
 
     const senderName = executingAgent?.name || 'Unknown';
     const senderRole = executingAgent?.role || 'Agent';
@@ -976,6 +1090,46 @@ export async function executeTool(name: string, args: any, executingAgentId: str
 
     mutateStore(s => {
       s.messages.push(message);
+    });
+
+    // Check if target is busy (store-persisted, with stale timeout)
+    const freshTarget = getStore().agents.find(a => a.id === targetAgent.id);
+    const isBusy = freshTarget?.busySince &&
+      (Date.now() - new Date(freshTarget.busySince).getTime() < STALE_BUSY_MS);
+
+    if (isBusy) {
+      await appendMessage(executingAgentId, {
+        role: 'assistant',
+        content: `[Queued request to ${targetAgent.name}]: ${args.content}`,
+        source: 'telegram'
+      });
+      await appendMessage(targetAgent.id, {
+        role: 'user',
+        content: `[Queued from ${senderName}]: ${args.content}`,
+        source: 'telegram'
+      });
+
+      logAction('Request Queued', `Request to ${targetAgent.name} queued (agent is busy).`, 'info', executingAgentId);
+      return {
+        success: true,
+        queued: true,
+        messageId: message.id,
+        message: `${targetAgent.name} is currently busy. Your request has been queued and will be processed as soon as the agent becomes available. You will receive the reply automatically.`
+      };
+    }
+
+    // Clear stale busy flag if present
+    if (freshTarget?.busySince) {
+      mutateStore(s => {
+        const a = s.agents.find(x => x.id === targetAgent.id);
+        if (a) a.busySince = undefined;
+      });
+    }
+
+    // Mark agent as busy
+    mutateStore(s => {
+      const a = s.agents.find(x => x.id === targetAgent.id);
+      if (a) a.busySince = now;
     });
 
     const targetSystemPrompt = buildSystemPrompt(targetAgent) +
@@ -1063,7 +1217,11 @@ export async function executeTool(name: string, args: any, executingAgentId: str
       });
       return { success: false, error: `Failed to get response from ${targetAgent.name}: ${e.message}` };
     } finally {
-      busyAgents.delete(targetAgent.id);
+      mutateStore(s => {
+        const a = s.agents.find(x => x.id === targetAgent.id);
+        if (a) a.busySince = undefined;
+      });
+      chainProcessNext(targetAgent);
     }
   }
 

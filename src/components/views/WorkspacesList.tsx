@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { useStore } from '../../store';
+import { useStore, useAgentChats } from '../../store';
 import * as d3 from 'd3';
 import { Card, CardContent } from '../ui/Card';
 import { Button } from '../ui/Button';
@@ -14,6 +14,8 @@ import { AgentNode } from './AgentNode';
 import { CustomSelect, SelectItem } from '../ui/CustomSelect';
 import { MultiSelect } from '../ui/MultiSelect';
 import { Tabs, TabPanel } from '../ui/Tabs';
+import { ChatFAB } from '../chat/ChatFAB';
+import { ChatPanel } from '../chat/ChatPanel';
 import { cn } from '../../lib/utils';
 
 const WORKSPACE_COLORS = [
@@ -134,12 +136,16 @@ export function WorkspacesList() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [activeAgentTab, setActiveAgentTab] = useState('info');
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('settings');
+  const [showChatPanel, setShowChatPanel] = useState(false);
 
   const [newWsName, setNewWsName] = useState('');
   const [newWsDescription, setNewWsDescription] = useState('');
   const [newWsFolder, setNewWsFolder] = useState('');
   const [newWsColor, setNewWsColor] = useState(DEFAULT_COLOR);
   const [newWsSlug, setNewWsSlug] = useState('');
+
+  const chatThreads = useAgentChats();
+  const waitingCount = chatThreads.filter(t => t.waitingReply).length;
 
   useEffect(() => {
     if (selectedAgentId) {
@@ -679,6 +685,7 @@ export function WorkspacesList() {
   };
 
   return (
+    <>
     <div className="h-full flex flex-col space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 flex-none shrink-0 border-b border-zinc-800 pb-4">
         <div>
@@ -810,8 +817,8 @@ export function WorkspacesList() {
                       ) : (
                         <p className="text-[11px] text-zinc-500 leading-relaxed whitespace-pre-wrap line-clamp-4">{content || '(empty)'}</p>
                       )}
-                    </div>
-                  );
+    </div>
+  );
                 })}
               </TabPanel>
 
@@ -1461,5 +1468,8 @@ export function WorkspacesList() {
         </div>
       )}
     </div>
+      <ChatFAB onClick={() => setShowChatPanel(p => !p)} waitingCount={waitingCount} />
+      <ChatPanel visible={showChatPanel} onClose={() => setShowChatPanel(false)} threads={chatThreads} />
+    </>
   );
 }

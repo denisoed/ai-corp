@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Agent, Task, Log, Comment, TaskStatus, CompanyTemplate, ApprovalRequest, Workspace, CronJob } from './types';
+import { Agent, Task, Log, Comment, TaskStatus, CompanyTemplate, ApprovalRequest, Workspace, CronJob, AgentMessage } from './types';
 
 const API_BASE = '/api';
 
@@ -42,6 +42,7 @@ interface AppState {
   logs: Log[];
   approvals: ApprovalRequest[];
   crons: CronJob[];
+  messages: AgentMessage[];
   totalCost: number;
   loading: boolean;
 
@@ -82,6 +83,7 @@ export const useStore = create<AppState>((set, get) => ({
   logs: [],
   approvals: [],
   crons: [],
+  messages: [],
   totalCost: 0,
   loading: true,
 
@@ -242,3 +244,67 @@ export const useStore = create<AppState>((set, get) => ({
     set({ crons });
   }
 }));
+
+export interface ChatThread {
+  chatId: string;
+  agents: [Agent, Agent];
+  workspaceId: string;
+  workspaceName: string;
+  messages: AgentMessage[];
+  lastMessage: AgentMessage;
+  lastMessageTime: string;
+  waitingReply: boolean;
+}
+
+function makeChatId(aId: string, bId: string): string {
+  return [aId, bId].sort().join('::');
+}
+
+export function useAgentChats(): ChatThread[] {
+  const messages = useStore(s => s.messages);
+  const agents = useStore(s => s.agents);
+  const workspaces = useStore(s => s.workspaces);
+
+  if (!messages || messages.length === 0) return [];
+
+  const agentMap = new Map(agents.map(a => [a.id, a]));
+  const workspaceMap = new Map(workspaces.map(w => [w.id, w]));
+
+  const threadMap = new Map<string, AgentMessage[]>();
+
+  for (const msg of messages) {
+    if (!msg.fromAgentId || !msg.toAgentId) continue;
+    const cId = makeChatId(msg.fromAgentId, msg.toAgentId);
+    const existing = threadMap.get(cId) || [];
+    existing.push(msg);
+    threadMap.set(cId, existing);
+  }
+
+  const threads: ChatThread[] = [];
+
+  for (const [chatId, msgs] of threadMap) {
+    const [idA, idB] = chatId.split('::');
+    const agentA = agentMap.get(idA);
+    const agentB = agentMap.get(idB);
+    if (!agentA || !agentB) continue;
+
+    const sorted = msgs.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const lastMessage = sorted[sorted.length - 1];
+
+    const ws = workspaceMap.get(agentA.workspaceId) || workspaceMap.get(agentB.workspaceId);
+
+    threads.push({
+      chatId,
+      agents: [agentA, agentB],
+      workspaceId: ws?.id || 'orphans',
+      workspaceName: ws?.name || 'No Workspace',
+      messages: sorted,
+      lastMessage,
+      lastMessageTime: lastMessage.createdAt.slice(11, 16),
+      waitingReply: lastMessage.status === 'pending' && lastMessage.toAgentId !== lastMessage.fromAgentId,
+    });
+  }
+
+  threads.sort((a, b) => b.lastMessage.createdAt.localeCompare(a.lastMessage.createdAt));
+  return threads;
+}

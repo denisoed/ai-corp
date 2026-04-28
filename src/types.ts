@@ -42,6 +42,7 @@ export interface Agent {
     lastChatId?: number | string;
     allowedChatIds?: (number | string)[];
   };
+  busySince?: string;
   budgetToday?: number;
   spentToday?: number;
   currentTaskId?: string;
