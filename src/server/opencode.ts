@@ -401,6 +401,21 @@ export const companyTools = [
   {
     type: 'function' as const,
     function: {
+      name: 'send_telegram_message',
+      description: 'Send a message directly to a Telegram chat using your bot. Use this to notify users of cron job results, report updates, or any important information. The chat ID defaults to the last known chat if not provided.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          message: { type: 'string' as const, description: 'Message text to send via Telegram. Use standard Markdown for formatting.' },
+          chatId: { type: 'string' as const, description: 'Optional. Telegram chat ID to send to. If omitted, sends to the last known chat.' }
+        },
+        required: ['message']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'send_message',
       description: 'Send a one-way message to a connected agent. The message is saved in their inbox for later reading. Does NOT wait for a reply — use ask_agent if you need an immediate response.',
       parameters: {

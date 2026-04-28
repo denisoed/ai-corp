@@ -63,7 +63,7 @@ export function Layout({ children }: LayoutProps) {
       )}>
         <div className="flex h-16 items-center border-b border-zinc-800 px-6 gap-3">
           <div className="w-8 h-8 flex-shrink-0 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-xs">AC</div>
-          <span className="font-semibold tracking-tight text-white">Alpha Corp</span>
+          <span className="font-semibold tracking-tight text-white">AI Corp</span>
         </div>
         <div className="p-4 space-y-2 flex-col flex-1">
           {navItems.map(item => (

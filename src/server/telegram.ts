@@ -1362,6 +1362,38 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     return { success: true, message: `Updated ${updated.join(', ')} for ${agent.name}.` };
   }
 
+  // --- SEND TELEGRAM MESSAGE ---
+  if (name === 'send_telegram_message') {
+    const agent = state.agents.find(a => a.id === executingAgentId);
+    if (!agent?.telegramConfig?.botToken) {
+      return { success: false, error: 'No Telegram bot token configured for this agent. Set up a Telegram bot first.' };
+    }
+
+    const targetChatId = args.chatId || agent.telegramConfig.lastChatId;
+    if (!targetChatId) {
+      return { success: false, error: 'No chat ID available. Chat with the bot via Telegram first to establish a chat ID.' };
+    }
+
+    try {
+      const telegramText = markdownToTelegramHtml(args.message);
+      const res = await fetch(`${TELEGRAM_API}${agent.telegramConfig.botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: targetChatId, text: telegramText, parse_mode: 'HTML' })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        return { success: false, error: `Telegram Send Error: ${errData.description}` };
+      }
+
+      logAction('Telegram Message Sent', `Sent message to chat ${targetChatId}.`, 'info', executingAgentId);
+      return { success: true, message: `Message sent to Telegram chat ${targetChatId}.` };
+    } catch (e: any) {
+      return { success: false, error: `Failed to send Telegram message: ${e.message}` };
+    }
+  }
+
   // --- CREATE CRON ---
   if (name === 'create_cron') {
     const agent = findAgent(args.agentName);

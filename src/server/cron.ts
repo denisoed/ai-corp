@@ -226,8 +226,19 @@ async function executeCronJob(jobId: string): Promise<void> {
   });
 
   try {
+    console.log(`[Cron] Firing — "${job.name}" for agent ${agent.name} (schedule: ${job.schedule}, prompt: "${job.prompt.slice(0, 100)}")`);
+
     const memory = loadMemory(agent.id);
-    const systemInstruction = buildSystemPrompt(agent);
+    let systemInstruction = buildSystemPrompt(agent);
+
+    if (agent.telegramConfig?.botToken) {
+      const chatId = agent.telegramConfig.lastChatId;
+      const chatInfo = chatId
+        ? `Last known Telegram chat ID: ${chatId}.`
+        : 'No known chat ID yet — the user must message the bot first.';
+      systemInstruction += `\n\n# TELEGRAM NOTIFICATION CAPABILITY\nYou have a Telegram bot configured. You can send direct messages to Telegram users using the send_telegram_message tool.\n${chatInfo}\nUse send_telegram_message(message) to notify the user of cron job results, reports, or important updates.\n\nWhen the cron prompt asks you to "send" or "notify" someone — use send_telegram_message to deliver directly to their Telegram chat.`;
+    }
+
     const promptWithContext = job.prompt;
 
     const chatSession = new OpenCodeChatSession(systemInstruction);
@@ -265,6 +276,8 @@ async function executeCronJob(jobId: string): Promise<void> {
     job.lastStatus = 'success';
     job.lastResult = finalReply.slice(0, 1000);
 
+    console.log(`[Cron] Completed — "${job.name}" status: success, result: ${finalReply.slice(0, 150)}`);
+
     mutateStore(s => {
       s.logs.unshift({
         id: crypto.randomUUID(),
@@ -277,7 +290,7 @@ async function executeCronJob(jobId: string): Promise<void> {
       if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
     });
   } catch (e: any) {
-    console.error(`[Cron] Job "${job.name}" failed:`, e.message);
+    console.error(`[Cron] Failed — "${job.name}": ${e.message}`);
     job.lastStatus = 'error';
     job.lastResult = `Error: ${e.message}`;
 
