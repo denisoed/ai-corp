@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import { LayoutDashboard, FolderKanban, KanbanSquare, Activity, Clock, Settings, Menu } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/Button';
@@ -7,36 +8,43 @@ interface SidebarItemProps {
   key?: React.Key;
   icon: React.ElementType;
   label: string;
-  active?: boolean;
-  onClick: () => void;
+  to: string;
+  onClick?: () => void;
 }
 
-function SidebarItem({ icon: Icon, label, active, onClick }: SidebarItemProps) {
+function SidebarItem({ icon: Icon, label, to, onClick }: SidebarItemProps) {
   return (
-    <button
+    <NavLink
+      to={to}
       onClick={onClick}
-      className={cn(
-        "w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer",
-        active 
-          ? "bg-zinc-800 text-indigo-400" 
-          : "text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
-      )}
+      className={({ isActive }) =>
+        cn(
+          "w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+          isActive
+            ? "bg-zinc-800 text-indigo-400"
+            : "text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+        )
+      }
     >
       <Icon className="h-5 w-5" />
       <span>{label}</span>
-    </button>
+    </NavLink>
   );
 }
 
 interface LayoutProps {
   children: React.ReactNode;
-  activeView: string;
-  onViewChange: (view: string) => void;
 }
 
-export function Layout(props: LayoutProps) {
-  const { activeView, onViewChange, children } = props;
+export function Layout({ children }: LayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const location = useLocation();
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location]);
+
+  const viewName = location.pathname.slice(1).replace('-', ' ') || 'dashboard';
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -63,24 +71,16 @@ export function Layout(props: LayoutProps) {
               key={item.id}
               icon={item.icon}
               label={item.label}
-              active={activeView === item.id}
-              onClick={() => {
-                onViewChange(item.id);
-                setMobileOpen(false);
-              }}
+              to={`/${item.id}`}
             />
           ))}
         </div>
-        
+
         <div className="mt-auto mb-4 px-4">
           <SidebarItem
             icon={Settings}
             label="Settings"
-            active={activeView === 'settings'}
-            onClick={() => {
-              onViewChange('settings');
-              setMobileOpen(false);
-            }}
+            to="/settings"
           />
         </div>
       </aside>
@@ -89,15 +89,15 @@ export function Layout(props: LayoutProps) {
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className="h-16 border-b border-zinc-800 flex items-center justify-between px-8 bg-zinc-900/50">
           <div className="flex items-center gap-4">
-            <Button 
-              variant="ghost" 
-              size="icon" 
+            <Button
+              variant="ghost"
+              size="icon"
               className="md:hidden"
               onClick={() => setMobileOpen(!mobileOpen)}
             >
               <Menu className="h-5 w-5 text-zinc-300" />
             </Button>
-            <h1 className="text-xl font-semibold text-white tracking-tight">Orchestra AI <span className="text-zinc-500 font-normal ml-2 hidden sm:inline-block capitalize">/ {activeView.replace('-', ' ')}</span></h1>
+            <h1 className="text-xl font-semibold text-white tracking-tight">Orchestra AI <span className="text-zinc-500 font-normal ml-2 hidden sm:inline-block capitalize">/ {viewName}</span></h1>
             <span className="hidden md:inline-block px-2 py-0.5 bg-emerald-500/10 text-emerald-400 text-xs rounded border border-emerald-500/20">SYSTEM STABLE</span>
           </div>
           <div className="flex items-center gap-6">
@@ -115,7 +115,7 @@ export function Layout(props: LayoutProps) {
 
       {/* Mobile overlay */}
       {mobileOpen && (
-        <div 
+        <div
           className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden"
           onClick={() => setMobileOpen(false)}
         />
