@@ -11,7 +11,7 @@ const WORKSPACES_LIST_FILE = path.join(DATA_DIR, 'workspaces.json');
 const GLOBAL_DIR = path.join(DATA_DIR, 'workspace');
 const OLD_STORE_FILE = path.join(DATA_DIR, 'store.json');
 
-interface StoreData {
+export interface StoreData {
   agents: Agent[];
   workspaces: Workspace[];
   tasks: Task[];
@@ -271,4 +271,58 @@ export function agentsAreConnected(aId: string, bId: string, agents: Agent[]): b
   if (a.parentId === bId || b.parentId === aId) return true;
   if (a.collaborators?.includes(bId) || b.collaborators?.includes(aId)) return true;
   return false;
+}
+
+export function addConnectionToStore(s: StoreData, aId: string, bId: string, connectionType: string): boolean {
+  if (aId === bId) return false;
+  if (!['manager', 'subordinate', 'collaborator'].includes(connectionType)) return false;
+
+  const a = s.agents.find(x => x.id === aId);
+  const b = s.agents.find(x => x.id === bId);
+  if (!a || !b) return false;
+
+  if (connectionType === 'manager') {
+    b.parentId = aId;
+  } else if (connectionType === 'subordinate') {
+    a.parentId = bId;
+  } else if (connectionType === 'collaborator') {
+    if (!a.collaborators) a.collaborators = [];
+    if (!b.collaborators) b.collaborators = [];
+    if (!a.collaborators.includes(bId)) a.collaborators.push(bId);
+    if (!b.collaborators.includes(aId)) b.collaborators.push(aId);
+  }
+  return true;
+}
+
+export function removeConnectionFromStore(s: StoreData, aId: string, bId: string): boolean {
+  const a = s.agents.find(x => x.id === aId);
+  const b = s.agents.find(x => x.id === bId);
+  if (!a || !b) return false;
+
+  let removed = false;
+
+  if (a.parentId === bId) { a.parentId = undefined; removed = true; }
+  if (b.parentId === aId) { b.parentId = undefined; removed = true; }
+
+  if (a.collaborators) {
+    const idx = a.collaborators.indexOf(bId);
+    if (idx !== -1) { a.collaborators.splice(idx, 1); removed = true; }
+  }
+  if (b.collaborators) {
+    const idx = b.collaborators.indexOf(aId);
+    if (idx !== -1) { b.collaborators.splice(idx, 1); removed = true; }
+  }
+
+  return removed;
+}
+
+export function updateConnectionInStore(s: StoreData, aId: string, bId: string, connectionType: string): boolean {
+  if (aId === bId) return false;
+  if (!['manager', 'subordinate', 'collaborator', 'none'].includes(connectionType)) return false;
+
+  removeConnectionFromStore(s, aId, bId);
+
+  if (connectionType === 'none') return true;
+
+  return addConnectionToStore(s, aId, bId, connectionType);
 }

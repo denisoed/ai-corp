@@ -294,6 +294,53 @@ export const companyTools = [
   {
     type: 'function' as const,
     function: {
+      name: 'add_connection',
+      description: 'Create a connection between two agents. Use "manager" to make agentName the manager of targetAgentName (targetAgentName will report to agentName). Use "collaborator" for bidirectional peer collaboration. IMPORTANT: to make Bob report to Alice, set agentName="Alice", targetAgentName="Bob", connectionType="manager". The MANAGER is always agentName, the SUBORDINATE is always targetAgentName.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          agentName: { type: 'string' as const, description: 'For "manager" type — this agent becomes the manager (the boss). For "collaborator" — either agent, order does not matter.' },
+          targetAgentName: { type: 'string' as const, description: 'For "manager" type — this agent becomes the subordinate (reports to agentName). For "collaborator" — the other peer.' },
+          connectionType: { type: 'string' as const, description: 'Type of connection: "manager" (agentName manages targetAgentName) or "collaborator" (bidirectional peers)' }
+        },
+        required: ['agentName', 'targetAgentName', 'connectionType']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'remove_connection',
+      description: 'Remove all connections between two agents — clears any manager/subordinate relationship and removes from collaborators on both sides.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          agentName: { type: 'string' as const, description: 'Name of the first agent' },
+          targetAgentName: { type: 'string' as const, description: 'Name of the second agent' }
+        },
+        required: ['agentName', 'targetAgentName']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'update_connection',
+      description: 'Change the type of connection between two agents. Removes existing connection first, then applies the new type. Use "manager" to make agentName the manager of targetAgentName. Use "collaborator" for bidirectional peers. Use "none" to just remove all connections. IMPORTANT: the MANAGER is agentName, the SUBORDINATE is targetAgentName.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          agentName: { type: 'string' as const, description: 'For "manager" type — this agent becomes the manager (boss). For "collaborator" — either agent.' },
+          targetAgentName: { type: 'string' as const, description: 'For "manager" type — this agent becomes the subordinate (reports to agentName). For "collaborator" — the other peer.' },
+          connectionType: { type: 'string' as const, description: 'New connection type: "manager", "collaborator", or "none"' }
+        },
+        required: ['agentName', 'targetAgentName', 'connectionType']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'resolve_approval',
       description: 'Approve or reject a pending approval request.',
       parameters: {

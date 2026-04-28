@@ -1,4 +1,4 @@
-import { mutateStore, getStore, agentsAreConnected } from './store';
+import { mutateStore, getStore, agentsAreConnected, addConnectionToStore, removeConnectionFromStore, updateConnectionInStore } from './store';
 import { Agent, Task, TaskRisk, TaskPriority, TaskStatus, AgentStatus, Comment, AgentMessage } from '../types';
 import { OpenCodeChatSession } from './opencode';
 import { loadMemory, createMemory, appendMessage, buildSystemPrompt, writePersonalityFile } from './agent-memory';
@@ -42,8 +42,6 @@ interface BotState {
 }
 
 const runningBots: Map<string, BotState> = new Map();
-const STALE_BUSY_MS = 5 * 60 * 1000;
-
 async function processPendingMessage(agent: Agent): Promise<void> {
   const store = getStore();
   const freshAgent = store.agents.find(a => a.id === agent.id);
@@ -54,10 +52,9 @@ async function processPendingMessage(agent: Agent): Promise<void> {
   );
   if (!pending) return;
 
-  const nowStr = new Date().toISOString();
   mutateStore(s => {
     const a = s.agents.find(x => x.id === agent.id);
-    if (a) a.busySince = nowStr;
+    if (a) a.activeSessions = (a.activeSessions || 0) + 1;
     const m = s.messages.find(x => x.id === pending.id);
     if (m) m.status = 'delivered';
   });
@@ -144,7 +141,7 @@ async function processPendingMessage(agent: Agent): Promise<void> {
   } finally {
     mutateStore(s => {
       const a = s.agents.find(x => x.id === agent.id);
-      if (a) a.busySince = undefined;
+      if (a) a.activeSessions = Math.max(0, (a.activeSessions || 0) - 1);
     });
     chainProcessNext(agent);
   }
@@ -157,7 +154,7 @@ function chainProcessNext(agent: Agent): void {
   );
   if (nextPending) {
     const nextAgent = store.agents.find(a => a.id === agent.id);
-    if (nextAgent && !nextAgent.busySince) {
+    if (nextAgent && (!nextAgent.activeSessions || nextAgent.activeSessions === 0)) {
       processPendingMessage(nextAgent);
     }
   }
@@ -891,6 +888,63 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     };
   }
 
+  // --- ADD CONNECTION ---
+  if (name === 'add_connection') {
+    const agent = findAgent(args.agentName);
+    if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+    const target = findAgent(args.targetAgentName);
+    if (!target) return { success: false, error: `Agent "${args.targetAgentName}" not found.` };
+    if (agent.id === target.id) return { success: false, error: 'Cannot connect an agent to itself.' };
+
+    const cType = args.connectionType as string;
+    if (!['manager', 'collaborator'].includes(cType)) {
+      return { success: false, error: `Invalid connection type "${cType}". Must be "manager" or "collaborator".` };
+    }
+
+    mutateStore(s => {
+      addConnectionToStore(s, agent.id, target.id, cType);
+    });
+    logAction('Connection Added', `${cType} connection: ${agent.name} ↔ ${target.name}`, 'info', executingAgentId);
+    return { success: true, message: `Created ${cType} connection between "${agent.name}" and "${target.name}".` };
+  }
+
+  // --- REMOVE CONNECTION ---
+  if (name === 'remove_connection') {
+    const agent = findAgent(args.agentName);
+    if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+    const target = findAgent(args.targetAgentName);
+    if (!target) return { success: false, error: `Agent "${args.targetAgentName}" not found.` };
+
+    let removed = false;
+    mutateStore(s => {
+      removed = removeConnectionFromStore(s, agent.id, target.id);
+    });
+
+    if (!removed) return { success: false, error: `No connection found between "${agent.name}" and "${target.name}".` };
+    logAction('Connection Removed', `Removed connection: ${agent.name} ↔ ${target.name}`, 'warning', executingAgentId);
+    return { success: true, message: `All connections between "${agent.name}" and "${target.name}" removed.` };
+  }
+
+  // --- UPDATE CONNECTION ---
+  if (name === 'update_connection') {
+    const agent = findAgent(args.agentName);
+    if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+    const target = findAgent(args.targetAgentName);
+    if (!target) return { success: false, error: `Agent "${args.targetAgentName}" not found.` };
+    if (agent.id === target.id) return { success: false, error: 'Cannot connect an agent to itself.' };
+
+    const cType = args.connectionType as string;
+    if (!['manager', 'collaborator', 'none'].includes(cType)) {
+      return { success: false, error: `Invalid connection type "${cType}". Must be "manager", "collaborator", or "none".` };
+    }
+
+    mutateStore(s => {
+      updateConnectionInStore(s, agent.id, target.id, cType);
+    });
+    logAction('Connection Updated', `Changed to ${cType}: ${agent.name} ↔ ${target.name}`, 'info', executingAgentId);
+    return { success: true, message: `Connection between "${agent.name}" and "${target.name}" updated to ${cType}.` };
+  }
+
   // --- RESOLVE APPROVAL ---
   if (name === 'resolve_approval') {
     let result: any = {};
@@ -1092,55 +1146,38 @@ export async function executeTool(name: string, args: any, executingAgentId: str
       s.messages.push(message);
     });
 
-    // Check if target is busy (store-persisted, with stale timeout)
-    const freshTarget = getStore().agents.find(a => a.id === targetAgent.id);
-    const isBusy = freshTarget?.busySince &&
-      (Date.now() - new Date(freshTarget.busySince).getTime() < STALE_BUSY_MS);
+    // Check if agent is already busy with another session
+    const wasBusy = (targetAgent.activeSessions || 0) > 0;
 
-    if (isBusy) {
-      await appendMessage(executingAgentId, {
-        role: 'assistant',
-        content: `[Queued request to ${targetAgent.name}]: ${args.content}`,
-        source: 'telegram'
-      });
-      await appendMessage(targetAgent.id, {
-        role: 'user',
-        content: `[Queued from ${senderName}]: ${args.content}`,
-        source: 'telegram'
-      });
-
-      logAction('Request Queued', `Request to ${targetAgent.name} queued (agent is busy).`, 'info', executingAgentId);
-      return {
-        success: true,
-        queued: true,
-        messageId: message.id,
-        message: `${targetAgent.name} is currently busy. Your request has been queued and will be processed as soon as the agent becomes available. You will receive the reply automatically.`
-      };
-    }
-
-    // Clear stale busy flag if present
-    if (freshTarget?.busySince) {
-      mutateStore(s => {
-        const a = s.agents.find(x => x.id === targetAgent.id);
-        if (a) a.busySince = undefined;
-      });
-    }
-
-    // Mark agent as busy
+    // Mark agent as active
     mutateStore(s => {
       const a = s.agents.find(x => x.id === targetAgent.id);
-      if (a) a.busySince = now;
+      if (a) a.activeSessions = (a.activeSessions || 0) + 1;
     });
 
+    // Build context if agent was already busy
+    let busyContext = '';
+    let busyUserNote = `Do the work, then call reply_to_message("${messageId}", "your response") to reply.`;
+    if (wasBusy) {
+      const currentTask = state.tasks.find(t => t.id === targetAgent.currentTaskId && t.status === 'In Progress');
+      if (currentTask) {
+        busyContext = `\n\nCRITICAL CONTEXT: You are currently working on task "${currentTask.title}" in another session. This is a quick interrupt from another agent.`;
+        busyUserNote = `Note: You are in the middle of task "${currentTask.title}". If this request requires significant work, reply briefly with a short acknowledgment and say you will handle it after finishing your current task. If it's a quick question, answer immediately. Either way, call reply_to_message("${messageId}", "your response").`;
+      } else {
+        busyContext = `\n\nCRITICAL CONTEXT: You are currently busy with another task. This is a quick interrupt from another agent.`;
+        busyUserNote = `Note: You are in the middle of another task. If this request requires significant work, reply briefly with a short acknowledgment and say you will handle it after. If it's a quick question, answer immediately. Either way, call reply_to_message("${messageId}", "your response").`;
+      }
+    }
+
     const targetSystemPrompt = buildSystemPrompt(targetAgent) +
-      `\n\nYou are responding to a request from ${senderName} (${senderRole}), a connected agent. Use reply_to_message("${messageId}", content) to send your reply. You have full tool access — do whatever work is needed before replying.`;
+      `\n\nYou are responding to a request from ${senderName} (${senderRole}), a connected agent. Use reply_to_message("${messageId}", content) to send your reply.` + busyContext;
 
     const TIMEOUT_MS = 120000;
     const startTime = Date.now();
 
     try {
       const chatSession = new OpenCodeChatSession(targetSystemPrompt);
-      const userMessage = `Request from ${senderName} (${senderRole}):\n\n${args.content}\n\nDo the work, then call reply_to_message("${messageId}", "your response") to reply.`;
+      const userMessage = `Request from ${senderName} (${senderRole}):\n\n${args.content}\n\n${busyUserNote}`;
       let response = await chatSession.sendMessage(userMessage);
       let replyText = response.text;
 
@@ -1219,7 +1256,7 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     } finally {
       mutateStore(s => {
         const a = s.agents.find(x => x.id === targetAgent.id);
-        if (a) a.busySince = undefined;
+        if (a) a.activeSessions = Math.max(0, (a.activeSessions || 0) - 1);
       });
       chainProcessNext(targetAgent);
     }

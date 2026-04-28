@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getStore, mutateStore, agentsAreConnected } from './store';
+import { getStore, mutateStore, agentsAreConnected, removeConnectionFromStore, addConnectionToStore } from './store';
 import { createMemory, loadMemory, getMemoryContext, clearMemory, readPersonalityFile, writePersonalityFile, getAllPersonalityFiles } from './agent-memory';
 import { listCronJobs, createCronJob, updateCronJob, deleteCronJob, runCronNow } from './cron';
 import yaml from 'js-yaml';
@@ -159,26 +159,63 @@ router.patch('/agents/:id', (req, res) => {
 
   mutateStore(s => {
     const idx = s.agents.findIndex(a => a.id === req.params.id);
-    if (idx !== -1) {
-      const oldWsId = s.agents[idx].workspaceId;
-      const newWsId = req.body.workspaceId;
+    if (idx === -1) return;
 
-      if (newWsId !== undefined && newWsId !== oldWsId) {
-        if (oldWsId) {
-          const oldWsIdx = s.workspaces.findIndex(w => w.id === oldWsId);
-          if (oldWsIdx !== -1) {
-            s.workspaces[oldWsIdx].agentIds = s.workspaces[oldWsIdx].agentIds.filter(id => id !== req.params.id);
-          }
+    const oldWsId = s.agents[idx].workspaceId;
+    const newWsId = req.body.workspaceId;
+
+    if (newWsId !== undefined && newWsId !== oldWsId) {
+      if (oldWsId) {
+        const oldWsIdx = s.workspaces.findIndex(w => w.id === oldWsId);
+        if (oldWsIdx !== -1) {
+          s.workspaces[oldWsIdx].agentIds = s.workspaces[oldWsIdx].agentIds.filter(id => id !== req.params.id);
         }
-        if (newWsId) {
-          const newWsIdx = s.workspaces.findIndex(w => w.id === newWsId);
-          if (newWsIdx !== -1 && !s.workspaces[newWsIdx].agentIds.includes(req.params.id)) {
-            s.workspaces[newWsIdx].agentIds.push(req.params.id);
+      }
+      if (newWsId) {
+        const newWsIdx = s.workspaces.findIndex(w => w.id === newWsId);
+        if (newWsIdx !== -1 && !s.workspaces[newWsIdx].agentIds.includes(req.params.id)) {
+          s.workspaces[newWsIdx].agentIds.push(req.params.id);
+        }
+      }
+    }
+
+    const oldAgent = s.agents[idx];
+    const oldCollabs: string[] = oldAgent.collaborators || [];
+    const newCollabs: string[] | undefined = req.body.collaborators;
+
+    const oldParentId = oldAgent.parentId;
+    const newParentId = req.body.parentId;
+
+    s.agents[idx] = { ...oldAgent, ...req.body };
+
+    if (newCollabs !== undefined) {
+      const added = newCollabs.filter(id => !oldCollabs.includes(id));
+      const removed = oldCollabs.filter(id => !newCollabs.includes(id));
+
+      for (const targetId of added) {
+        const target = s.agents.find(a => a.id === targetId);
+        if (target) {
+          if (!target.collaborators) target.collaborators = [];
+          if (!target.collaborators.includes(req.params.id)) {
+            target.collaborators.push(req.params.id);
           }
         }
       }
+      for (const targetId of removed) {
+        const target = s.agents.find(a => a.id === targetId);
+        if (target?.collaborators) {
+          target.collaborators = target.collaborators.filter(id => id !== req.params.id);
+        }
+      }
+    }
 
-      s.agents[idx] = { ...s.agents[idx], ...req.body };
+    if (newParentId !== undefined && newParentId !== oldParentId) {
+      if (oldParentId) {
+        removeConnectionFromStore(s, req.params.id, oldParentId);
+      }
+      if (newParentId) {
+        addConnectionToStore(s, req.params.id, newParentId, 'subordinate');
+      }
     }
   });
 

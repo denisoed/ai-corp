@@ -231,6 +231,48 @@ This document describes all available tools/functions that AI agents can use whe
 
 ---
 
+### Connection Management
+
+#### 26. `add_connection`
+
+**Description:** Create a connection between two agents. Supports manager/subordinate relationships and bidirectional collaboration.
+
+**Parameters:**
+- `agentName` (string, required): For `"manager"` — this agent becomes the manager (boss). For `"collaborator"` — either agent, order doesn't matter.
+- `targetAgentName` (string, required): For `"manager"` — this agent becomes the subordinate (reports to agentName). For `"collaborator"` — the other peer.
+- `connectionType` (string, required): `"manager"` (agentName manages targetAgentName) or `"collaborator"` (bidirectional peers)
+
+**Important:** To make Bob report to Alice, call with `agentName="Alice"`, `targetAgentName="Bob"`, `connectionType="manager"`.
+
+**Use Case:** Build team hierarchies and cross-functional collaborations dynamically.
+
+---
+
+#### 27. `remove_connection`
+
+**Description:** Remove all connections between two agents — clears manager/subordinate relationship and removes from collaborators on both sides.
+
+**Parameters:**
+- `agentName` (string, required): Name of the first agent  
+- `targetAgentName` (string, required): Name of the second agent
+
+**Use Case:** Disconnect agents when teams reorganize or collaboration ends.
+
+---
+
+#### 28. `update_connection`
+
+**Description:** Change the type of connection between two agents. Removes existing connection first, then applies the new type. Use `"none"` to just remove all connections.
+
+**Parameters:**
+- `agentName` (string, required): For `"manager"` — this agent becomes the manager (boss).
+- `targetAgentName` (string, required): For `"manager"` — this agent becomes the subordinate (reports to agentName).
+- `connectionType` (string, required): New connection type — `"manager"`, `"collaborator"`, or `"none"`
+
+**Use Case:** Promote collaborators to managers, restructure teams, or dissolve relationships.
+
+---
+
 ### Process Control
 
 #### 16. `resolve_approval`
