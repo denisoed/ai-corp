@@ -2,6 +2,32 @@ export type AgentRole = 'Manager' | 'Developer' | 'Analyst' | 'Reviewer' | 'Desi
 
 export type AgentStatus = 'Idle' | 'Working' | 'Blocked' | 'Error' | 'Offline';
 
+export type PermissionType =
+  | 'file:read'
+  | 'file:write'
+  | 'file:delete'
+  | 'file:list'
+  | 'system:manage_agents'
+  | 'system:manage_permissions'
+  | 'system:manage_roles'
+  | 'system:manage_crons'
+  | 'system:broadcast';
+
+export interface PermissionEntry {
+  type: PermissionType;
+  scope: 'all' | string[];
+}
+
+export interface Role {
+  id: string;
+  workspaceId: string;
+  name: string;
+  description?: string;
+  permissions: PermissionEntry[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface WorkspaceSettings {
   autoApproveCheapTasks?: boolean;
   maxParallelTasks?: number;
@@ -46,6 +72,7 @@ export interface Agent {
   budgetToday?: number;
   spentToday?: number;
   currentTaskId?: string;
+  roleIds?: string[];
 }
 
 export type TaskStatus = 'Backlog' | 'Planned' | 'In Progress' | 'Review' | 'Needs Approval' | 'Done' | 'Failed' | 'Blocked';

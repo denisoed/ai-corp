@@ -1,9 +1,12 @@
-import { mutateStore, getStore, agentsAreConnected, addConnectionToStore, removeConnectionFromStore, updateConnectionInStore } from './store';
-import { Agent, Task, TaskRisk, TaskPriority, TaskStatus, AgentStatus, Comment, AgentMessage } from '../types';
+import { mutateStore, getStore, agentsAreConnected, addConnectionToStore, removeConnectionFromStore, updateConnectionInStore, hasPermission, ensureDefaultRoles, assignDefaultRole, getEffectivePermissions, getRolesByWorkspace } from './store';
+import { Agent, Task, TaskRisk, TaskPriority, TaskStatus, AgentStatus, Comment, AgentMessage, Role, PermissionEntry, PermissionType } from '../types';
 import { OpenCodeChatSession } from './opencode';
 import { loadMemory, createMemory, appendMessage, buildSystemPrompt, writePersonalityFile } from './agent-memory';
+import { assertAgentInWorkspace, resolveWorkspacePath } from './workspace-guard';
 import { marked, Renderer } from 'marked';
 import type { Tokens } from 'marked';
+import fs from 'fs';
+import path from 'path';
 
 const TELEGRAM_API = 'https://api.telegram.org/bot';
 
@@ -535,12 +538,16 @@ export async function executeTool(name: string, args: any, executingAgentId: str
       if (ws && !ws.agentIds.includes(newAgentId)) {
         ws.agentIds.push(newAgentId);
       }
+      ensureDefaultRoles(workspaceId);
     });
 
     const newAgent = getStore().agents.find(a => a.id === newAgentId);
     if (newAgent) {
       const ws = getStore().workspaces.find(w => w.id === workspaceId);
       createMemory(newAgent, ws);
+      mutateStore(s => {
+        assignDefaultRole(newAgentId);
+      });
     }
 
     if (args.soul) writePersonalityFile(newAgentId, 'SOUL.md', args.soul);
@@ -783,6 +790,10 @@ export async function executeTool(name: string, args: any, executingAgentId: str
 
   // --- DELETE AGENT ---
   if (name === 'delete_agent') {
+    if (!hasPermission(executingAgentId, 'system:manage_agents')) {
+      return { success: false, error: 'You do not have system:manage_agents permission.' };
+    }
+
     const agent = findAgent(args.agentName);
     if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
 
@@ -1014,6 +1025,10 @@ export async function executeTool(name: string, args: any, executingAgentId: str
 
   // --- SEND BROADCAST ---
   if (name === 'send_broadcast') {
+    if (!hasPermission(executingAgentId, 'system:broadcast')) {
+      return { success: false, error: 'You do not have system:broadcast permission.' };
+    }
+
     const botsWithTokens = state.agents.filter(a =>
       a.telegramConfig?.botToken && a.telegramConfig?.lastChatId &&
       agentsAreConnected(executingAgentId, a.id, state.agents)
@@ -1349,6 +1364,10 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     const agent = findAgent(args.agentName);
     if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
 
+    if (agent.id !== executingAgentId && !hasPermission(executingAgentId, 'system:manage_agents')) {
+      return { success: false, error: 'You can only set your own personality unless you have system:manage_agents permission.' };
+    }
+
     const updated: string[] = [];
     if (args.soul) { writePersonalityFile(agent.id, 'SOUL.md', args.soul); updated.push('SOUL'); }
     if (args.identity) { writePersonalityFile(agent.id, 'IDENTITY.md', args.identity); updated.push('IDENTITY'); }
@@ -1396,6 +1415,10 @@ export async function executeTool(name: string, args: any, executingAgentId: str
 
   // --- CREATE CRON ---
   if (name === 'create_cron') {
+    if (!hasPermission(executingAgentId, 'system:manage_crons')) {
+      return { success: false, error: 'You do not have system:manage_crons permission.' };
+    }
+
     const agent = findAgent(args.agentName);
     if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
 
@@ -1435,6 +1458,10 @@ export async function executeTool(name: string, args: any, executingAgentId: str
 
   // --- DELETE CRON ---
   if (name === 'delete_cron') {
+    if (!hasPermission(executingAgentId, 'system:manage_crons')) {
+      return { success: false, error: 'You do not have system:manage_crons permission.' };
+    }
+
     const cronModule = await import('./cron');
     const all = cronModule.listCronJobs(executingAgent.workspaceId);
     const job = all.find(j => j.name.toLowerCase().includes(args.cronName.toLowerCase()));
@@ -1447,6 +1474,10 @@ export async function executeTool(name: string, args: any, executingAgentId: str
 
   // --- UPDATE CRON ---
   if (name === 'update_cron') {
+    if (!hasPermission(executingAgentId, 'system:manage_crons')) {
+      return { success: false, error: 'You do not have system:manage_crons permission.' };
+    }
+
     const cronModule = await import('./cron');
     const all = cronModule.listCronJobs(executingAgent.workspaceId);
     const job = all.find(j => j.name.toLowerCase().includes(args.cronName.toLowerCase()));
@@ -1465,6 +1496,10 @@ export async function executeTool(name: string, args: any, executingAgentId: str
 
   // --- RUN CRON NOW ---
   if (name === 'run_cron_now') {
+    if (!hasPermission(executingAgentId, 'system:manage_crons')) {
+      return { success: false, error: 'You do not have system:manage_crons permission.' };
+    }
+
     const cronModule = await import('./cron');
     const all = cronModule.listCronJobs(executingAgent.workspaceId);
     const job = all.find(j => j.name.toLowerCase().includes(args.cronName.toLowerCase()));
@@ -1476,6 +1511,387 @@ export async function executeTool(name: string, args: any, executingAgentId: str
       return { success: true, message: `Cron "${job.name}" executed successfully.` };
     }
     return { success: false, error: result.error };
+  }
+
+  // --- GET AGENT PERMISSIONS ---
+  if (name === 'get_agent_permissions') {
+    const agent = findAgent(args.agentName);
+    if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+
+    const perms = getEffectivePermissions(agent.id);
+    const roleIds = agent.roleIds || [];
+    const roles = state.roles.filter(r => roleIds.includes(r.id));
+
+    return {
+      success: true,
+      agent: agent.name,
+      roles: roles.map(r => ({ name: r.name, permissions: r.permissions })),
+      effectivePermissions: perms,
+    };
+  }
+
+  // --- LIST PERMISSIONS ---
+  if (name === 'list_permissions') {
+    return {
+      success: true,
+      permissionTypes: [
+        { type: 'file:read', description: 'Read files in workspace', scopeable: true },
+        { type: 'file:write', description: 'Create/modify files in workspace', scopeable: true },
+        { type: 'file:delete', description: 'Delete files in workspace', scopeable: true },
+        { type: 'file:list', description: 'List directory contents', scopeable: true },
+        { type: 'system:manage_agents', description: 'Create/update/delete agents', scopeable: false },
+        { type: 'system:manage_permissions', description: 'Assign/revoke roles to agents', scopeable: false },
+        { type: 'system:manage_roles', description: 'Create/update/delete roles', scopeable: false },
+        { type: 'system:manage_crons', description: 'Create/update/delete/run cron jobs', scopeable: false },
+        { type: 'system:broadcast', description: 'Send broadcasts to all connected agents', scopeable: false },
+      ]
+    };
+  }
+
+  // --- CREATE ROLE ---
+  if (name === 'create_role') {
+    if (!hasPermission(executingAgentId, 'system:manage_roles')) {
+      return { success: false, error: 'You do not have system:manage_roles permission.' };
+    }
+
+    const workspaceId = executingAgent.workspaceId!;
+    const existing = state.roles.find(r => r.workspaceId === workspaceId && r.name.toLowerCase() === args.name.toLowerCase());
+    if (existing) return { success: false, error: `Role "${args.name}" already exists in this workspace.` };
+
+    const now = new Date().toISOString();
+    const newRole: Role = {
+      id: crypto.randomUUID(),
+      workspaceId,
+      name: args.name,
+      description: args.description || '',
+      permissions: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    mutateStore(s => {
+      s.roles.push(newRole);
+    });
+
+    logAction('Role Created', `Created role "${args.name}".`, 'success', executingAgentId);
+    return { success: true, message: `Role "${args.name}" created.`, role: newRole };
+  }
+
+  // --- DELETE ROLE ---
+  if (name === 'delete_role') {
+    if (!hasPermission(executingAgentId, 'system:manage_roles')) {
+      return { success: false, error: 'You do not have system:manage_roles permission.' };
+    }
+
+    const role = state.roles.find(r => r.name.toLowerCase() === args.roleName.toLowerCase() && r.workspaceId === executingAgent.workspaceId);
+    if (!role) return { success: false, error: `Role "${args.roleName}" not found.` };
+
+    mutateStore(s => {
+      s.roles = s.roles.filter(r => r.id !== role.id);
+      for (const agent of s.agents) {
+        if (agent.roleIds) {
+          agent.roleIds = agent.roleIds.filter(rid => rid !== role.id);
+        }
+      }
+    });
+
+    logAction('Role Deleted', `Deleted role "${args.roleName}".`, 'warning', executingAgentId);
+    return { success: true, message: `Role "${args.roleName}" deleted and revoked from all agents.` };
+  }
+
+  // --- UPDATE ROLE ---
+  if (name === 'update_role') {
+    if (!hasPermission(executingAgentId, 'system:manage_roles')) {
+      return { success: false, error: 'You do not have system:manage_roles permission.' };
+    }
+
+    const role = state.roles.find(r => r.name.toLowerCase() === args.roleName.toLowerCase() && r.workspaceId === executingAgent.workspaceId);
+    if (!role) return { success: false, error: `Role "${args.roleName}" not found.` };
+
+    const permissions: PermissionEntry[] = Array.isArray(args.permissions) ? args.permissions : [];
+
+    mutateStore(s => {
+      const r = s.roles.find(x => x.id === role.id);
+      if (r) {
+        r.permissions = permissions;
+        if (args.description !== undefined) r.description = args.description;
+        r.updatedAt = new Date().toISOString();
+      }
+    });
+
+    logAction('Role Updated', `Updated role "${args.roleName}".`, 'success', executingAgentId);
+    return { success: true, message: `Role "${args.roleName}" updated with ${permissions.length} permission(s).` };
+  }
+
+  // --- GRANT PERMISSION TO ROLE ---
+  if (name === 'grant_permission_to_role') {
+    if (!hasPermission(executingAgentId, 'system:manage_roles')) {
+      return { success: false, error: 'You do not have system:manage_roles permission.' };
+    }
+
+    const role = state.roles.find(r => r.name.toLowerCase() === args.roleName.toLowerCase() && r.workspaceId === executingAgent.workspaceId);
+    if (!role) return { success: false, error: `Role "${args.roleName}" not found.` };
+
+    const validTypes: PermissionType[] = ['file:read', 'file:write', 'file:delete', 'file:list', 'system:manage_agents', 'system:manage_permissions', 'system:manage_roles', 'system:manage_crons', 'system:broadcast'];
+    if (!validTypes.includes(args.permissionType)) {
+      return { success: false, error: `Invalid permission type "${args.permissionType}". Valid: ${validTypes.join(', ')}` };
+    }
+
+    const scope: 'all' | string[] = args.scope && Array.isArray(args.scope) ? args.scope : 'all';
+    const entry: PermissionEntry = { type: args.permissionType, scope };
+
+    mutateStore(s => {
+      const r = s.roles.find(x => x.id === role.id);
+      if (r) {
+        const existingEntry = r.permissions.find(p => p.type === args.permissionType);
+        if (existingEntry) {
+          if (Array.isArray(existingEntry.scope) && Array.isArray(scope)) {
+            for (const s of scope) {
+              if (!existingEntry.scope.includes(s)) existingEntry.scope.push(s);
+            }
+          } else {
+            existingEntry.scope = scope;
+          }
+        } else {
+          r.permissions.push(entry);
+        }
+        r.updatedAt = new Date().toISOString();
+      }
+    });
+
+    logAction('Role Permission Granted', `Granted ${args.permissionType} to role "${args.roleName}".`, 'success', executingAgentId);
+    return { success: true, message: `Permission "${args.permissionType}" added to role "${args.roleName}".` };
+  }
+
+  // --- REVOKE PERMISSION FROM ROLE ---
+  if (name === 'revoke_permission_from_role') {
+    if (!hasPermission(executingAgentId, 'system:manage_roles')) {
+      return { success: false, error: 'You do not have system:manage_roles permission.' };
+    }
+
+    const role = state.roles.find(r => r.name.toLowerCase() === args.roleName.toLowerCase() && r.workspaceId === executingAgent.workspaceId);
+    if (!role) return { success: false, error: `Role "${args.roleName}" not found.` };
+
+    let removed = false;
+    mutateStore(s => {
+      const r = s.roles.find(x => x.id === role.id);
+      if (r) {
+        const before = r.permissions.length;
+        r.permissions = r.permissions.filter(p => p.type !== args.permissionType);
+        removed = r.permissions.length < before;
+        r.updatedAt = new Date().toISOString();
+      }
+    });
+
+    if (!removed) return { success: false, error: `Role "${args.roleName}" does not have permission "${args.permissionType}".` };
+
+    logAction('Role Permission Revoked', `Revoked ${args.permissionType} from role "${args.roleName}".`, 'warning', executingAgentId);
+    return { success: true, message: `Permission "${args.permissionType}" removed from role "${args.roleName}".` };
+  }
+
+  // --- LIST ROLES ---
+  if (name === 'list_roles') {
+    const wsRoles = getRolesByWorkspace(executingAgent.workspaceId!);
+    return {
+      success: true,
+      count: wsRoles.length,
+      roles: wsRoles.map(r => ({
+        name: r.name,
+        description: r.description,
+        permissions: r.permissions,
+        createdAt: r.createdAt,
+      })),
+    };
+  }
+
+  // --- GET ROLE ---
+  if (name === 'get_role') {
+    const role = state.roles.find(r => r.name.toLowerCase() === args.roleName.toLowerCase() && r.workspaceId === executingAgent.workspaceId);
+    if (!role) return { success: false, error: `Role "${args.roleName}" not found.` };
+
+    const agentsWithRole = state.agents.filter(a => a.roleIds?.includes(role.id));
+
+    return {
+      success: true,
+      role: {
+        name: role.name,
+        description: role.description,
+        permissions: role.permissions,
+        createdAt: role.createdAt,
+        updatedAt: role.updatedAt,
+      },
+      assignedTo: agentsWithRole.map(a => ({ name: a.name, role: a.role })),
+    };
+  }
+
+  // --- ASSIGN ROLE ---
+  if (name === 'assign_role') {
+    if (!hasPermission(executingAgentId, 'system:manage_permissions')) {
+      return { success: false, error: 'You do not have system:manage_permissions permission.' };
+    }
+
+    const agent = findAgent(args.agentName);
+    if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+
+    const role = state.roles.find(r => r.name.toLowerCase() === args.roleName.toLowerCase() && r.workspaceId === executingAgent.workspaceId);
+    if (!role) return { success: false, error: `Role "${args.roleName}" not found in your workspace.` };
+
+    mutateStore(s => {
+      const a = s.agents.find(x => x.id === agent.id);
+      if (a) {
+        if (!a.roleIds) a.roleIds = [];
+        if (!a.roleIds.includes(role.id)) {
+          a.roleIds.push(role.id);
+        }
+      }
+    });
+
+    logAction('Role Assigned', `Assigned role "${args.roleName}" to ${agent.name}.`, 'success', executingAgentId);
+    return { success: true, message: `Role "${args.roleName}" assigned to ${agent.name}.` };
+  }
+
+  // --- REVOKE ROLE ---
+  if (name === 'revoke_role') {
+    if (!hasPermission(executingAgentId, 'system:manage_permissions')) {
+      return { success: false, error: 'You do not have system:manage_permissions permission.' };
+    }
+
+    const agent = findAgent(args.agentName);
+    if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+
+    const role = state.roles.find(r => r.name.toLowerCase() === args.roleName.toLowerCase() && r.workspaceId === executingAgent.workspaceId);
+    if (!role) return { success: false, error: `Role "${args.roleName}" not found in your workspace.` };
+
+    mutateStore(s => {
+      const a = s.agents.find(x => x.id === agent.id);
+      if (a && a.roleIds) {
+        a.roleIds = a.roleIds.filter(rid => rid !== role.id);
+      }
+    });
+
+    logAction('Role Revoked', `Revoked role "${args.roleName}" from ${agent.name}.`, 'warning', executingAgentId);
+    return { success: true, message: `Role "${args.roleName}" revoked from ${agent.name}.` };
+  }
+
+  // --- READ FILE ---
+  if (name === 'read_file') {
+    try {
+      const { workspace } = assertAgentInWorkspace(executingAgentId);
+      if (!hasPermission(executingAgentId, 'file:read', args.path)) {
+        return { success: false, error: `You do not have file:read permission for "${args.path}".` };
+      }
+
+      const targetPath = resolveWorkspacePath(executingAgentId, args.path);
+      if (!fs.existsSync(targetPath)) {
+        return { success: false, error: `File "${args.path}" not found.` };
+      }
+
+      const stat = fs.statSync(targetPath);
+      if (stat.isDirectory()) {
+        return { success: false, error: `"${args.path}" is a directory. Use list_files to browse.` };
+      }
+
+      const content = fs.readFileSync(targetPath, 'utf8');
+      const lines = (args.lines || 2000) as number;
+      const truncated = content.length > lines * 1000
+        ? content.slice(0, lines * 1000) + '\n... [truncated]'
+        : content;
+
+      logAction('File Read', `Read "${args.path}" (${(content.length / 1024).toFixed(1)} KB).`, 'info', executingAgentId);
+      return { success: true, path: args.path, content: truncated, size: content.length };
+    } catch (e: any) {
+      if (e.name === 'WorkspaceAccessDenied') return { success: false, error: e.message };
+      throw e;
+    }
+  }
+
+  // --- WRITE FILE ---
+  if (name === 'write_file') {
+    try {
+      if (!hasPermission(executingAgentId, 'file:write', args.path)) {
+        return { success: false, error: `You do not have file:write permission for "${args.path}".` };
+      }
+
+      const targetPath = resolveWorkspacePath(executingAgentId, args.path);
+      const dir = path.dirname(targetPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      fs.writeFileSync(targetPath, args.content, 'utf8');
+
+      logAction('File Written', `Wrote "${args.path}" (${args.content.length} chars).`, 'success', executingAgentId);
+      return { success: true, message: `File "${args.path}" written (${args.content.length} chars).` };
+    } catch (e: any) {
+      if (e.name === 'WorkspaceAccessDenied') return { success: false, error: e.message };
+      throw e;
+    }
+  }
+
+  // --- DELETE FILE ---
+  if (name === 'delete_file') {
+    try {
+      if (!hasPermission(executingAgentId, 'file:delete', args.path)) {
+        return { success: false, error: `You do not have file:delete permission for "${args.path}".` };
+      }
+
+      const targetPath = resolveWorkspacePath(executingAgentId, args.path);
+      if (!fs.existsSync(targetPath)) {
+        return { success: false, error: `File "${args.path}" not found.` };
+      }
+
+      const stat = fs.statSync(targetPath);
+      if (stat.isDirectory()) {
+        return { success: false, error: `"${args.path}" is a directory. Use a shell command to remove directories.` };
+      }
+
+      fs.unlinkSync(targetPath);
+
+      logAction('File Deleted', `Deleted "${args.path}".`, 'warning', executingAgentId);
+      return { success: true, message: `File "${args.path}" deleted.` };
+    } catch (e: any) {
+      if (e.name === 'WorkspaceAccessDenied') return { success: false, error: e.message };
+      throw e;
+    }
+  }
+
+  // --- LIST FILES ---
+  if (name === 'list_files') {
+    try {
+      if (!hasPermission(executingAgentId, 'file:list')) {
+        return { success: false, error: 'You do not have file:list permission.' };
+      }
+
+      const dirPath = args.path || '.';
+      const targetPath = resolveWorkspacePath(executingAgentId, dirPath);
+
+      if (!fs.existsSync(targetPath)) {
+        return { success: false, error: `Path "${dirPath}" not found.` };
+      }
+
+      const stat = fs.statSync(targetPath);
+      if (!stat.isDirectory()) {
+        return { success: false, error: `"${dirPath}" is not a directory.` };
+      }
+
+      const entries = fs.readdirSync(targetPath, { withFileTypes: true });
+      const files = entries
+        .filter(e => !e.name.startsWith('.') && e.name !== 'node_modules')
+        .map(e => ({
+          name: e.name,
+          type: e.isDirectory() ? 'directory' as const : 'file' as const,
+          size: e.isFile() ? fs.statSync(path.join(targetPath, e.name)).size : undefined,
+        }))
+        .sort((a, b) => {
+          if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        });
+
+      return { success: true, path: dirPath, count: files.length, files };
+    } catch (e: any) {
+      if (e.name === 'WorkspaceAccessDenied') return { success: false, error: e.message };
+      throw e;
+    }
   }
 
   return { success: false, error: 'Unknown tool' };

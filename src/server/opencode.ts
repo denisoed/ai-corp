@@ -576,6 +576,233 @@ export const companyTools = [
         required: ['cronName']
       }
     }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'read_file',
+      description: 'Read the contents of a file in the workspace. Path is relative to the workspace root.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          path: { type: 'string' as const, description: 'Relative path to the file, e.g. "src/index.ts" or "README.md"' },
+          lines: { type: 'number' as const, description: 'Optional. Maximum approximate lines to return (default 2000). Content is truncated if it exceeds this.' }
+        },
+        required: ['path']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'write_file',
+      description: 'Write content to a file in the workspace. Creates parent directories if they do not exist. Path is relative to the workspace root.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          path: { type: 'string' as const, description: 'Relative path to the file, e.g. "src/config.ts"' },
+          content: { type: 'string' as const, description: 'The full content to write to the file' }
+        },
+        required: ['path', 'content']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'delete_file',
+      description: 'Delete a file in the workspace. Path is relative to the workspace root. Directories cannot be deleted this way.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          path: { type: 'string' as const, description: 'Relative path to the file to delete, e.g. "temp/log.txt"' }
+        },
+        required: ['path']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'list_files',
+      description: 'List files and directories in a workspace path. Shows names, types (file/directory), and file sizes.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          path: { type: 'string' as const, description: 'Optional. Relative directory path to list. Defaults to workspace root (".").' }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'create_role',
+      description: 'Create a new role in the workspace. Roles group permissions together for assignment to agents. Requires system:manage_roles permission.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          name: { type: 'string' as const, description: 'Role name, e.g. "Senior Developer"' },
+          description: { type: 'string' as const, description: 'Optional. What this role is for.' }
+        },
+        required: ['name']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'delete_role',
+      description: 'Delete a role from the workspace. The role is also revoked from all agents that had it. Requires system:manage_roles permission.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          roleName: { type: 'string' as const, description: 'Name of the role to delete' }
+        },
+        required: ['roleName']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'update_role',
+      description: 'Replace ALL permissions of a role at once. Use grant_permission_to_role / revoke_permission_from_role for incremental changes. Requires system:manage_roles permission.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          roleName: { type: 'string' as const, description: 'Name of the role to update' },
+          description: { type: 'string' as const, description: 'Optional. New description for the role.' },
+          permissions: {
+            type: 'array' as const,
+            description: 'Full list of permissions for the role. Each item has "type" (permission type string) and optional "scope" (array of path globs, or omit for "all").',
+            items: {
+              type: 'object' as const,
+              properties: {
+                type: { type: 'string' as const, description: 'Permission type: file:read, file:write, file:delete, file:list, system:manage_agents, system:manage_permissions, system:manage_roles, system:manage_crons, system:broadcast' },
+                scope: { description: 'Array of path glob patterns for file permissions (e.g. ["src/**", "docs/*.md"]), or omit for "all"' }
+              },
+              required: ['type']
+            }
+          }
+        },
+        required: ['roleName', 'permissions']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'grant_permission_to_role',
+      description: 'Add (enrich) a single permission to a role without changing its other permissions. Requires system:manage_roles permission.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          roleName: { type: 'string' as const, description: 'Name of the role to enrich' },
+          permissionType: { type: 'string' as const, description: 'Permission type to add: file:read, file:write, file:delete, file:list, system:manage_agents, system:manage_permissions, system:manage_roles, system:manage_crons, system:broadcast' },
+          scope: { type: 'array' as const, items: { type: 'string' as const }, description: 'Optional. Array of path globs to limit scope. Omit for full access ("all").' }
+        },
+        required: ['roleName', 'permissionType']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'revoke_permission_from_role',
+      description: 'Remove a single permission from a role. Requires system:manage_roles permission.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          roleName: { type: 'string' as const, description: 'Name of the role' },
+          permissionType: { type: 'string' as const, description: 'Permission type to remove' }
+        },
+        required: ['roleName', 'permissionType']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'list_roles',
+      description: 'List all roles in the current workspace with their permissions.',
+      parameters: {
+        type: 'object' as const,
+        properties: {},
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_role',
+      description: 'Get detailed information about a specific role, including which agents have it.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          roleName: { type: 'string' as const, description: 'Name of the role' }
+        },
+        required: ['roleName']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'assign_role',
+      description: 'Assign a role to an agent, granting them all permissions defined in that role. Requires system:manage_permissions permission.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          agentName: { type: 'string' as const, description: 'Name of the agent to receive the role' },
+          roleName: { type: 'string' as const, description: 'Name of the role to assign' }
+        },
+        required: ['agentName', 'roleName']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'revoke_role',
+      description: 'Remove a role from an agent. The agent loses all permissions that came from this role (unless they have them from other roles). Requires system:manage_permissions permission.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          agentName: { type: 'string' as const, description: 'Name of the agent' },
+          roleName: { type: 'string' as const, description: 'Name of the role to revoke' }
+        },
+        required: ['agentName', 'roleName']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_agent_permissions',
+      description: 'View all effective permissions of an agent — aggregated from all their assigned roles.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          agentName: { type: 'string' as const, description: 'Name of the agent' }
+        },
+        required: ['agentName']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'list_permissions',
+      description: 'List all available permission types the system supports with descriptions.',
+      parameters: {
+        type: 'object' as const,
+        properties: {},
+        required: []
+      }
+    }
   }
 ];
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FolderKanban, KanbanSquare, Activity, Clock, Settings, Menu } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, KanbanSquare, Activity, Clock, Shield, Settings, Menu } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/Button';
 
@@ -51,6 +51,7 @@ export function Layout({ children }: LayoutProps) {
     { id: 'workspaces', label: 'Workspaces', icon: FolderKanban },
     { id: 'board', label: 'Task Board', icon: KanbanSquare },
     { id: 'crons', label: 'Cron Jobs', icon: Clock },
+    { id: 'roles', label: 'Roles', icon: Shield },
     { id: 'logs', label: 'Activity Logs', icon: Activity },
   ];
 

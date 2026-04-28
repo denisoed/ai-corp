@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getStore, mutateStore, agentsAreConnected, removeConnectionFromStore, addConnectionToStore } from './store';
+import { getStore, mutateStore, agentsAreConnected, removeConnectionFromStore, addConnectionToStore, ensureDefaultRoles, assignDefaultRole, getRolesByWorkspace, hasPermission } from './store';
 import { createMemory, loadMemory, getMemoryContext, clearMemory, readPersonalityFile, writePersonalityFile, getAllPersonalityFiles } from './agent-memory';
 import { listCronJobs, createCronJob, updateCronJob, deleteCronJob, runCronNow } from './cron';
 import yaml from 'js-yaml';
@@ -29,6 +29,7 @@ router.post('/workspaces', (req, res) => {
   mutateStore(s => {
     s.workspaces.push(workspace);
   });
+  ensureDefaultRoles(workspace.id);
   res.json(workspace);
 });
 
@@ -102,7 +103,7 @@ router.delete('/workspaces/:id', (req, res) => {
 });
 
 router.post('/agents', (req, res) => {
-  const { soul, identity, roleDoc, ...agentData } = req.body;
+  const { soul, identity, roleDoc, roleIds, ...agentData } = req.body;
   const agentId = req.headers['x-agent-id'] as string | undefined;
   const store = getStore();
 
@@ -119,7 +120,12 @@ router.post('/agents', (req, res) => {
     return res.status(400).json({ error: `Workspace ${agentData.workspaceId} not found` });
   }
 
-  const agent = { ...agentData, id: crypto.randomUUID(), slug: agentData.slug || generateSlug(agentData.name) };
+  const agent = {
+    ...agentData,
+    id: crypto.randomUUID(),
+    slug: agentData.slug || generateSlug(agentData.name),
+    roleIds: Array.isArray(roleIds) ? roleIds : undefined,
+  };
   mutateStore(s => {
     s.agents.push(agent);
     const ws = s.workspaces.find(w => w.id === agent.workspaceId);
@@ -129,6 +135,10 @@ router.post('/agents', (req, res) => {
   });
 
   createMemory(agent, workspace);
+  ensureDefaultRoles(agent.workspaceId);
+  if (!agent.roleIds || agent.roleIds.length === 0) {
+    assignDefaultRole(agent.id);
+  }
 
   if (soul) writePersonalityFile(agent.id, 'SOUL.md', soul);
   if (identity) writePersonalityFile(agent.id, 'IDENTITY.md', identity);
@@ -478,6 +488,7 @@ router.post('/templates/apply', (req, res) => {
   });
 
   const storeAfter = getStore();
+  ensureDefaultRoles(workspaceId);
   for (let i = 0; i < newAgentIds.length; i++) {
     const agent = storeAfter.agents.find(a => a.id === newAgentIds[i]);
     if (!agent) continue;
@@ -486,7 +497,7 @@ router.post('/templates/apply', (req, res) => {
       : undefined;
     if (ws) {
       createMemory(agent, ws);
-      const tmpl = template.agents[i];
+      assignDefaultRole(agent.id);      const tmpl = template.agents[i];
       if (tmpl?.soul) writePersonalityFile(agent.id, 'SOUL.md', tmpl.soul);
       if (tmpl?.identity) writePersonalityFile(agent.id, 'IDENTITY.md', tmpl.identity);
       if (tmpl?.role_doc) writePersonalityFile(agent.id, 'ROLE.md', tmpl.role_doc);
@@ -640,10 +651,12 @@ router.post('/workspaces/init', (req, res) => {
   });
 
   // Create memory and personality files
+  ensureDefaultRoles(wsId);
   const storeAfter = getStore();
   const ws = storeAfter.workspaces.find(w => w.id === wsId)!;
   for (const a of storeAfter.agents.filter(a => a.workspaceId === wsId)) {
     createMemory(a, ws);
+    assignDefaultRole(a.id);
     const defAgent = def.agents?.find(d => d.slug === a.slug);
     if (defAgent) {
       if (defAgent.soul) writePersonalityFile(a.id, 'SOUL.md', defAgent.soul);
@@ -654,6 +667,120 @@ router.post('/workspaces/init', (req, res) => {
 
   res.json(getStore());
 });
+
+// --- Roles API ---
+
+router.get('/roles', (req, res) => {
+  const workspaceId = req.query.workspaceId as string | undefined;
+  if (workspaceId) {
+    res.json(getRolesByWorkspace(workspaceId));
+  } else {
+    res.json(getStore().roles);
+  }
+});
+
+router.post('/roles', (req, res) => {
+  const { name, description, workspaceId } = req.body;
+  if (!name || !workspaceId) {
+    return res.status(400).json({ error: 'name and workspaceId are required' });
+  }
+
+  const existing = getStore().roles.find(r => r.workspaceId === workspaceId && r.name.toLowerCase() === name.toLowerCase());
+  if (existing) {
+    return res.status(409).json({ error: `Role "${name}" already exists in this workspace` });
+  }
+
+  const now = new Date().toISOString();
+  const role = {
+    id: crypto.randomUUID(),
+    workspaceId,
+    name,
+    description: description || '',
+    permissions: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  mutateStore(s => {
+    s.roles.push(role);
+  });
+
+  res.json(role);
+});
+
+router.patch('/roles/:id', (req, res) => {
+  const role = getStore().roles.find(r => r.id === req.params.id);
+  if (!role) return res.status(404).json({ error: 'Role not found' });
+
+  let updated: any = null;
+  mutateStore(s => {
+    const r = s.roles.find(x => x.id === req.params.id);
+    if (r) {
+      if (req.body.name !== undefined) r.name = req.body.name;
+      if (req.body.description !== undefined) r.description = req.body.description;
+      if (req.body.permissions !== undefined) r.permissions = req.body.permissions;
+      r.updatedAt = new Date().toISOString();
+      updated = r;
+    }
+  });
+
+  res.json(updated);
+});
+
+router.delete('/roles/:id', (req, res) => {
+  const role = getStore().roles.find(r => r.id === req.params.id);
+  if (!role) return res.status(404).json({ error: 'Role not found' });
+
+  mutateStore(s => {
+    s.roles = s.roles.filter(r => r.id !== req.params.id);
+    for (const agent of s.agents) {
+      if (agent.roleIds) {
+        agent.roleIds = agent.roleIds.filter(rid => rid !== req.params.id);
+      }
+    }
+  });
+
+  res.json({ success: true });
+});
+
+router.post('/agents/:id/roles', (req, res) => {
+  const agent = getStore().agents.find(a => a.id === req.params.id);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  const { roleId } = req.body;
+  const role = getStore().roles.find(r => r.id === roleId);
+  if (!role) return res.status(404).json({ error: 'Role not found' });
+
+  mutateStore(s => {
+    const a = s.agents.find(x => x.id === req.params.id);
+    if (a) {
+      if (!a.roleIds) a.roleIds = [];
+      if (!a.roleIds.includes(roleId)) {
+        a.roleIds.push(roleId);
+      }
+    }
+  });
+
+  const updated = getStore().agents.find(a => a.id === req.params.id);
+  res.json({ roleIds: updated?.roleIds || [] });
+});
+
+router.delete('/agents/:id/roles/:roleId', (req, res) => {
+  const agent = getStore().agents.find(a => a.id === req.params.id);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  mutateStore(s => {
+    const a = s.agents.find(x => x.id === req.params.id);
+    if (a && a.roleIds) {
+      a.roleIds = a.roleIds.filter(rid => rid !== req.params.roleId);
+    }
+  });
+
+  const updated = getStore().agents.find(a => a.id === req.params.id);
+  res.json({ roleIds: updated?.roleIds || [] });
+});
+
+// --- Crons API ---
 
 router.get('/crons', (req, res) => {
   const workspaceId = req.query.workspaceId as string | undefined;

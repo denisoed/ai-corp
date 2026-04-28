@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Agent, Task, Log, Comment, TaskStatus, CompanyTemplate, ApprovalRequest, Workspace, CronJob, AgentMessage } from './types';
+import { Agent, Task, Log, Comment, TaskStatus, CompanyTemplate, ApprovalRequest, Workspace, CronJob, AgentMessage, Role, PermissionEntry, PermissionType } from './types';
 
 const API_BASE = '/api';
 
@@ -43,6 +43,7 @@ interface AppState {
   approvals: ApprovalRequest[];
   crons: CronJob[];
   messages: AgentMessage[];
+  roles: Role[];
   totalCost: number;
   loading: boolean;
 
@@ -74,6 +75,12 @@ interface AppState {
   updateCron: (id: string, updates: Partial<CronJob>) => Promise<void>;
   removeCron: (id: string) => Promise<void>;
   runCron: (id: string) => Promise<void>;
+
+  createRole: (role: { name: string; description?: string; workspaceId: string }) => Promise<void>;
+  deleteRole: (roleId: string) => Promise<void>;
+  updateRole: (roleId: string, updates: Partial<Role>) => Promise<void>;
+  assignRole: (agentId: string, roleId: string) => Promise<void>;
+  revokeRole: (agentId: string, roleId: string) => Promise<void>;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -84,6 +91,7 @@ export const useStore = create<AppState>((set, get) => ({
   approvals: [],
   crons: [],
   messages: [],
+  roles: [],
   totalCost: 0,
   loading: true,
 
@@ -242,6 +250,35 @@ export const useStore = create<AppState>((set, get) => ({
     await apiPost(`/crons/${id}/run`, {});
     const crons = await apiGet('/crons');
     set({ crons });
+  },
+
+  createRole: async (role) => {
+    const newRole = await apiPost('/roles', role);
+    set({ roles: [...get().roles, newRole] });
+  },
+
+  deleteRole: async (roleId) => {
+    await apiDelete(`/roles/${roleId}`);
+    set({ roles: get().roles.filter(r => r.id !== roleId) });
+  },
+
+  updateRole: async (roleId, updates) => {
+    const updated = await apiPatch(`/roles/${roleId}`, updates);
+    set({ roles: get().roles.map(r => r.id === roleId ? updated : r) });
+  },
+
+  assignRole: async (agentId, roleId) => {
+    const result = await apiPost(`/agents/${agentId}/roles`, { roleId });
+    set({
+      agents: get().agents.map(a => a.id === agentId ? { ...a, roleIds: result.roleIds } : a),
+    });
+  },
+
+  revokeRole: async (agentId, roleId) => {
+    const result = await apiDelete(`/agents/${agentId}/roles/${roleId}`);
+    set({
+      agents: get().agents.map(a => a.id === agentId ? { ...a, roleIds: result.roleIds } : a),
+    });
   }
 }));
 

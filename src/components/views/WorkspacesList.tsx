@@ -6,7 +6,7 @@ import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Input } from '../ui/Input';
 import { FolderPicker } from '../ui/FolderPicker';
-import { Plus, Briefcase, Users as UsersIcon, Trash2, X, User, Link2, MessageCircle, AlertTriangle, FolderKanban, FileText, Pencil, Check, Clock, Play, RotateCw } from 'lucide-react';
+import { Plus, Briefcase, Users as UsersIcon, Trash2, X, User, Link2, MessageCircle, AlertTriangle, FolderKanban, FileText, Pencil, Check, Clock, Play, RotateCw, Shield, ShieldCheck, Eye, Edit3, List, Trash } from 'lucide-react';
 import { COMPANY_TEMPLATES } from '../../lib/templates';
 import { ReactFlow, Background, Controls, Node, Edge, useNodesState, useEdgesState } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -111,7 +111,7 @@ function computeTree(wsAgents: any[], rootId: string) {
 }
 
 export function WorkspacesList() {
-  const { agents, workspaces, crons, addAgent, removeAgent, updateAgent, addWorkspace, updateWorkspace, removeWorkspace, assignAgentToWorkspace, applyTemplate, initWorkspaceFromYml, addLog, runCron, removeCron, updateCron, fetchCrons } = useStore();
+  const { agents, workspaces, crons, roles, addAgent, removeAgent, updateAgent, addWorkspace, updateWorkspace, removeWorkspace, assignAgentToWorkspace, applyTemplate, initWorkspaceFromYml, addLog, runCron, removeCron, updateCron, fetchCrons, assignRole, revokeRole } = useStore();
   const [showAddAgent, setShowAddAgent] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
@@ -128,7 +128,8 @@ export function WorkspacesList() {
   const [newAgentSoul, setNewAgentSoul] = useState('');
   const [newAgentIdentity, setNewAgentIdentity] = useState('');
   const [newAgentRoleDoc, setNewAgentRoleDoc] = useState('');
-  const [formTab, setFormTab] = useState<'basic' | 'personality'>('basic');
+  const [formTab, setFormTab] = useState<'basic' | 'personality' | 'permissions'>('basic');
+  const [newAgentRoles, setNewAgentRoles] = useState<string[]>([]);
   const [personalityFiles, setPersonalityFiles] = useState<Record<string, string> | null>(null);
   const [editingFile, setEditingFile] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
@@ -794,6 +795,7 @@ export function WorkspacesList() {
       soul: newAgentSoul || undefined,
       identity: newAgentIdentity || undefined,
       roleDoc: newAgentRoleDoc || undefined,
+      roleIds: newAgentRoles.length > 0 ? newAgentRoles : undefined,
     });
     addLog({
       agentId: 'system',
@@ -804,6 +806,7 @@ export function WorkspacesList() {
     setNewAgentSoul('');
     setNewAgentIdentity('');
     setNewAgentRoleDoc('');
+    setNewAgentRoles([]);
     setNewAgentSlug('');
     setShowAddAgent(false);
   };
@@ -914,6 +917,7 @@ export function WorkspacesList() {
                 { id: 'personality', label: 'Personality', icon: <FileText size={14} /> },
                 { id: 'relationships', label: 'Team', icon: <Link2 size={14} /> },
                 { id: 'telegram', label: 'Telegram', icon: <MessageCircle size={14} /> },
+                { id: 'permissions', label: 'Permissions', icon: <Shield size={14} /> },
               ]}
               activeTab={activeAgentTab}
               onTabChange={setActiveAgentTab}
@@ -1093,6 +1097,93 @@ export function WorkspacesList() {
                     </div>
                   )}
                 </div>
+              </TabPanel>
+
+              <TabPanel id="permissions" activeTab={activeAgentTab} className="space-y-3">
+                {(() => {
+                  const wsRoles = roles.filter(r => r.workspaceId === selectedAgent.workspaceId);
+                  const agentRoleIds = selectedAgent.roleIds || [];
+                  const agentRoles = wsRoles.filter(r => agentRoleIds.includes(r.id));
+                  const allPerms = agentRoles.flatMap(r => r.permissions);
+                  const uniquePerms = new Map<string, { type: string; scope: string }>();
+                  for (const p of allPerms) {
+                    const key = p.type + (Array.isArray(p.scope) ? p.scope.join(',') : '');
+                    if (!uniquePerms.has(key)) uniquePerms.set(key, { type: p.type, scope: Array.isArray(p.scope) ? p.scope.join(', ') : 'all' });
+                  }
+
+                  return (
+                    <>
+                      <p className="text-xs text-zinc-500 leading-tight">Roles define what {selectedAgent.name} can access. Click a role to assign or revoke it.</p>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Assigned Roles</label>
+                        {wsRoles.length === 0 ? (
+                          <p className="text-xs text-zinc-600">No roles in this workspace. Create roles in the Roles page.</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {wsRoles.map(role => {
+                              const hasRole = agentRoleIds.includes(role.id);
+                              return (
+                                <button
+                                  key={role.id}
+                                  onClick={async () => {
+                                    if (hasRole) {
+                                      await revokeRole(selectedAgent.id, role.id);
+                                    } else {
+                                      await assignRole(selectedAgent.id, role.id);
+                                    }
+                                  }}
+                                  className={cn(
+                                    "px-2.5 py-1 rounded-md text-[11px] font-medium border transition-all",
+                                    hasRole
+                                      ? "bg-indigo-500/15 text-indigo-300 border-indigo-500/30 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/20"
+                                      : "bg-zinc-800 text-zinc-500 border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300"
+                )}
+                                  title={role.description || role.name}
+                                >
+                                  {hasRole ? <ShieldCheck size={11} className="inline mr-1" /> : <Shield size={11} className="inline mr-1 opacity-50" />}
+                                  {role.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
+                      {uniquePerms.size > 0 && (
+                        <div className="space-y-2 pt-2 border-t border-zinc-800/50">
+                          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Effective Permissions</label>
+                          <div className="flex flex-wrap gap-1">
+                            {Array.from(uniquePerms.values()).map(p => (
+                              <span
+                                key={p.type}
+                                className={cn(
+                                  "px-2 py-0.5 rounded text-[10px] border",
+                                  p.type.startsWith('file:read') ? 'text-blue-400 border-blue-500/20 bg-blue-500/5' :
+                                  p.type.startsWith('file:write') ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5' :
+                                  p.type.startsWith('file:delete') ? 'text-red-400 border-red-500/20 bg-red-500/5' :
+                                  p.type.startsWith('file:list') ? 'text-cyan-400 border-cyan-500/20 bg-cyan-500/5' :
+                                  p.type.startsWith('system:manage_agents') ? 'text-purple-400 border-purple-500/20 bg-purple-500/5' :
+                                  p.type.startsWith('system:manage_permissions') ? 'text-amber-400 border-amber-500/20 bg-amber-500/5' :
+                                  p.type.startsWith('system:manage_roles') ? 'text-indigo-400 border-indigo-500/20 bg-indigo-500/5' :
+                                  p.type.startsWith('system:broadcast') ? 'text-orange-400 border-orange-500/20 bg-orange-500/5' :
+                                  'text-zinc-400 border-zinc-700 bg-zinc-800/50'
+                                )}
+                              >
+                                {p.type}
+                                {p.scope !== 'all' && <span className="text-zinc-500 ml-1">({p.scope})</span>}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {agentRoles.length === 0 && (
+                        <p className="text-xs text-zinc-600 italic">No roles assigned. This agent has default "reader" access.</p>
+                      )}
+                    </>
+                  );
+                })()}
               </TabPanel>
 
               <div className="pt-4 border-t border-zinc-800 mt-4">
@@ -1345,7 +1436,7 @@ export function WorkspacesList() {
 
       {showAddAgent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="absolute inset-0" onClick={() => { setShowAddAgent(false); setNewAgentSoul(''); setNewAgentIdentity(''); setNewAgentRoleDoc(''); setNewAgentSlug(''); }} />
+          <div className="absolute inset-0" onClick={() => { setShowAddAgent(false); setNewAgentSoul(''); setNewAgentIdentity(''); setNewAgentRoleDoc(''); setNewAgentRoles([]); setNewAgentSlug(''); }} />
           <div className="relative w-full max-w-2xl bg-zinc-950 border border-zinc-800 xl:rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-6 border-b border-zinc-800 flex justify-between items-start bg-zinc-900/40 shrink-0">
               <div>
@@ -1358,6 +1449,7 @@ export function WorkspacesList() {
             <div className="flex border-b border-zinc-800 bg-zinc-950/50 shrink-0">
               <button type="button" onClick={() => setFormTab('basic')} className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${formTab === 'basic' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}>Basic Info</button>
               <button type="button" onClick={() => setFormTab('personality')} className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${formTab === 'personality' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}>Personality</button>
+              <button type="button" onClick={() => setFormTab('permissions')} className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${formTab === 'permissions' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}>Permissions</button>
             </div>
 
             <div className="p-6 overflow-y-auto">
@@ -1423,11 +1515,63 @@ export function WorkspacesList() {
                     </div>
                   </div>
                 )}
+
+                {formTab === 'permissions' && (
+                  <div className="space-y-4 pt-2">
+                    {!newAgentWorkspace ? (
+                      <p className="text-xs text-amber-400">Select a workspace first (Basic Info tab) to see available roles.</p>
+                    ) : (() => {
+                      const wsRoles = roles.filter(r => r.workspaceId === newAgentWorkspace);
+                      return wsRoles.length === 0 ? (
+                        <p className="text-xs text-zinc-500">No roles in this workspace yet. Create roles in the Roles page after creating the agent.</p>
+                      ) : (
+                        <div className="space-y-3">
+                          <p className="text-xs text-zinc-500 leading-tight">Assign initial roles to this agent. Roles can be changed later in the agent details panel.</p>
+                          <div className="flex flex-wrap gap-2">
+                            {wsRoles.map(role => {
+                              const isSelected = newAgentRoles.includes(role.id);
+                              return (
+                                <button
+                                  key={role.id}
+                                  type="button"
+                                  onClick={() => {
+                                    if (isSelected) {
+                                      setNewAgentRoles(newAgentRoles.filter(id => id !== role.id));
+                                    } else {
+                                      setNewAgentRoles([...newAgentRoles, role.id]);
+                                    }
+                                  }}
+                                  className={cn(
+                                    "px-3 py-1.5 rounded-lg text-xs font-medium border transition-all",
+                                    isSelected
+                                      ? "bg-indigo-500/15 text-indigo-300 border-indigo-500/30"
+                                      : "bg-zinc-800 text-zinc-500 border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300"
+                                  )}
+                                >
+                                  <Shield size={12} className={cn("inline mr-1.5", isSelected ? "text-indigo-400" : "text-zinc-500")} />
+                                  {role.name}
+                                  {role.description && (
+                                    <span className="block text-[10px] text-zinc-500 mt-0.5">{role.description}</span>
+                                  )}
+                                  {role.permissions.length > 0 && (
+                                    <span className="block text-[9px] text-zinc-600 mt-0.5">
+                                      {role.permissions.map(p => p.type).join(', ')}
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
               </form>
             </div>
 
             <div className="p-6 border-t border-zinc-800 bg-zinc-950 flex justify-end gap-3 shrink-0">
-              <Button variant="ghost" type="button" onClick={() => { setShowAddAgent(false); setNewAgentSoul(''); setNewAgentIdentity(''); setNewAgentRoleDoc(''); setNewAgentSlug(''); }}>Cancel</Button>
+              <Button variant="ghost" type="button" onClick={() => { setShowAddAgent(false); setNewAgentSoul(''); setNewAgentIdentity(''); setNewAgentRoleDoc(''); setNewAgentRoles([]); setNewAgentSlug(''); }}>Cancel</Button>
               <Button type="submit" form="add-agent-form" className="bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25">Hire Agent</Button>
             </div>
           </div>

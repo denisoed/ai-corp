@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { Agent, Task, Log, ApprovalRequest, Workspace, AgentMessage } from '../types';
+import { Agent, Task, Log, ApprovalRequest, Workspace, AgentMessage, Role, PermissionEntry, PermissionType } from '../types';
 
 const DATA_DIR = path.join(os.homedir(), '.aicorp');
 const WORKSPACES_DIR = path.join(DATA_DIR, 'workspaces');
@@ -18,6 +18,7 @@ export interface StoreData {
   logs: Log[];
   approvals: ApprovalRequest[];
   messages: AgentMessage[];
+  roles: Role[];
   totalCost: number;
 }
 
@@ -27,6 +28,7 @@ interface WorkspaceData {
   logs: Log[];
   approvals: ApprovalRequest[];
   messages: AgentMessage[];
+  roles: Role[];
 }
 
 function readJson<T>(file: string, fallback: T): T {
@@ -65,6 +67,7 @@ let store: StoreData = {
   ],
   approvals: [],
   messages: [],
+  roles: [],
   totalCost: 0
 };
 
@@ -100,7 +103,7 @@ function applyOrphanMigration() {
 
 function partitionStore(): Map<string, WorkspaceData> {
   const buckets = new Map<string, WorkspaceData>();
-  const emptyData = (): WorkspaceData => ({ agents: [], tasks: [], logs: [], approvals: [], messages: [] });
+  const emptyData = (): WorkspaceData => ({ agents: [], tasks: [], logs: [], approvals: [], messages: [], roles: [] });
 
   for (const ws of store.workspaces) {
     buckets.set(ws.id, emptyData());
@@ -144,6 +147,12 @@ function partitionStore(): Map<string, WorkspaceData> {
     bucket.messages.push(msg);
   }
 
+  for (const role of store.roles) {
+    const wsId = role.workspaceId || '_global';
+    const bucket = buckets.get(wsId) || buckets.get('_global')!;
+    bucket.roles.push(role);
+  }
+
   return buckets;
 }
 
@@ -160,6 +169,7 @@ export function loadStore() {
       const allLogs: Log[] = readJson(path.join(GLOBAL_DIR, 'logs.json'), []);
       const allApprovals: ApprovalRequest[] = readJson(path.join(GLOBAL_DIR, 'approvals.json'), []);
       const allMessages: AgentMessage[] = readJson(path.join(GLOBAL_DIR, 'messages.json'), []);
+      const allRoles: Role[] = readJson(path.join(GLOBAL_DIR, 'roles.json'), []);
 
       for (const ws of workspaces) {
         allAgents.push(...readJson<Agent[]>(wsFile(ws.slug, 'agents.json'), []));
@@ -167,6 +177,7 @@ export function loadStore() {
         allLogs.push(...readJson<Log[]>(wsFile(ws.slug, 'logs.json'), []));
         allApprovals.push(...readJson<ApprovalRequest[]>(wsFile(ws.slug, 'approvals.json'), []));
         allMessages.push(...readJson<AgentMessage[]>(wsFile(ws.slug, 'messages.json'), []));
+        allRoles.push(...readJson<Role[]>(wsFile(ws.slug, 'roles.json'), []));
       }
 
       store = {
@@ -176,6 +187,7 @@ export function loadStore() {
         logs: allLogs,
         approvals: allApprovals,
         messages: allMessages,
+        roles: allRoles,
         totalCost: settings.totalCost
       };
 
@@ -191,6 +203,7 @@ export function loadStore() {
         logs: old.logs || [],
         approvals: old.approvals || [],
         messages: old.messages || [],
+        roles: (old as any).roles || [],
         totalCost: old.totalCost ?? 0
       };
 
@@ -226,6 +239,7 @@ export function saveStore() {
   writeJson(path.join(GLOBAL_DIR, 'logs.json'), global.logs);
   writeJson(path.join(GLOBAL_DIR, 'approvals.json'), global.approvals);
   writeJson(path.join(GLOBAL_DIR, 'messages.json'), global.messages);
+  writeJson(path.join(GLOBAL_DIR, 'roles.json'), global.roles);
 
   for (const ws of store.workspaces) {
     const data = buckets.get(ws.id);
@@ -235,11 +249,12 @@ export function saveStore() {
       writeJson(wsFile(ws.slug, 'logs.json'), data.logs);
       writeJson(wsFile(ws.slug, 'approvals.json'), data.approvals);
       writeJson(wsFile(ws.slug, 'messages.json'), data.messages);
+      writeJson(wsFile(ws.slug, 'roles.json'), data.roles);
     }
   }
 
   const knownSlugs = new Set(store.workspaces.map(w => w.slug));
-  const files = ['agents.json', 'tasks.json', 'logs.json', 'approvals.json', 'messages.json'];
+  const files = ['agents.json', 'tasks.json', 'logs.json', 'approvals.json', 'messages.json', 'roles.json'];
   try {
     if (fs.existsSync(WORKSPACES_DIR)) {
       for (const entry of fs.readdirSync(WORKSPACES_DIR, { withFileTypes: true })) {
@@ -325,4 +340,187 @@ export function updateConnectionInStore(s: StoreData, aId: string, bId: string, 
   if (connectionType === 'none') return true;
 
   return addConnectionToStore(s, aId, bId, connectionType);
+}
+
+function matchesGlob(filePath: string, pattern: string): boolean {
+  const parts = pattern.split('/');
+  const pathParts = filePath.split('/');
+
+  let pi = 0;
+  let fi = 0;
+
+  while (pi < parts.length && fi < pathParts.length) {
+    const pp = parts[pi];
+    const fp = pathParts[fi];
+
+    if (pp === '**') {
+      if (pi === parts.length - 1) return true;
+      pi++;
+      const rest = parts.slice(pi).join('/');
+      for (let i = fi; i < pathParts.length; i++) {
+        if (matchesGlob(pathParts.slice(i).join('/'), rest)) return true;
+      }
+      return false;
+    }
+
+    if (!matchSegment(fp, pp)) return false;
+
+    pi++;
+    fi++;
+  }
+
+  if (fi < pathParts.length) return false;
+  while (pi < parts.length && parts[pi] === '**') pi++;
+  return pi === parts.length;
+}
+
+function matchSegment(name: string, pattern: string): boolean {
+  if (pattern === '*') return true;
+  if (pattern === '**') return true;
+
+  let ni = 0;
+  let pi = 0;
+  let starIdx = -1;
+  let matchIdx = 0;
+
+  while (ni < name.length) {
+    if (pi < pattern.length && pattern[pi] === '*') {
+      starIdx = pi;
+      matchIdx = ni;
+      pi++;
+    } else if (pi < pattern.length && (pattern[pi] === '?' || pattern[pi] === name[ni])) {
+      ni++;
+      pi++;
+    } else if (starIdx !== -1) {
+      pi = starIdx + 1;
+      matchIdx++;
+      ni = matchIdx;
+    } else {
+      return false;
+    }
+  }
+
+  while (pi < pattern.length && pattern[pi] === '*') pi++;
+  return pi === pattern.length;
+}
+
+export function getEffectivePermissions(agentId: string): PermissionEntry[] {
+  const agent = store.agents.find(a => a.id === agentId);
+  if (!agent) return [];
+
+  const roleIds = agent.roleIds || [];
+  const effective: PermissionEntry[] = [];
+
+  for (const roleId of roleIds) {
+    const role = store.roles.find(r => r.id === roleId);
+    if (role) {
+      effective.push(...role.permissions);
+    }
+  }
+
+  return effective;
+}
+
+export function hasPermission(agentId: string, permissionType: PermissionType, filePath?: string): boolean {
+  const agent = store.agents.find(a => a.id === agentId);
+  if (!agent) return false;
+
+  const permissions = getEffectivePermissions(agentId);
+
+  for (const perm of permissions) {
+    if (perm.type !== permissionType) continue;
+
+    if (perm.scope === 'all') return true;
+
+    if (Array.isArray(perm.scope) && filePath) {
+      const normalizedPath = filePath.replace(/\\/g, '/').replace(/^\/+/, '');
+      for (const pattern of perm.scope) {
+        if (matchesGlob(normalizedPath, pattern)) return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+export function ensureDefaultRoles(workspaceId: string): void {
+  const existing = store.roles.filter(r => r.workspaceId === workspaceId);
+  const now = new Date().toISOString();
+
+  if (!existing.find(r => r.name === 'reader')) {
+    store.roles.push({
+      id: crypto.randomUUID(),
+      workspaceId,
+      name: 'reader',
+      description: 'Read-only access to workspace files',
+      permissions: [
+        { type: 'file:read', scope: 'all' },
+        { type: 'file:list', scope: 'all' },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  if (!existing.find(r => r.name === 'developer')) {
+    store.roles.push({
+      id: crypto.randomUUID(),
+      workspaceId,
+      name: 'developer',
+      description: 'Read/write access to workspace files',
+      permissions: [
+        { type: 'file:read', scope: 'all' },
+        { type: 'file:write', scope: 'all' },
+        { type: 'file:delete', scope: 'all' },
+        { type: 'file:list', scope: 'all' },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  if (!existing.find(r => r.name === 'admin')) {
+    store.roles.push({
+      id: crypto.randomUUID(),
+      workspaceId,
+      name: 'admin',
+      description: 'Full administrative access — manage agents, roles, permissions, crons, and files',
+      permissions: [
+        { type: 'file:read', scope: 'all' },
+        { type: 'file:write', scope: 'all' },
+        { type: 'file:delete', scope: 'all' },
+        { type: 'file:list', scope: 'all' },
+        { type: 'system:manage_agents', scope: 'all' },
+        { type: 'system:manage_permissions', scope: 'all' },
+        { type: 'system:manage_roles', scope: 'all' },
+        { type: 'system:manage_crons', scope: 'all' },
+        { type: 'system:broadcast', scope: 'all' },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  if (existing.length !== store.roles.filter(r => r.workspaceId === workspaceId).length) {
+    saveStore();
+  }
+}
+
+export function getRolesByWorkspace(workspaceId: string): Role[] {
+  return store.roles.filter(r => r.workspaceId === workspaceId);
+}
+
+export function assignDefaultRole(agentId: string): void {
+  const agent = store.agents.find(a => a.id === agentId);
+  if (!agent) return;
+
+  const workspaceRoles = store.roles.filter(r => r.workspaceId === agent.workspaceId);
+  const readerRole = workspaceRoles.find(r => r.name === 'reader');
+
+  if (readerRole) {
+    if (!agent.roleIds) agent.roleIds = [];
+    if (!agent.roleIds.includes(readerRole.id)) {
+      agent.roleIds.push(readerRole.id);
+    }
+  }
 }
