@@ -327,6 +327,7 @@ export function buildSystemPrompt(agent: Agent): string {
   const identity = readPersonalityFile(agent.id, 'IDENTITY.md');
   const soul = readPersonalityFile(agent.id, 'SOUL.md');
   const memory = getMemoryContext(agent.id);
+  const store = getStore();
 
   const parts: string[] = [];
 
@@ -341,6 +342,18 @@ export function buildSystemPrompt(agent: Agent): string {
   }
   if (memory) {
     parts.push(`# CONTEXT — What you remember from past interactions\n\n${memory}`);
+  }
+
+  const pendingMessages = store.messages.filter(m =>
+    m.toAgentId === agent.id && m.status !== 'replied'
+  );
+  if (pendingMessages.length > 0) {
+    const msgLines = pendingMessages.map(m => {
+      const from = store.agents.find(a => a.id === m.fromAgentId);
+      const time = m.createdAt.slice(11, 16);
+      return `- [${m.id.slice(0, 8)}] From ${from?.name || 'Unknown'} at ${time}: "${m.content.slice(0, 200)}" — use reply_to_message("${m.id}", content) to answer`;
+    });
+    parts.push(`# PENDING MESSAGES — You have ${pendingMessages.length} unread message(s)\n\n${msgLines.join('\n')}`);
   }
 
   return parts.join('\n\n---\n\n');
@@ -568,6 +581,13 @@ ${boundariesMap[agent.role] || '- NEVER share or log API keys, tokens, or creden
 - ALWAYS respect the chain of command
 - ALWAYS prefer safety and correctness over speed
 - ALWAYS acknowledge when you don't know something
+
+## Communication Boundaries
+- You may only interact with agents you have a direct relationship with
+- Valid relationships: your manager, your subordinates (parentId chain), or your collaborators (collaborators list)
+- You CAN: assign tasks to, comment on tasks of, and broadcast to agents connected to you
+- You CANNOT: assign tasks to, comment on tasks of, or broadcast to agents you have no relationship with
+- Attempting to communicate with unconnected agents will be blocked by the system
 
 ## Priority Framework
 1. **Safety & security** — never compromise on this

@@ -1,5 +1,5 @@
-import { mutateStore, getStore } from './store';
-import { Agent, Task, TaskRisk, TaskPriority, TaskStatus, AgentStatus, Comment } from '../types';
+import { mutateStore, getStore, agentsAreConnected } from './store';
+import { Agent, Task, TaskRisk, TaskPriority, TaskStatus, AgentStatus, Comment, AgentMessage } from '../types';
 import { OpenCodeChatSession } from './opencode';
 import { loadMemory, createMemory, appendMessage, buildSystemPrompt, writePersonalityFile } from './agent-memory';
 import { marked, Renderer } from 'marked';
@@ -42,6 +42,7 @@ interface BotState {
 }
 
 const runningBots: Map<string, BotState> = new Map();
+const busyAgents = new Set<string>();
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -298,6 +299,28 @@ async function handleIncomingMessage(agentId: string, token: string, message: an
     });
 
     const store = getStore();
+
+    const undelivered = store.messages.filter(m =>
+      m.fromAgentId === agentId && m.status === 'replied' && m.reply &&
+      !m.replyDelivered && m.chatId == chatId && m.botToken
+    );
+    for (const msg of undelivered.slice(-3)) {
+      try {
+        const replyText = markdownToTelegramHtml(
+          `Ответ от ${store.agents.find(a => a.id === msg.toAgentId)?.name || 'Agent'}: ${msg.reply}`
+        );
+        await fetch(`${TELEGRAM_API}${msg.botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: msg.chatId, text: replyText, parse_mode: 'HTML' })
+        });
+        mutateStore(s2 => {
+          const m2 = s2.messages.find(x => x.id === msg.id);
+          if (m2) m2.replyDelivered = true;
+        });
+      } catch (_) {}
+    }
+
     const workspace = agentInfo.workspaceId
       ? store.workspaces.find(w => w.id === agentInfo.workspaceId)
       : undefined;
@@ -399,7 +422,11 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     let parentId = undefined;
     if (args.managerName) {
       const parent = findAgent(args.managerName);
-      if (parent) parentId = parent.id;
+      if (!parent) return { success: false, error: `Manager "${args.managerName}" not found.` };
+      if (!agentsAreConnected(executingAgentId, parent.id, state.agents)) {
+        return { success: false, error: `You can only create agents under your manager or collaborator. You are not connected to "${parent.name}".` };
+      }
+      parentId = parent.id;
     }
 
     const newAgentId = crypto.randomUUID();
@@ -441,7 +468,11 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     let assigneeId = undefined;
     if (args.assigneeName) {
       const assignee = findAgent(args.assigneeName);
-      if (assignee) assigneeId = assignee.id;
+      if (!assignee) return { success: false, error: `Agent "${args.assigneeName}" not found.` };
+      if (assignee.id !== executingAgentId && !agentsAreConnected(executingAgentId, assignee.id, state.agents)) {
+        return { success: false, error: `You can only assign tasks to agents you have a relationship with. "${assignee.name}" is not connected to you.` };
+      }
+      assigneeId = assignee.id;
     }
 
     mutateStore(s => {
@@ -469,7 +500,8 @@ export async function executeTool(name: string, args: any, executingAgentId: str
   // --- GET COMPANY STATE ---
   if (name === 'get_company_state') {
     if (args.focus === 'agents') {
-      return { agents: state.agents.map(a => ({ name: a.name, role: a.role, status: a.status })) };
+      const connected = state.agents.filter(a => agentsAreConnected(executingAgentId, a.id, state.agents));
+      return { agents: connected.map(a => ({ name: a.name, role: a.role, status: a.status })) };
     }
     if (args.focus === 'tasks') {
       return { tasks: state.tasks.map(t => ({ title: t.title, status: t.status, assignee: state.agents.find(a => a.id === t.assigneeId)?.name || 'unassigned' })) };
@@ -504,6 +536,9 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     if (!task) return { success: false, error: `Task "${args.taskTitle}" not found.` };
     const agent = findAgent(args.agentName);
     if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+    if (agent.id !== executingAgentId && !agentsAreConnected(executingAgentId, agent.id, state.agents)) {
+      return { success: false, error: `You can only assign tasks to agents you have a relationship with (manager/subordinate or collaborator). "${agent.name}" is not connected to you.` };
+    }
 
     mutateStore(s => {
       const t = s.tasks.find(x => x.id === task.id);
@@ -551,6 +586,11 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     const task = findTask(args.taskTitle);
     if (!task) return { success: false, error: `Task "${args.taskTitle}" not found.` };
     const agent = state.agents.find(a => a.id === executingAgentId);
+
+    if (task.assigneeId && !agentsAreConnected(executingAgentId, task.assigneeId, state.agents)) {
+      const assignee = state.agents.find(a => a.id === task.assigneeId);
+      return { success: false, error: `You can only comment on tasks assigned to agents you are connected to. "${assignee?.name || task.assigneeId}" is not connected to you.` };
+    }
 
     mutateStore(s => {
       const t = s.tasks.find(x => x.id === task.id);
@@ -683,25 +723,52 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     const agent = findAgent(args.agentName);
     if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
     const tasks = state.tasks.filter(t => t.assigneeId === agent.id);
-    const manager = agent.parentId ? state.agents.find(a => a.id === agent.parentId) : undefined;
-    const collaborators = (agent.collaborators || [])
-      .map(id => state.agents.find(a => a.id === id))
-      .filter(Boolean)
-      .map(a => ({ name: a!.name, role: a!.role }));
-    const workspace = agent.workspaceId
-      ? state.workspaces.find(w => w.id === agent.workspaceId)
-      : undefined;
+    const manager = agent.parentId ? state.agents.find(a => a.id === agent.parentId) : null;
+    const collaborators = (agent.collaborators || []).map(id => state.agents.find(a => a.id === id)).filter(Boolean) as Agent[];
+    const subordinates = state.agents.filter(a => a.parentId === agent.id);
+
+    let connection: string;
+    if (agent.id === executingAgentId) {
+      connection = 'self';
+    } else if (agent.parentId === executingAgentId) {
+      connection = 'subordinate';
+    } else if (executingAgent?.parentId === agent.id) {
+      connection = 'manager';
+    } else if (agentsAreConnected(executingAgentId, agent.id, state.agents)) {
+      connection = 'collaborator';
+    } else {
+      connection = 'none';
+    }
+
     return {
       agent: {
         name: agent.name,
         role: agent.role,
         status: agent.status,
         skills: agent.skills,
-        workspace: workspace?.name,
+        description: agent.description,
         manager: manager ? { name: manager.name, role: manager.role } : null,
-        collaborators,
+        collaborators: collaborators.map(c => ({ name: c.name, role: c.role })),
+        subordinates: subordinates.map(s => ({ name: s.name, role: s.role })),
       },
+      connection,
       tasks: tasks.map(t => ({ title: t.title, status: t.status, priority: t.priority }))
+    };
+  }
+
+  // --- GET MY CONNECTIONS ---
+  if (name === 'get_my_connections') {
+    const manager = executingAgent?.parentId ? state.agents.find(a => a.id === executingAgent.parentId) : null;
+    const subordinates = state.agents.filter(a => a.parentId === executingAgentId);
+    const collaborators = (executingAgent?.collaborators || [])
+      .map(id => state.agents.find(a => a.id === id))
+      .filter(Boolean) as Agent[];
+
+    return {
+      manager: manager ? { name: manager.name, role: manager.role, status: manager.status } : null,
+      subordinates: subordinates.map(a => ({ name: a.name, role: a.role, status: a.status })),
+      collaborators: collaborators.map(a => ({ name: a.name, role: a.role, status: a.status })),
+      totalConnections: (manager ? 1 : 0) + subordinates.length + collaborators.length
     };
   }
 
@@ -802,7 +869,15 @@ export async function executeTool(name: string, args: any, executingAgentId: str
 
   // --- SEND BROADCAST ---
   if (name === 'send_broadcast') {
-    const botsWithTokens = state.agents.filter(a => a.telegramConfig?.botToken && a.telegramConfig?.lastChatId);
+    const botsWithTokens = state.agents.filter(a =>
+      a.telegramConfig?.botToken && a.telegramConfig?.lastChatId &&
+      agentsAreConnected(executingAgentId, a.id, state.agents)
+    );
+
+    if (botsWithTokens.length === 0) {
+      return { success: false, error: 'No connected agents with Telegram bots configured.' };
+    }
+
     let sent = 0;
 
     for (const agent of botsWithTokens) {
@@ -827,6 +902,258 @@ export async function executeTool(name: string, args: any, executingAgentId: str
 
     logAction('Broadcast Sent', `Broadcast sent to ${sent} agent(s).`, 'info', executingAgentId);
     return { success: true, message: `Broadcast sent to ${sent} agent(s).` };
+  }
+
+  // --- SEND MESSAGE (async, one-way) ---
+  if (name === 'send_message') {
+    const targetAgent = findAgent(args.agentName);
+    if (!targetAgent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+    if (targetAgent.id === executingAgentId) return { success: false, error: 'You cannot send a message to yourself.' };
+    if (!agentsAreConnected(executingAgentId, targetAgent.id, state.agents)) {
+      return { success: false, error: `You are not connected to "${targetAgent.name}".` };
+    }
+
+    const message: AgentMessage = {
+      id: crypto.randomUUID(),
+      fromAgentId: executingAgentId,
+      toAgentId: targetAgent.id,
+      content: args.content,
+      status: 'pending',
+      createdAt: now,
+      chatId: executingAgent?.telegramConfig?.lastChatId,
+      botToken: executingAgent?.telegramConfig?.botToken,
+    };
+
+    mutateStore(s => {
+      s.messages.push(message);
+    });
+
+    await appendMessage(executingAgentId, {
+      role: 'assistant',
+      content: `[Sent to ${targetAgent.name}]: ${args.content}`,
+      source: 'telegram'
+    });
+    await appendMessage(targetAgent.id, {
+      role: 'user',
+      content: `[From ${executingAgent?.name || 'Unknown'}]: ${args.content}`,
+      source: 'telegram'
+    });
+
+    logAction('Message Sent', `Sent message to ${targetAgent.name} (id: ${message.id}).`, 'info', executingAgentId);
+    return { success: true, messageId: message.id, to: targetAgent.name, status: 'delivered' };
+  }
+
+  // --- ASK AGENT (sync, waits for reply) ---
+  if (name === 'ask_agent') {
+    const targetAgent = findAgent(args.agentName);
+    if (!targetAgent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+    if (targetAgent.id === executingAgentId) return { success: false, error: 'You cannot ask yourself.' };
+    if (!agentsAreConnected(executingAgentId, targetAgent.id, state.agents)) {
+      return { success: false, error: `You are not connected to "${targetAgent.name}".` };
+    }
+    if (busyAgents.has(targetAgent.id)) {
+      return { success: false, error: `${targetAgent.name} is busy processing another request. Try again later.` };
+    }
+
+    busyAgents.add(targetAgent.id);
+
+    const senderName = executingAgent?.name || 'Unknown';
+    const senderRole = executingAgent?.role || 'Agent';
+    const chatId = executingAgent?.telegramConfig?.lastChatId;
+    const botToken = executingAgent?.telegramConfig?.botToken;
+
+    const messageId = crypto.randomUUID();
+    const message: AgentMessage = {
+      id: messageId,
+      fromAgentId: executingAgentId,
+      toAgentId: targetAgent.id,
+      content: args.content,
+      status: 'pending',
+      createdAt: now,
+      chatId,
+      botToken,
+    };
+
+    mutateStore(s => {
+      s.messages.push(message);
+    });
+
+    const targetSystemPrompt = buildSystemPrompt(targetAgent) +
+      `\n\nYou are responding to a request from ${senderName} (${senderRole}), a connected agent. Use reply_to_message("${messageId}", content) to send your reply. You have full tool access — do whatever work is needed before replying.`;
+
+    const TIMEOUT_MS = 120000;
+    const startTime = Date.now();
+
+    try {
+      const chatSession = new OpenCodeChatSession(targetSystemPrompt);
+      const userMessage = `Request from ${senderName} (${senderRole}):\n\n${args.content}\n\nDo the work, then call reply_to_message("${messageId}", "your response") to reply.`;
+      let response = await chatSession.sendMessage(userMessage);
+      let replyText = response.text;
+
+      while (response.toolCalls && response.toolCalls.length > 0) {
+        if (Date.now() - startTime > TIMEOUT_MS) {
+          mutateStore(s => {
+            const m = s.messages.find(x => x.id === messageId);
+            if (m) { m.status = 'delivered'; m.reply = 'Timeout — agent did not respond in 2 minutes.'; m.repliedAt = now; }
+          });
+          return { success: false, error: `Timeout waiting for ${targetAgent.name} to respond (2 min limit).` };
+        }
+
+        const results = [];
+        for (const call of response.toolCalls) {
+          const toolArgs = JSON.parse(call.function.arguments);
+          const result = await executeTool(call.function.name, toolArgs, targetAgent.id, undefined);
+          results.push(result);
+        }
+        response = await chatSession.sendToolResults(response.toolCalls, results);
+        if (response.text) {
+          replyText = response.text;
+        }
+      }
+
+      const stored = getStore().messages.find(m => m.id === messageId);
+      if (!stored?.reply) {
+        const finalReply = replyText || 'Done.';
+        mutateStore(s => {
+          const m = s.messages.find(x => x.id === messageId);
+          if (m) { m.reply = finalReply; m.status = 'replied'; m.repliedAt = now; }
+        });
+        if (botToken && chatId) {
+          try {
+            await fetch(`${TELEGRAM_API}${botToken}/sendMessage`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ chat_id: chatId, text: `Ответ от ${targetAgent.name}: ${finalReply}`, parse_mode: 'HTML' })
+            });
+            mutateStore(s2 => {
+              const m2 = s2.messages.find(x => x.id === messageId);
+              if (m2) m2.replyDelivered = true;
+            });
+          } catch (_) {}
+        }
+      }
+
+      await appendMessage(executingAgentId, {
+        role: 'assistant',
+        content: `[Asked ${targetAgent.name}]: ${args.content}`,
+        source: 'telegram'
+      });
+      await appendMessage(executingAgentId, {
+        role: 'user',
+        content: `[Reply from ${targetAgent.name}]: ${stored?.reply || replyText || ''}`,
+        source: 'telegram'
+      });
+      await appendMessage(targetAgent.id, {
+        role: 'user',
+        content: `[Request from ${senderName}]: ${args.content}`,
+        source: 'telegram'
+      });
+      await appendMessage(targetAgent.id, {
+        role: 'assistant',
+        content: `[Replied to ${senderName}]: ${stored?.reply || replyText || ''}`,
+        source: 'telegram'
+      });
+
+      logAction('Agent Asked', `Asked ${targetAgent.name} and got reply.`, 'info', executingAgentId);
+      return { success: true, from: targetAgent.name, role: targetAgent.role, reply: stored?.reply || replyText };
+    } catch (e: any) {
+      mutateStore(s => {
+        const m = s.messages.find(x => x.id === messageId);
+        if (m) { m.status = 'delivered'; m.reply = `Error: ${e.message}`; m.repliedAt = now; }
+      });
+      return { success: false, error: `Failed to get response from ${targetAgent.name}: ${e.message}` };
+    } finally {
+      busyAgents.delete(targetAgent.id);
+    }
+  }
+
+  // --- REPLY TO MESSAGE ---
+  if (name === 'reply_to_message') {
+    const msg = state.messages.find(m => m.id === args.messageId);
+    if (!msg) return { success: false, error: `Message "${args.messageId}" not found.` };
+    if (msg.toAgentId !== executingAgentId) return { success: false, error: 'You can only reply to messages addressed to you.' };
+    if (msg.status === 'replied') return { success: false, error: 'This message was already replied to.' };
+
+    mutateStore(s => {
+      const m = s.messages.find(x => x.id === args.messageId);
+      if (m) {
+        m.reply = args.content;
+        m.status = 'replied';
+        m.repliedAt = now;
+      }
+    });
+
+    const sender = state.agents.find(a => a.id === msg.fromAgentId);
+    const replier = executingAgent?.name || 'Agent';
+
+    if (msg.botToken && msg.chatId) {
+      try {
+        const replyText = markdownToTelegramHtml(
+          `Ответ от ${replier}: ${args.content}`
+        );
+        await fetch(`${TELEGRAM_API}${msg.botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: msg.chatId, text: replyText, parse_mode: 'HTML' })
+        });
+        mutateStore(s => {
+          const m = s.messages.find(x => x.id === args.messageId);
+          if (m) m.replyDelivered = true;
+        });
+      } catch (e) {
+        console.error(`[reply_to_message] Failed to deliver to Telegram:`, e);
+      }
+    }
+
+    await appendMessage(executingAgentId, {
+      role: 'assistant',
+      content: `[Replied to ${sender?.name || msg.fromAgentId}]: ${args.content}`,
+      source: 'telegram'
+    });
+    if (sender) {
+      await appendMessage(sender.id, {
+        role: 'user',
+        content: `[Reply from ${replier}]: ${args.content}`,
+        source: 'telegram'
+      });
+    }
+
+    logAction('Message Replied', `Replied to message from ${sender?.name || msg.fromAgentId}.`, 'info', executingAgentId);
+    return { success: true, message: 'Reply sent.' };
+  }
+
+  // --- CHECK MY INBOX ---
+  if (name === 'check_my_inbox') {
+    const incoming = state.messages.filter(m =>
+      m.toAgentId === executingAgentId && m.status !== 'replied'
+    ).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+    const sent = state.messages.filter(m =>
+      m.fromAgentId === executingAgentId
+    ).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20);
+
+    const incomings = incoming.map(m => ({
+      id: m.id,
+      from: state.agents.find(a => a.id === m.fromAgentId)?.name || m.fromAgentId,
+      content: m.content,
+      status: m.status,
+      createdAt: m.createdAt,
+    }));
+
+    const outgoing = sent.map(m => ({
+      id: m.id,
+      to: state.agents.find(a => a.id === m.toAgentId)?.name || m.toAgentId,
+      content: m.content,
+      status: m.status,
+      reply: m.reply || undefined,
+      createdAt: m.createdAt,
+    }));
+
+    return {
+      pendingIncoming: incomings.length,
+      incoming: incomings,
+      recentOutgoing: outgoing,
+    };
   }
 
   // --- GENERATE REPORT ---

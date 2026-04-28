@@ -194,6 +194,23 @@ export interface CronJob {
   updatedAt?: string;
 }
 
+export type AgentMessageStatus = 'pending' | 'delivered' | 'replied';
+
+export interface AgentMessage {
+  id: string;
+  fromAgentId: string;
+  toAgentId: string;
+  content: string;
+  status: AgentMessageStatus;
+  reply?: string;
+  replyDelivered?: boolean;
+  createdAt: string;
+  deliveredAt?: string;
+  repliedAt?: string;
+  chatId?: number | string;
+  botToken?: string;
+}
+
 export interface WorkspaceTaskDef {
   title: string;
   description?: string;

@@ -30,7 +30,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'create_agent',
-      description: 'Hire/Onboard a new AI agent into the company. Use soul/identity/roleDoc params to define their personality directly.',
+      description: 'Hire/Onboard a new AI agent into the company. You can only create agents under a manager you are connected to (manager/subordinate or collaborator). Use soul/identity/roleDoc params to define their personality directly.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -50,7 +50,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'create_task',
-      description: 'Create a new task on the Kanban board.',
+      description: 'Create a new task on the Kanban board. You can only assign tasks to agents you have a relationship with (manager/subordinate or collaborator).',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -69,7 +69,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'get_company_state',
-      description: 'Get full details of agents and tasks in the company. ALWAYS present the complete list to the user — do NOT summarize or count. When asked about agents, list each agent with name, role, and status on separate bullet lines. When asked about tasks, list each task with title, status, and assignee.',
+      description: 'Get details of agents and tasks. When focus="agents", only agents connected to you are shown. ALWAYS present the complete list to the user — do NOT summarize or count. When asked about agents, list each agent with name, role, and status on separate bullet lines. When asked about tasks, list each task with title, status, and assignee.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -98,7 +98,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'assign_task',
-      description: 'Assign or reassign a task to a specific agent by name.',
+      description: 'Assign or reassign a task to a specific agent by name. You can only assign tasks to agents you have a relationship with (manager/subordinate or collaborator).',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -145,7 +145,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'add_task_comment',
-      description: 'Add a comment or note to an existing task.',
+      description: 'Add a comment or note to an existing task. You can only comment on tasks assigned to agents you are connected to (manager/subordinate or collaborator). Unassigned tasks can be commented on by any agent.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -269,13 +269,25 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'get_agent_details',
-      description: 'Get detailed information about a specific agent: name, role, status, skills, workspace, their manager (who they report to), collaborators (who they work with), and their assigned tasks.',
+      description: 'Get detailed information about a specific agent — their role, skills, tasks, and your connection to them (manager, subordinate, collaborator, or none).',
       parameters: {
         type: 'object' as const,
         properties: {
           agentName: { type: 'string' as const, description: 'Name of the agent' }
         },
         required: ['agentName']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_my_connections',
+      description: 'List all agents you are connected to — your manager, your subordinates, and your collaborators. Use this to know who you can interact with.',
+      parameters: {
+        type: 'object' as const,
+        properties: {},
+        required: []
       }
     }
   },
@@ -329,13 +341,70 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'send_broadcast',
-      description: 'Send a message to all agents that have Telegram bots configured.',
+      description: 'Send a message to agents that have Telegram bots configured. Only agents connected to you (manager/subordinate or collaborator) will receive the broadcast.',
       parameters: {
         type: 'object' as const,
         properties: {
           message: { type: 'string' as const, description: 'Text to broadcast' }
         },
         required: ['message']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'send_message',
+      description: 'Send a one-way message to a connected agent. The message is saved in their inbox for later reading. Does NOT wait for a reply — use ask_agent if you need an immediate response.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          agentName: { type: 'string' as const, description: 'Name of the agent to message' },
+          content: { type: 'string' as const, description: 'Your message to the agent' }
+        },
+        required: ['agentName', 'content']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'ask_agent',
+      description: 'Ask a connected agent to do work and wait for their reply. The target agent gets full tool access and can call reply_to_message to respond. Waits up to 2 minutes. Use send_message for long-running tasks.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          agentName: { type: 'string' as const, description: 'Name of the agent to ask' },
+          content: { type: 'string' as const, description: 'Your request to the agent' }
+        },
+        required: ['agentName', 'content']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'reply_to_message',
+      description: 'Reply to a message you received (from your inbox). The reply is delivered to the sender — via Telegram if they have a bot configured, otherwise stored in their inbox.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          messageId: { type: 'string' as const, description: 'ID of the message you are replying to' },
+          content: { type: 'string' as const, description: 'Your reply text' }
+        },
+        required: ['messageId', 'content']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'check_my_inbox',
+      description: 'Show your pending incoming messages and the status of messages you sent.',
+      parameters: {
+        type: 'object' as const,
+        properties: {},
+        required: []
       }
     }
   },

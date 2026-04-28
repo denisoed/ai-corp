@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { Agent, Task, Log, ApprovalRequest, Workspace } from '../types';
+import { Agent, Task, Log, ApprovalRequest, Workspace, AgentMessage } from '../types';
 
 const DATA_DIR = path.join(os.homedir(), '.aicorp');
 const WORKSPACES_DIR = path.join(DATA_DIR, 'workspaces');
@@ -17,6 +17,7 @@ interface StoreData {
   tasks: Task[];
   logs: Log[];
   approvals: ApprovalRequest[];
+  messages: AgentMessage[];
   totalCost: number;
 }
 
@@ -25,6 +26,7 @@ interface WorkspaceData {
   tasks: Task[];
   logs: Log[];
   approvals: ApprovalRequest[];
+  messages: AgentMessage[];
 }
 
 function readJson<T>(file: string, fallback: T): T {
@@ -62,6 +64,7 @@ let store: StoreData = {
     }
   ],
   approvals: [],
+  messages: [],
   totalCost: 0
 };
 
@@ -97,7 +100,7 @@ function applyOrphanMigration() {
 
 function partitionStore(): Map<string, WorkspaceData> {
   const buckets = new Map<string, WorkspaceData>();
-  const emptyData = (): WorkspaceData => ({ agents: [], tasks: [], logs: [], approvals: [] });
+  const emptyData = (): WorkspaceData => ({ agents: [], tasks: [], logs: [], approvals: [], messages: [] });
 
   for (const ws of store.workspaces) {
     buckets.set(ws.id, emptyData());
@@ -135,6 +138,12 @@ function partitionStore(): Map<string, WorkspaceData> {
     bucket.approvals.push(approval);
   }
 
+  for (const msg of store.messages) {
+    const wsId = agentWorkspace.get(msg.fromAgentId) || '_global';
+    const bucket = buckets.get(wsId) || buckets.get('_global')!;
+    bucket.messages.push(msg);
+  }
+
   return buckets;
 }
 
@@ -150,12 +159,14 @@ export function loadStore() {
       const allTasks: Task[] = readJson(path.join(GLOBAL_DIR, 'tasks.json'), []);
       const allLogs: Log[] = readJson(path.join(GLOBAL_DIR, 'logs.json'), []);
       const allApprovals: ApprovalRequest[] = readJson(path.join(GLOBAL_DIR, 'approvals.json'), []);
+      const allMessages: AgentMessage[] = readJson(path.join(GLOBAL_DIR, 'messages.json'), []);
 
       for (const ws of workspaces) {
         allAgents.push(...readJson<Agent[]>(wsFile(ws.slug, 'agents.json'), []));
         allTasks.push(...readJson<Task[]>(wsFile(ws.slug, 'tasks.json'), []));
         allLogs.push(...readJson<Log[]>(wsFile(ws.slug, 'logs.json'), []));
         allApprovals.push(...readJson<ApprovalRequest[]>(wsFile(ws.slug, 'approvals.json'), []));
+        allMessages.push(...readJson<AgentMessage[]>(wsFile(ws.slug, 'messages.json'), []));
       }
 
       store = {
@@ -164,6 +175,7 @@ export function loadStore() {
         tasks: allTasks,
         logs: allLogs,
         approvals: allApprovals,
+        messages: allMessages,
         totalCost: settings.totalCost
       };
 
@@ -178,6 +190,7 @@ export function loadStore() {
         tasks: old.tasks || [],
         logs: old.logs || [],
         approvals: old.approvals || [],
+        messages: old.messages || [],
         totalCost: old.totalCost ?? 0
       };
 
@@ -212,6 +225,7 @@ export function saveStore() {
   writeJson(path.join(GLOBAL_DIR, 'tasks.json'), global.tasks);
   writeJson(path.join(GLOBAL_DIR, 'logs.json'), global.logs);
   writeJson(path.join(GLOBAL_DIR, 'approvals.json'), global.approvals);
+  writeJson(path.join(GLOBAL_DIR, 'messages.json'), global.messages);
 
   for (const ws of store.workspaces) {
     const data = buckets.get(ws.id);
@@ -220,11 +234,12 @@ export function saveStore() {
       writeJson(wsFile(ws.slug, 'tasks.json'), data.tasks);
       writeJson(wsFile(ws.slug, 'logs.json'), data.logs);
       writeJson(wsFile(ws.slug, 'approvals.json'), data.approvals);
+      writeJson(wsFile(ws.slug, 'messages.json'), data.messages);
     }
   }
 
   const knownSlugs = new Set(store.workspaces.map(w => w.slug));
-  const files = ['agents.json', 'tasks.json', 'logs.json', 'approvals.json'];
+  const files = ['agents.json', 'tasks.json', 'logs.json', 'approvals.json', 'messages.json'];
   try {
     if (fs.existsSync(WORKSPACES_DIR)) {
       for (const entry of fs.readdirSync(WORKSPACES_DIR, { withFileTypes: true })) {
@@ -246,4 +261,14 @@ export function getStore(): Readonly<StoreData> {
 export function mutateStore(updater: (draft: StoreData) => void) {
   updater(store);
   saveStore();
+}
+
+export function agentsAreConnected(aId: string, bId: string, agents: Agent[]): boolean {
+  if (aId === bId) return true;
+  const a = agents.find(x => x.id === aId);
+  const b = agents.find(x => x.id === bId);
+  if (!a || !b) return false;
+  if (a.parentId === bId || b.parentId === aId) return true;
+  if (a.collaborators?.includes(bId) || b.collaborators?.includes(aId)) return true;
+  return false;
 }
