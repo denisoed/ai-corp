@@ -76,7 +76,7 @@ interface AppState {
   removeCron: (id: string) => Promise<void>;
   runCron: (id: string) => Promise<void>;
 
-  createRole: (role: { name: string; description?: string; workspaceId: string }) => Promise<void>;
+  createRole: (role: { name: string; description?: string; workspaceId: string }) => Promise<Role>;
   deleteRole: (roleId: string) => Promise<void>;
   updateRole: (roleId: string, updates: Partial<Role>) => Promise<void>;
   assignRole: (agentId: string, roleId: string) => Promise<void>;
@@ -255,6 +255,7 @@ export const useStore = create<AppState>((set, get) => ({
   createRole: async (role) => {
     const newRole = await apiPost('/roles', role);
     set({ roles: [...get().roles, newRole] });
+    return newRole;
   },
 
   deleteRole: async (roleId) => {

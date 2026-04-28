@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import apiRouter from './api';
-import { loadStore } from './store';
+import { loadStore, getStore, ensureDefaultRoles } from './store';
 import { startTelegramManager } from './telegram';
 import { initMemorySystem } from './agent-memory';
 import { initCronManager } from './cron';
@@ -13,6 +13,11 @@ const PORT = process.env.PORT || 4000;
 // Initialize storage systems
 loadStore();
 initMemorySystem();
+
+// Ensure default roles exist in all workspaces
+for (const ws of getStore().workspaces) {
+  ensureDefaultRoles(ws.id);
+}
 
 // Start background services
 startTelegramManager();
