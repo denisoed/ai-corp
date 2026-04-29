@@ -7,6 +7,7 @@ import { CronJob as CronJobType } from '../types';
 import { getStore, mutateStore } from './store';
 import { OpenCodeChatSession } from './opencode';
 import { loadMemory, buildSystemPrompt, appendMessage } from './agent-memory';
+import { executeTool } from './tools/index';
 
 const AICORP_DIR = path.join(os.homedir(), '.aicorp');
 const WORKSPACES_DIR = path.join(AICORP_DIR, 'workspaces');
@@ -256,7 +257,6 @@ async function executeCronJob(jobId: string): Promise<void> {
           continue;
         }
 
-        const { executeTool } = await import('./telegram');
         const result = await executeTool(call.function.name, args, agent.id);
         results.push(result);
       }
