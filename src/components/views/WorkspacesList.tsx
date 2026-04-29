@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useStore, useAgentChats } from '../../store';
-import type { PermissionType, PermissionEntry } from '../../types';
+import type { PermissionType, PermissionEntry, LLMProvider } from '../../types';
 import * as d3 from 'd3';
 import { Card, CardContent } from '../ui/Card';
 import { Button } from '../ui/Button';
@@ -141,6 +141,7 @@ export function WorkspacesList() {
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('settings');
   const [showChatPanel, setShowChatPanel] = useState(false);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [settingsData, setSettingsData] = useState<{ providers: Record<string, LLMProvider>; defaultProviderId: string } | null>(null);
 
   const [newWsName, setNewWsName] = useState('');
   const [newWsDescription, setNewWsDescription] = useState('');
@@ -168,6 +169,13 @@ export function WorkspacesList() {
     }
     setEditingFile(null);
   }, [selectedAgentId]);
+
+  useEffect(() => {
+    fetch('/api/settings')
+      .then(r => r.json())
+      .then(data => setSettingsData({ providers: data.providers || {}, defaultProviderId: data.defaultProviderId || '' }))
+      .catch(() => setSettingsData(null));
+  }, []);
 
   const startEdit = (filename: string) => {
     setEditContent(personalityFiles?.[filename] || '');
@@ -949,6 +957,32 @@ export function WorkspacesList() {
                       ))}
                     </CustomSelect>
                   </div>
+                  {settingsData && Object.keys(settingsData.providers).length > 0 && (
+                    <>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Provider</label>
+                        <CustomSelect
+                          value={selectedAgent.providerId || ''}
+                          onValueChange={(val) => updateAgent(selectedAgent.id, { providerId: val || undefined })}
+                          placeholder="Default provider"
+                        >
+                          <SelectItem value="">Default ({settingsData.providers[settingsData.defaultProviderId]?.name || 'None'})</SelectItem>
+                          {Object.entries(settingsData.providers).map(([id, p]: [string, LLMProvider]) => (
+                            <SelectItem key={id} value={id}>{p.name}</SelectItem>
+                          ))}
+                        </CustomSelect>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Model</label>
+                        <Input
+                          value={selectedAgent.model || ''}
+                          onChange={(e) => updateAgent(selectedAgent.id, { model: e.target.value })}
+                          placeholder={settingsData.providers[selectedAgent.providerId || settingsData.defaultProviderId]?.defaultModel || 'Model name'}
+                          className="bg-zinc-950"
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
               </TabPanel>
 

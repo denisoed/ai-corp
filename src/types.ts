@@ -54,7 +54,8 @@ export interface Agent {
   id: string;
   name: string;
   slug: string;
-  model?: string; 
+  model?: string;
+  providerId?: string;
   role?: AgentRole;
   status: AgentStatus;
   avatarUrl?: string;
@@ -261,9 +262,21 @@ export interface WorkspaceDefinition {
   tasks?: WorkspaceTaskDef[];
 }
 
+export interface LLMProvider {
+  id: string;
+  name: string;
+  apiKey: string;
+  baseUrl?: string;
+  defaultModel: string;
+}
+
+export type ProviderId = 'opencode' | 'openai' | 'deepseek' | 'minimax' | 'kimi' | 'gemini';
+
 export interface AppSettings {
   braveApiKey?: string;
   searchEngines?: string[];
   searxngUrl?: string;
   envVars?: Record<string, string>;
+  providers?: Record<string, LLMProvider>;
+  defaultProviderId?: string;
 }

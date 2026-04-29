@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import type { AppSettings } from '../../types';
+import type { AppSettings, LLMProvider } from '../../types';
 
 const DATA_DIR = path.join(os.homedir(), '.aicorp');
 const SETTINGS_FILE = path.join(DATA_DIR, 'app-settings.json');
@@ -15,11 +15,29 @@ function migrate(raw: Record<string, unknown>): AppSettings {
       ? [raw.searchBackend as string]
       : undefined);
 
+  const providers: Record<string, LLMProvider> | undefined = raw.providers && typeof raw.providers === 'object'
+    ? Object.entries(raw.providers as Record<string, unknown>).reduce((acc, [key, val]) => {
+        if (val && typeof val === 'object') {
+          const p = val as Record<string, unknown>;
+          acc[key] = {
+            id: typeof p.id === 'string' ? p.id : key,
+            name: typeof p.name === 'string' ? p.name : key,
+            apiKey: typeof p.apiKey === 'string' ? p.apiKey : '',
+            baseUrl: typeof p.baseUrl === 'string' ? p.baseUrl : undefined,
+            defaultModel: typeof p.defaultModel === 'string' ? p.defaultModel : '',
+          };
+        }
+        return acc;
+      }, {} as Record<string, LLMProvider>)
+    : undefined;
+
   return {
     braveApiKey: typeof raw.braveApiKey === 'string' ? raw.braveApiKey : undefined,
     searchEngines: engines,
     searxngUrl: typeof raw.searxngUrl === 'string' ? raw.searxngUrl : undefined,
     envVars: raw.envVars && typeof raw.envVars === 'object' ? raw.envVars as Record<string, string> : undefined,
+    providers,
+    defaultProviderId: typeof raw.defaultProviderId === 'string' ? raw.defaultProviderId : undefined,
   };
 }
 

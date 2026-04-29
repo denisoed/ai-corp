@@ -5,7 +5,7 @@ import path from 'path';
 import os from 'os';
 import { CronJob as CronJobType } from '../types';
 import { getStore, mutateStore } from './store';
-import { OpenCodeChatSession } from './opencode';
+import { createChatSession } from './llm';
 import { loadMemory, buildSystemPrompt, appendMessage } from './agent-memory';
 import { executeTool } from './tools/index';
 
@@ -242,7 +242,7 @@ async function executeCronJob(jobId: string): Promise<void> {
 
     const promptWithContext = job.prompt;
 
-    const chatSession = new OpenCodeChatSession(systemInstruction);
+    const chatSession = createChatSession(agent, systemInstruction);
     let response = await chatSession.sendMessage(promptWithContext);
     let replyText = response.text;
 

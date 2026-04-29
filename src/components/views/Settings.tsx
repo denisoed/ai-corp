@@ -1,11 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Globe, Key, Plus, Trash2, Eye, EyeOff, Check, Loader2, Play, Circle } from 'lucide-react';
+import { Search, Globe, Key, Plus, Trash2, Eye, EyeOff, Check, Loader2, Play, Circle, X, Sparkles } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { MultiSelect } from '../ui/MultiSelect';
-import type { AppSettings } from '../../types';
+import { Tabs, TabPanel } from '../ui/Tabs';
+import type { AppSettings, LLMProvider } from '../../types';
 
 const API_BASE = '/api';
+
+interface ProviderDef {
+  id: string;
+  name: string;
+  baseUrl: string;
+  defaultModel: string;
+  type: string;
+}
 
 async function fetchSettings(): Promise<AppSettings> {
   const res = await fetch(`${API_BASE}/settings?_=${Date.now()}`);
@@ -20,6 +29,26 @@ async function saveSettings(settings: AppSettings): Promise<AppSettings> {
     body: JSON.stringify(settings),
   });
   if (!res.ok) throw new Error(`PUT /settings failed: ${res.status}`);
+  return res.json();
+}
+
+async function fetchProviderDefs(): Promise<Record<string, ProviderDef>> {
+  const res = await fetch(`${API_BASE}/settings/providers/defs`);
+  if (!res.ok) throw new Error('Failed to fetch provider definitions');
+  return res.json();
+}
+
+async function testProvider(providerId: string, apiKey: string, baseUrl?: string): Promise<{ success: boolean; error?: string }> {
+  const res = await fetch(`${API_BASE}/settings/providers/${providerId}/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey, baseUrl }),
+  });
+  return res.json();
+}
+
+async function fetchProviderModels(providerId: string): Promise<{ models: string[]; error?: string }> {
+  const res = await fetch(`${API_BASE}/settings/providers/${providerId}/models`);
   return res.json();
 }
 
@@ -130,11 +159,20 @@ export function Settings() {
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
+  const [activeTab, setActiveTab] = useState('providers');
 
   const [launching, setLaunching] = useState(false);
   const [launchMessage, setLaunchMessage] = useState('');
   const [launchError, setLaunchError] = useState(false);
   const [searxngRunning, setSearxngRunning] = useState(false);
+
+  const [providerDefs, setProviderDefs] = useState<Record<string, ProviderDef>>({});
+  const [loadingProviderModels, setLoadingProviderModels] = useState<Record<string, boolean>>({});
+  const [providerModels, setProviderModels] = useState<Record<string, string[]>>({});
+  const [testingProvider, setTestingProvider] = useState<string | null>(null);
+  const [providerTestResults, setProviderTestResults] = useState<Record<string, boolean>>({});
+  const [showAddProvider, setShowAddProvider] = useState(false);
+  const [newProviderId, setNewProviderId] = useState('');
 
   useEffect(() => {
     fetchSettings()
@@ -146,6 +184,7 @@ export function Settings() {
         console.error('Failed to load settings:', e);
         setLoaded(true);
       });
+    fetchProviderDefs().then(setProviderDefs).catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -196,6 +235,84 @@ export function Settings() {
       delete vars[key];
       return { ...s, envVars: vars };
     });
+    setSaveStatus('idle');
+  }, []);
+
+  const providers: Record<string, LLMProvider> = settings.providers || {};
+  const defaultProviderId = settings.defaultProviderId || '';
+
+  const loadProviderModels = useCallback(async (providerId: string) => {
+    if (providerModels[providerId] || loadingProviderModels[providerId]) return;
+    setLoadingProviderModels(m => ({ ...m, [providerId]: true }));
+    try {
+      const result = await fetchProviderModels(providerId);
+      setProviderModels(m => ({ ...m, [providerId]: result.models }));
+    } catch (e) {
+      console.error('Failed to load provider models:', e);
+    } finally {
+      setLoadingProviderModels(m => ({ ...m, [providerId]: false }));
+    }
+  }, [providerModels, loadingProviderModels]);
+
+  const handleTestProvider = useCallback(async (providerId: string, apiKey: string, baseUrl?: string) => {
+    setTestingProvider(providerId);
+    try {
+      const result = await testProvider(providerId, apiKey, baseUrl);
+      setProviderTestResults(r => ({ ...r, [providerId]: result.success }));
+    } catch (e) {
+      setProviderTestResults(r => ({ ...r, [providerId]: false }));
+    } finally {
+      setTestingProvider(null);
+    }
+  }, []);
+
+  const addProvider = useCallback(() => {
+    if (!newProviderId) return;
+    const def = providerDefs[newProviderId];
+    if (!def) return;
+    setSettings(s => ({
+      ...s,
+      providers: {
+        ...s.providers,
+        [newProviderId]: {
+          id: newProviderId,
+          name: def.name,
+          apiKey: '',
+          defaultModel: def.defaultModel,
+        },
+      },
+    }));
+    setNewProviderId('');
+    setShowAddProvider(false);
+    setSaveStatus('idle');
+  }, [newProviderId, providerDefs]);
+
+  const updateProvider = useCallback((providerId: string, updates: Partial<LLMProvider>) => {
+    setSettings(s => ({
+      ...s,
+      providers: {
+        ...s.providers,
+        [providerId]: { ...s.providers?.[providerId], ...updates },
+      },
+    }));
+    setSaveStatus('idle');
+  }, []);
+
+  const removeProvider = useCallback((providerId: string) => {
+    setSettings(s => {
+      const newProviders = { ...s.providers };
+      delete newProviders[providerId];
+      return {
+        ...s,
+        providers: newProviders,
+        defaultProviderId: s.defaultProviderId === providerId ? '' : s.defaultProviderId,
+      };
+    });
+    setSaveStatus('idle');
+  }, []);
+
+  const setDefaultProvider = useCallback((providerId: string) => {
+    setSettings(s => ({ ...s, defaultProviderId: providerId }));
     setSaveStatus('idle');
   }, []);
 
@@ -271,7 +388,17 @@ export function Settings() {
         </Button>
       </div>
 
-      {/* Search & Web Section */}
+      <Tabs
+        tabs={[
+          { id: 'providers', label: 'AI Providers', icon: <Sparkles className="h-4 w-4" /> },
+          { id: 'search', label: 'Search', icon: <Search className="h-4 w-4" /> },
+          { id: 'env', label: 'Environment', icon: <Key className="h-4 w-4" /> },
+        ]}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+      />
+
+      <TabPanel id="search" activeTab={activeTab}>
       <section className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
         <div className="flex items-center gap-2 mb-4">
           <Search className="h-5 w-5 text-indigo-400" />
@@ -351,7 +478,9 @@ export function Settings() {
           )}
         </div>
       </section>
+      </TabPanel>
 
+      <TabPanel id="env" activeTab={activeTab}>
       {/* Environment Variables Section */}
       <section className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
         <div className="flex items-center gap-2 mb-4">
@@ -388,17 +517,133 @@ export function Settings() {
           </Button>
         </div>
       </section>
+      </TabPanel>
 
-      {/* Future Sections Placeholder */}
-      <section className="rounded-lg border border-zinc-800/50 border-dashed bg-zinc-900/30 p-5">
-        <div className="flex items-center gap-2 mb-2">
-          <Globe className="h-5 w-5 text-zinc-600" />
-          <h3 className="text-sm font-semibold text-zinc-500">Integrations</h3>
+      <TabPanel id="providers" activeTab={activeTab}>
+      {/* AI Providers Section */}
+      <section className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-indigo-400" />
+            <h3 className="text-sm font-semibold text-white">AI Providers</h3>
+          </div>
+          {!showAddProvider && (
+            <Button variant="ghost" size="sm" onClick={() => setShowAddProvider(true)} className="text-zinc-400 hover:text-zinc-200">
+              <Plus className="h-4 w-4 mr-1" />
+              Add Provider
+            </Button>
+          )}
         </div>
-        <p className="text-xs text-zinc-600">
-          More settings sections will appear here — AI model providers, notifications, Telegram configuration, and more.
+        <p className="text-xs text-zinc-500 mb-5">
+          Configure AI model providers. Each provider can have its own API key and default model. Set a default provider or configure per-agent in the agent settings.
         </p>
+
+        {showAddProvider && (
+          <div className="flex gap-2 mb-4 p-3 bg-zinc-950 rounded-lg border border-zinc-800">
+            <select
+              value={newProviderId}
+              onChange={e => setNewProviderId(e.target.value)}
+              className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-200"
+            >
+              <option value="">Select provider...</option>
+{Object.entries(providerDefs).map(([id, def]) => {
+                const d = def as ProviderDef;
+                return !providers[id] && <option key={id} value={id}>{d.name}</option>;
+              })}
+            </select>
+            <Button size="sm" onClick={addProvider} disabled={!newProviderId}>Add</Button>
+            <Button variant="ghost" size="sm" onClick={() => { setShowAddProvider(false); setNewProviderId(''); }}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+
+        <div className="space-y-3">
+          {Object.entries(providers).map(([id, provider]) => {
+            const def = providerDefs[id];
+            const isDefault = defaultProviderId === id;
+            const testResult = providerTestResults[id];
+            const isTesting = testingProvider === id;
+            const models = providerModels[id] || [];
+            const isLoadingModels = loadingProviderModels[id];
+
+            return (
+              <div key={id} className="p-4 bg-zinc-950 rounded-lg border border-zinc-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="radio"
+                      name="defaultProvider"
+                      checked={isDefault}
+                      onChange={() => setDefaultProvider(id)}
+                      className="accent-indigo-500"
+                    />
+                    <span className="text-sm font-medium text-white">{provider.name}</span>
+                    {isDefault && (
+                      <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded">Default</span>
+                    )}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeProvider(id)}
+                    className="text-zinc-600 hover:text-red-400"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">API Key</label>
+                    <Input
+                      type="password"
+                      value={provider.apiKey}
+                      onChange={e => updateProvider(id, { apiKey: e.target.value })}
+                      placeholder="sk-..."
+                      className="bg-zinc-900 font-mono text-xs"
+                    />
+                  </div>
+                  {def && (
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Default Model</label>
+                      <Input
+                        value={provider.defaultModel}
+                        onChange={e => updateProvider(id, { defaultModel: e.target.value })}
+                        placeholder={def.defaultModel}
+                        className="bg-zinc-900 text-xs"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleTestProvider(id, provider.apiKey, provider.baseUrl)}
+                    disabled={isTesting || !provider.apiKey}
+                  >
+                    {isTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Test Connection'}
+                  </Button>
+                  {testResult !== undefined && (
+                    <span className={`text-xs ${testResult ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {testResult ? 'Connected' : 'Failed'}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          {Object.keys(providers).length === 0 && (
+            <p className="text-xs text-zinc-600 py-4 text-center">
+              No AI providers configured. Add a provider to enable AI-powered agents.
+            </p>
+          )}
+        </div>
       </section>
+      </TabPanel>
     </div>
   );
 }

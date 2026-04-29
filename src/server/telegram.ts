@@ -1,6 +1,6 @@
 import { mutateStore, getStore, agentsAreConnected } from './store';
 import { Agent, AgentMessage } from '../types';
-import { OpenCodeChatSession } from './opencode';
+import { createChatSession } from './llm';
 import { loadMemory, createMemory, appendMessage, buildSystemPrompt } from './agent-memory';
 import { TELEGRAM_FORMATTING_RULES, markdownToTelegramHtml } from './lib/telegram-formatter';
 import { executeTool } from './tools/index';
@@ -44,7 +44,7 @@ export async function processPendingMessage(agent: Agent): Promise<void> {
   const startTime = Date.now();
 
   try {
-    const chatSession = new OpenCodeChatSession(targetSystemPrompt);
+    const chatSession = createChatSession(freshAgent, targetSystemPrompt);
     const userMessage = `Request from ${senderName} (${senderRole}):\n\n${pending.content}\n\nDo the work, then call reply_to_message("${pending.id}", "your response") to reply.`;
     let response = await chatSession.sendMessage(userMessage);
     let replyText = response.text;
@@ -316,7 +316,7 @@ async function handleIncomingMessage(agentId: string, token: string, message: an
 
     const systemInstruction = buildSystemPrompt(agentInfo) + '\n\n' + TELEGRAM_FORMATTING_RULES;
 
-    const chatSession = new OpenCodeChatSession(systemInstruction);
+    const chatSession = createChatSession(agentInfo, systemInstruction);
     let response = await chatSession.sendMessage(text);
     let replyText = response.text;
 
@@ -427,7 +427,7 @@ export async function handleAskAgent(args: any, executingAgentId: string, token?
   const startTime = Date.now();
 
   try {
-    const chatSession = new OpenCodeChatSession(targetSystemPrompt);
+    const chatSession = createChatSession(targetAgent, targetSystemPrompt);
     const userMessage = `Request from ${senderName} (${senderRole}):\n\n${args.content}\n\n${busyUserNote}`;
     let response = await chatSession.sendMessage(userMessage);
     let replyText = response.text;
