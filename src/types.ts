@@ -260,3 +260,10 @@ export interface WorkspaceDefinition {
   agents?: WorkspaceAgentDef[];
   tasks?: WorkspaceTaskDef[];
 }
+
+export interface AppSettings {
+  braveApiKey?: string;
+  searchEngines?: string[];
+  searxngUrl?: string;
+  envVars?: Record<string, string>;
+}

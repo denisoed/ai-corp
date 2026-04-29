@@ -6,12 +6,14 @@ import { loadStore, getStore, ensureDefaultRoles } from './store';
 import { startTelegramManager } from './telegram';
 import { initMemorySystem } from './agent-memory';
 import { initCronManager } from './cron';
+import { loadSettings } from './lib/settings';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
 // Initialize storage systems
 loadStore();
+loadSettings();
 initMemorySystem();
 
 // Ensure default roles exist in all workspaces

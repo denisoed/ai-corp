@@ -4,11 +4,16 @@ import * as Checkbox from '@radix-ui/react-checkbox';
 import { Check, ChevronDown } from 'lucide-react';
 
 export function MultiSelect({ options, value, onChange, placeholder }: any) {
+  const selectedLabels = options
+    .filter((opt: any) => value.includes(opt.value))
+    .map((opt: any) => opt.label)
+    .join(', ');
+
   return (
     <Popover.Root>
       <Popover.Trigger className="flex h-10 w-full items-center justify-between rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 shadow-inner focus:outline-none focus:ring-1 focus:ring-indigo-500">
         <span className="truncate">
-          {value.length === 0 ? <span className="text-zinc-500">{placeholder}</span> : `${value.length} selected`}
+          {value.length === 0 ? <span className="text-zinc-500">{placeholder}</span> : selectedLabels}
         </span>
         <ChevronDown className="h-4 w-4 opacity-50" />
       </Popover.Trigger>

@@ -1,3 +1,5 @@
+import { getSettings } from './settings';
+
 interface SearchResult {
   title: string;
   url: string;
@@ -213,41 +215,61 @@ class MockBackend implements SearchBackend {
   }
 }
 
-function getSearchBackend(): SearchBackend {
-  const backend = process.env.SEARCH_BACKEND || '';
-  const braveKey = process.env.BRAVE_SEARCH_API_KEY;
-  const searxngUrl = process.env.SEARXNG_URL;
+class FallbackBackend implements SearchBackend {
+  private primary: SearchBackend;
+  private fallback: SearchBackend;
+  private primaryName: string;
 
-  if (backend === 'mock') {
-    console.log('[Search] Using Mock backend (for testing)');
-    return new MockBackend();
+  constructor(primary: SearchBackend, fallback: SearchBackend, primaryName: string) {
+    this.primary = primary;
+    this.fallback = fallback;
+    this.primaryName = primaryName;
   }
 
-  if (backend === 'brave' || braveKey) {
-    if (!braveKey) {
-      console.warn('[Search] Brave selected but BRAVE_SEARCH_API_KEY not set. See .env.example for instructions.');
-    } else {
-      console.log('[Search] Using Brave Search backend');
-      return new BraveBackend(braveKey);
+  async search(query: string, limit: number): Promise<SearchResult[]> {
+    try {
+      const results = await this.primary.search(query, limit);
+      if (results.length > 0) return results;
+      throw new Error('No results');
+    } catch (e: any) {
+      console.warn(`[Search] ${this.primaryName} failed (${e.message || 'no results'}), falling back to DuckDuckGo`);
+      return this.fallback.search(query, limit);
     }
   }
+}
 
-  if (backend === 'searxng' && searxngUrl) {
-    console.log(`[Search] Using SearXNG backend (${searxngUrl})`);
-    return new SearXngBackend(searxngUrl);
+function getSearchBackend(): SearchBackend {
+  const appSettings = getSettings();
+  const engines = appSettings.searchEngines || [];
+  const braveKey = appSettings.braveApiKey || process.env.BRAVE_SEARCH_API_KEY;
+  const searxngUrl = appSettings.searxngUrl || process.env.SEARXNG_URL;
+  const ddgBackend = new DuckDuckGoBackend();
+
+  if (engines.length === 0) {
+    if (braveKey) {
+      console.log('[Search] Using Brave Search backend (auto-detected)');
+      return new FallbackBackend(new BraveBackend(braveKey), ddgBackend, 'Brave');
+    }
+    if (searxngUrl) {
+      console.log(`[Search] Using SearXNG backend (auto-detected from SEARXNG_URL): ${searxngUrl}`);
+      return new FallbackBackend(new SearXngBackend(searxngUrl), ddgBackend, 'SearXNG');
+    }
+    console.log('[Search] Using DuckDuckGo backend (fallback)');
+    return ddgBackend;
   }
 
-  if (searxngUrl) {
-    console.log(`[Search] Using SearXNG backend (auto-detected from SEARXNG_URL)`);
-    return new SearXngBackend(searxngUrl);
+  if (engines.includes('brave') && braveKey) {
+    console.log('[Search] Using Brave Search backend');
+    return new FallbackBackend(new BraveBackend(braveKey), ddgBackend, 'Brave');
   }
 
-  if (backend === 'searxng') {
-    console.warn('[Search] SearXNG selected but SEARXNG_URL not set. Falling back to DuckDuckGo.');
+  if (engines.includes('searxng') && searxngUrl) {
+    console.log(`[Search] Using SearXNG backend: ${searxngUrl}`);
+    return new FallbackBackend(new SearXngBackend(searxngUrl), ddgBackend, 'SearXNG');
   }
 
-  console.log('[Search] Using DuckDuckGo backend (may fail with CAPTCHA — set BRAVE_SEARCH_API_KEY for reliability)');
-  return new DuckDuckGoBackend();
+  console.log('[Search] Using DuckDuckGo backend');
+  return ddgBackend;
 }
 
 export async function performSearch(query: string, limit: number = 5): Promise<SearchResult[]> {
