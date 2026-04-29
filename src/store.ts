@@ -81,6 +81,8 @@ interface AppState {
   updateRole: (roleId: string, updates: Partial<Role>) => Promise<void>;
   assignRole: (agentId: string, roleId: string) => Promise<void>;
   revokeRole: (agentId: string, roleId: string) => Promise<void>;
+  grantPermissionToAgent: (agentId: string, type: PermissionType, scope?: string[]) => Promise<void>;
+  revokePermissionFromAgent: (agentId: string, type: PermissionType) => Promise<void>;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -279,6 +281,20 @@ export const useStore = create<AppState>((set, get) => ({
     const result = await apiDelete(`/agents/${agentId}/roles/${roleId}`);
     set({
       agents: get().agents.map(a => a.id === agentId ? { ...a, roleIds: result.roleIds } : a),
+    });
+  },
+
+  grantPermissionToAgent: async (agentId, type, scope) => {
+    const result = await apiPost(`/agents/${agentId}/permissions`, { type, scope });
+    set({
+      agents: get().agents.map(a => a.id === agentId ? { ...a, permissions: result.permissions } : a),
+    });
+  },
+
+  revokePermissionFromAgent: async (agentId, type) => {
+    const result = await apiDelete(`/agents/${agentId}/permissions/${type}`);
+    set({
+      agents: get().agents.map(a => a.id === agentId ? { ...a, permissions: result.permissions } : a),
     });
   }
 }));

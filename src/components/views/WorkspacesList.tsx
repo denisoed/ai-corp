@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useStore, useAgentChats } from '../../store';
+import type { PermissionType, PermissionEntry } from '../../types';
 import * as d3 from 'd3';
 import { Card, CardContent } from '../ui/Card';
 import { Button } from '../ui/Button';
@@ -111,7 +112,7 @@ function computeTree(wsAgents: any[], rootId: string) {
 }
 
 export function WorkspacesList() {
-  const { agents, workspaces, crons, roles, addAgent, removeAgent, updateAgent, addWorkspace, updateWorkspace, removeWorkspace, assignAgentToWorkspace, applyTemplate, initWorkspaceFromYml, addLog, runCron, removeCron, updateCron, fetchCrons, assignRole, revokeRole } = useStore();
+  const { agents, workspaces, crons, roles, addAgent, removeAgent, updateAgent, addWorkspace, updateWorkspace, removeWorkspace, assignAgentToWorkspace, applyTemplate, initWorkspaceFromYml, addLog, runCron, removeCron, updateCron, fetchCrons, assignRole, revokeRole, grantPermissionToAgent, revokePermissionFromAgent } = useStore();
   const [showAddAgent, setShowAddAgent] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
@@ -1167,6 +1168,8 @@ export function WorkspacesList() {
                                   p.type.startsWith('system:manage_permissions') ? 'text-amber-400 border-amber-500/20 bg-amber-500/5' :
                                   p.type.startsWith('system:manage_roles') ? 'text-indigo-400 border-indigo-500/20 bg-indigo-500/5' :
                                   p.type.startsWith('system:broadcast') ? 'text-orange-400 border-orange-500/20 bg-orange-500/5' :
+                                  p.type.startsWith('system:web_search') ? 'text-green-400 border-green-500/20 bg-green-500/5' :
+                                  p.type.startsWith('system:fetch_url') ? 'text-teal-400 border-teal-500/20 bg-teal-500/5' :
                                   'text-zinc-400 border-zinc-700 bg-zinc-800/50'
                                 )}
                               >
@@ -1181,6 +1184,41 @@ export function WorkspacesList() {
                       {agentRoles.length === 0 && (
                         <p className="text-xs text-zinc-600 italic">No roles assigned. This agent has default "reader" access.</p>
                       )}
+
+                      <div className="space-y-1.5 pt-2 border-t border-zinc-800/50">
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Extra Permissions (direct)</label>
+                        <p className="text-[10px] text-zinc-600 leading-tight">Grant individual permissions on top of roles. Useful for quick one-off access without creating a role.</p>
+                        <div className="flex flex-wrap gap-1">
+                          {(['file:read', 'file:write', 'file:delete', 'file:list', 'system:web_search', 'system:fetch_url', 'system:manage_agents', 'system:manage_crons', 'system:broadcast'] as PermissionType[])
+                            .filter(pt => !uniquePerms.has(pt) || (selectedAgent.permissions || []).some(p => p.type === pt))
+                            .map(pt => {
+                            const hasDirect = (selectedAgent.permissions || []).some(p => p.type === pt);
+                            return (
+                              <button
+                                key={pt}
+                                onClick={async () => {
+                                  if (hasDirect) {
+                                    await revokePermissionFromAgent(selectedAgent.id, pt);
+                                  } else {
+                                    await grantPermissionToAgent(selectedAgent.id, pt);
+                                  }
+                                }}
+                                className={cn(
+                                  "px-2 py-0.5 rounded text-[9px] border transition-all",
+                                  hasDirect
+                                    ? (pt.startsWith('system:web_search') ? 'bg-green-500/15 text-green-300 border-green-500/20 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/20' :
+                                       pt.startsWith('system:fetch_url') ? 'bg-teal-500/15 text-teal-300 border-teal-500/20 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/20' :
+                                       'bg-indigo-500/15 text-indigo-300 border-indigo-500/30 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/20')
+                                    : 'bg-zinc-800 text-zinc-500 border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300'
+                                )}
+                              >
+                                {hasDirect ? <Check size={9} className="inline mr-1" /> : <Plus size={9} className="inline mr-1 opacity-50" />}
+                                {pt}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </>
                   );
                 })()}

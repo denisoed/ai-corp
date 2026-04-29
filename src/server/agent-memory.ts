@@ -454,12 +454,13 @@ function generateRoleMd(agent: Agent): string {
 - Alerts team immediately on system incidents`,
     },
     Research: {
-      responsibilities: `- Explore new technologies, frameworks, and approaches
+      responsibilities: `- Explore new technologies, frameworks, and approaches using web_search and fetch_url
 - Run experiments and proof-of-concept implementations
-- Evaluate tools and libraries for adoption
-- Produce research reports with recommendations
-- Stay current on industry trends and share insights`,
+- Evaluate tools and libraries for adoption using current data from documentation and community
+- Produce research reports with recommendations backed by online sources
+- Stay current on industry trends and share insights from recent news and publications`,
       authority: `- Can explore and prototype freely within scope
+- Can search the web and fetch online resources for research
 - Can recommend technologies and approaches
 - Cannot mandate adoption without Manager approval
 - Must provide balanced analysis (pros and cons)`,

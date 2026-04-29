@@ -73,6 +73,12 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     case 'revoke_role': return (await import('./role')).handleRevokeRole(args, executingAgentId);
     case 'get_agent_permissions': return (await import('./role')).handleGetAgentPermissions(args, executingAgentId);
     case 'list_permissions': return (await import('./role')).handleListPermissions(args, executingAgentId);
+    case 'grant_permission_to_agent': return (await import('./role')).handleGrantPermissionToAgent(args, executingAgentId);
+    case 'revoke_permission_from_agent': return (await import('./role')).handleRevokePermissionFromAgent(args, executingAgentId);
+
+    // Web tools
+    case 'web_search': return (await import('./web')).handleWebSearch(args, executingAgentId);
+    case 'fetch_url': return (await import('./web')).handleFetchUrl(args, executingAgentId);
 
     // Cron tools
     case 'create_cron': return (await import('./cron')).handleCreateCron(args, executingAgentId);

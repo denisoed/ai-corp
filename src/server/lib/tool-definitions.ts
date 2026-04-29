@@ -776,5 +776,65 @@ export const companyTools = [
         required: []
       }
     }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'web_search',
+      description: 'Search the internet for current information, news, documentation, and data. Returns results with title, URL, and snippet. Use this to research topics, find documentation, monitor trends, or gather market intelligence. To read the full content of a result, use fetch_url on its URL.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          query: { type: 'string' as const, description: 'Search query. Be specific and descriptive for best results. Include relevant keywords, dates, or domain names.' },
+          num_results: { type: 'number' as const, description: 'Maximum number of results to return (default: 5, max: 10)' }
+        },
+        required: ['query']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'fetch_url',
+      description: 'Fetch and read the content of a web page. Returns the text content of the page with HTML stripped. Use this after web_search to read full articles, documentation pages, or any specific URL in detail. Supports text/html, text/plain, and application/json content types.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          url: { type: 'string' as const, description: 'Full URL to fetch (must start with http:// or https://).' }
+        },
+        required: ['url']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'grant_permission_to_agent',
+      description: 'Grant a specific permission directly to an agent (in addition to their role-based permissions). Use this to give an agent extra capabilities without modifying their roles. Requires system:manage_permissions permission.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          agentName: { type: 'string' as const, description: 'Name of the agent to grant the permission to.' },
+          permissionType: { type: 'string' as const, description: 'Permission type to grant: file:read, file:write, file:delete, file:list, system:manage_agents, system:manage_permissions, system:manage_roles, system:manage_crons, system:broadcast, system:web_search, system:fetch_url' },
+          scope: { type: 'array' as const, items: { type: 'string' as const }, description: 'Optional. Array of path globs to limit scope. Omit for full access ("all"). Only meaningful for file:* permissions.' }
+        },
+        required: ['agentName', 'permissionType']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'revoke_permission_from_agent',
+      description: 'Remove a specific permission that was granted directly to an agent. Does NOT affect permissions the agent has through their roles. Requires system:manage_permissions permission.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          agentName: { type: 'string' as const, description: 'Name of the agent to revoke the permission from.' },
+          permissionType: { type: 'string' as const, description: 'Permission type to revoke.' }
+        },
+        required: ['agentName', 'permissionType']
+      }
+    }
   }
 ];

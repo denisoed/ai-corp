@@ -357,6 +357,10 @@ export function getEffectivePermissions(agentId: string): PermissionEntry[] {
     }
   }
 
+  if (agent.permissions) {
+    effective.push(...agent.permissions);
+  }
+
   return effective;
 }
 
@@ -395,6 +399,8 @@ export function ensureDefaultRoles(workspaceId: string): void {
       permissions: [
         { type: 'file:read', scope: 'all' },
         { type: 'file:list', scope: 'all' },
+        { type: 'system:web_search', scope: 'all' },
+        { type: 'system:fetch_url', scope: 'all' },
       ],
       createdAt: now,
       updatedAt: now,
@@ -434,6 +440,8 @@ export function ensureDefaultRoles(workspaceId: string): void {
         { type: 'system:manage_roles', scope: 'all' },
         { type: 'system:manage_crons', scope: 'all' },
         { type: 'system:broadcast', scope: 'all' },
+        { type: 'system:web_search', scope: 'all' },
+        { type: 'system:fetch_url', scope: 'all' },
       ],
       createdAt: now,
       updatedAt: now,

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getStore, mutateStore, agentsAreConnected, removeConnectionFromStore, addConnectionToStore, ensureDefaultRoles, assignDefaultRole } from '../store';
 import { createMemory, clearMemory, loadMemory, getMemoryContext, readPersonalityFile, writePersonalityFile, getAllPersonalityFiles } from '../agent-memory';
+import type { PermissionEntry } from '../../types';
 
 const router = Router();
 
@@ -247,6 +248,55 @@ router.delete('/agents/:id/roles/:roleId', (req, res) => {
 
   const updated = getStore().agents.find(a => a.id === req.params.id);
   res.json({ roleIds: updated?.roleIds || [] });
+});
+
+router.post('/agents/:id/permissions', (req, res) => {
+  const agent = getStore().agents.find(a => a.id === req.params.id);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  const { type, scope } = req.body;
+  if (!type) return res.status(400).json({ error: 'Permission type is required' });
+
+  const validTypes: string[] = [
+    'file:read', 'file:write', 'file:delete', 'file:list',
+    'system:manage_agents', 'system:manage_permissions', 'system:manage_roles',
+    'system:manage_crons', 'system:broadcast', 'system:web_search', 'system:fetch_url',
+  ];
+  if (!validTypes.includes(type)) {
+    return res.status(400).json({ error: `Invalid permission type: ${type}` });
+  }
+
+  mutateStore(s => {
+    const a = s.agents.find(x => x.id === req.params.id);
+    if (a) {
+      if (!a.permissions) a.permissions = [];
+      const existing = a.permissions.findIndex(p => p.type === type);
+      const entry: PermissionEntry = { type, scope: Array.isArray(scope) ? scope : 'all' };
+      if (existing !== -1) {
+        a.permissions[existing] = entry;
+      } else {
+        a.permissions.push(entry);
+      }
+    }
+  });
+
+  const updated = getStore().agents.find(a => a.id === req.params.id);
+  res.json({ permissions: updated?.permissions || [] });
+});
+
+router.delete('/agents/:id/permissions/:type', (req, res) => {
+  const agent = getStore().agents.find(a => a.id === req.params.id);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  mutateStore(s => {
+    const a = s.agents.find(x => x.id === req.params.id);
+    if (a && a.permissions) {
+      a.permissions = a.permissions.filter(p => p.type !== req.params.type);
+    }
+  });
+
+  const updated = getStore().agents.find(a => a.id === req.params.id);
+  res.json({ permissions: updated?.permissions || [] });
 });
 
 export default router;

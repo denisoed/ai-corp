@@ -260,6 +260,7 @@ export async function handleGetAgentPermissions(args: any, executingAgentId: str
     success: true,
     agent: agent.name,
     roles: roles.map(r => ({ name: r.name, permissions: r.permissions })),
+    directPermissions: agent.permissions || [],
     effectivePermissions: perms,
   };
 }
@@ -277,6 +278,68 @@ export async function handleListPermissions(args: any, executingAgentId: string)
       { type: 'system:manage_roles', description: 'Create/update/delete roles', scopeable: false },
       { type: 'system:manage_crons', description: 'Create/update/delete/run cron jobs', scopeable: false },
       { type: 'system:broadcast', description: 'Send broadcasts to all connected agents', scopeable: false },
+      { type: 'system:web_search', description: 'Search the internet for current information', scopeable: false },
+      { type: 'system:fetch_url', description: 'Fetch and read content from a URL', scopeable: false },
     ]
   };
+}
+
+export async function handleGrantPermissionToAgent(args: any, executingAgentId: string): Promise<any> {
+  const state = getStore();
+  const executingAgent = state.agents.find(a => a.id === executingAgentId);
+
+  const permError = await requirePermission(executingAgentId, 'system:manage_permissions');
+  if (permError) return permError;
+
+  const agent = findAgent(args.agentName);
+  if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+
+  const validTypes: PermissionType[] = [
+    'file:read', 'file:write', 'file:delete', 'file:list',
+    'system:manage_agents', 'system:manage_permissions', 'system:manage_roles',
+    'system:manage_crons', 'system:broadcast', 'system:web_search', 'system:fetch_url',
+  ];
+  if (!validTypes.includes(args.permissionType)) {
+    return { success: false, error: `Invalid permission type: ${args.permissionType}. Valid: ${validTypes.join(', ')}` };
+  }
+
+  mutateStore(s => {
+    const a = s.agents.find(x => x.id === agent.id);
+    if (a) {
+      if (!a.permissions) a.permissions = [];
+      const existing = a.permissions.findIndex(p => p.type === args.permissionType);
+      const entry: PermissionEntry = {
+        type: args.permissionType,
+        scope: Array.isArray(args.scope) ? args.scope : 'all',
+      };
+      if (existing !== -1) {
+        a.permissions[existing] = entry;
+      } else {
+        a.permissions.push(entry);
+      }
+    }
+  });
+
+  logAction('Permission Granted', `Granted "${args.permissionType}" to ${agent.name}.`, 'success', executingAgentId);
+  return { success: true, message: `Permission "${args.permissionType}" granted to ${agent.name}.` };
+}
+
+export async function handleRevokePermissionFromAgent(args: any, executingAgentId: string): Promise<any> {
+  const state = getStore();
+
+  const permError = await requirePermission(executingAgentId, 'system:manage_permissions');
+  if (permError) return permError;
+
+  const agent = findAgent(args.agentName);
+  if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+
+  mutateStore(s => {
+    const a = s.agents.find(x => x.id === agent.id);
+    if (a && a.permissions) {
+      a.permissions = a.permissions.filter(p => p.type !== args.permissionType);
+    }
+  });
+
+  logAction('Permission Revoked', `Revoked "${args.permissionType}" from ${agent.name}.`, 'warning', executingAgentId);
+  return { success: true, message: `Permission "${args.permissionType}" revoked from ${agent.name}.` };
 }

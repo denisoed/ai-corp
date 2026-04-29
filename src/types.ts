@@ -11,7 +11,9 @@ export type PermissionType =
   | 'system:manage_permissions'
   | 'system:manage_roles'
   | 'system:manage_crons'
-  | 'system:broadcast';
+  | 'system:broadcast'
+  | 'system:web_search'
+  | 'system:fetch_url';
 
 export interface PermissionEntry {
   type: PermissionType;
@@ -73,6 +75,7 @@ export interface Agent {
   spentToday?: number;
   currentTaskId?: string;
   roleIds?: string[];
+  permissions?: PermissionEntry[];
 }
 
 export type TaskStatus = 'Backlog' | 'Planned' | 'In Progress' | 'Review' | 'Needs Approval' | 'Done' | 'Failed' | 'Blocked';

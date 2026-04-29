@@ -18,6 +18,8 @@ const ALL_PERMISSION_TYPES: { type: PermissionType; label: string; icon: string;
   { type: 'system:manage_roles',    label: 'Manage roles',      icon: '🛡',   desc: 'Can create, update, and delete roles.' },
   { type: 'system:manage_crons',    label: 'Manage crons',      icon: '⏰',   desc: 'Can create, update, delete, and manually run cron jobs.' },
   { type: 'system:broadcast',       label: 'Broadcast messages', icon: '📢',  desc: 'Can send broadcasts to all Telegram-connected agents.' },
+  { type: 'system:web_search',      label: 'Web search',        icon: '🔍',   desc: 'Can search the internet for current information, news, and data.' },
+  { type: 'system:fetch_url',       label: 'Fetch URLs',        icon: '🌐',   desc: 'Can fetch and read content from web pages.' },
 ];
 
 const PERM_COLORS: Record<string, string> = {
@@ -30,6 +32,8 @@ const PERM_COLORS: Record<string, string> = {
   'system:manage_roles':    'bg-indigo-500/15 text-indigo-300 border-indigo-500/20',
   'system:manage_crons':    'bg-pink-500/15 text-pink-300 border-pink-500/20',
   'system:broadcast':       'bg-orange-500/15 text-orange-300 border-orange-500/20',
+  'system:web_search':      'bg-green-500/15 text-green-300 border-green-500/20',
+  'system:fetch_url':       'bg-teal-500/15 text-teal-300 border-teal-500/20',
 };
 
 function PermissionCheckboxGrid({
@@ -112,7 +116,7 @@ function ConfirmDialog({
 }
 
 export function RolesManagement() {
-  const { roles, agents, workspaces, createRole, deleteRole, updateRole, assignRole, revokeRole, addLog } = useStore();
+  const { roles, agents, workspaces, createRole, deleteRole, updateRole, assignRole, revokeRole, grantPermissionToAgent, revokePermissionFromAgent, addLog } = useStore();
   const [showCreate, setShowCreate] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -520,6 +524,38 @@ export function RolesManagement() {
                   </div>
                 )}
                 {agentRoles.length === 0 && <p className="text-[10px] text-zinc-600 italic">Default "reader" access only.</p>}
+
+                <div className="pt-1 border-t border-zinc-800/50">
+                  <span className="text-[10px] text-zinc-500 mb-1.5 block">Extra permissions (direct):</span>
+                  <div className="flex flex-wrap gap-1">
+                    {(['file:read', 'file:write', 'file:delete', 'file:list', 'system:web_search', 'system:fetch_url', 'system:manage_agents', 'system:manage_crons', 'system:broadcast'] as PermissionType[])
+                      .filter(pt => !uniquePerms.has(pt) || (agent.permissions || []).some(p => p.type === pt))
+                      .map(pt => {
+                      const hasDirect = (agent.permissions || []).some(p => p.type === pt);
+                      return (
+                        <button
+                          key={pt}
+                          onClick={async () => {
+                            if (hasDirect) {
+                              await revokePermissionFromAgent(agent.id, pt);
+                            } else {
+                              await grantPermissionToAgent(agent.id, pt);
+                            }
+                          }}
+                          className={cn(
+                            "px-1.5 py-0.5 rounded text-[9px] border transition-all",
+                            hasDirect
+                              ? "bg-indigo-500/15 text-indigo-300 border-indigo-500/30 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/20"
+                              : "bg-zinc-800 text-zinc-500 border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300"
+                          )}
+                        >
+                          {hasDirect ? <Check size={9} className="inline mr-0.5" /> : <Plus size={9} className="inline mr-0.5 opacity-50" />}
+                          {ALL_PERMISSION_TYPES.find(apt => apt.type === pt)?.label || pt}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             );
           })}
