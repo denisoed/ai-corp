@@ -5,9 +5,11 @@ import { OpenRouterClient } from './providers/openrouter';
 import { OpenAICompatibleClient } from './providers/openai-compatible';
 import { GoogleClient } from './providers/google';
 import { ChatSessionWrapper } from './chat-session';
-import type { ChatSession, LLMProviderClient } from './types';
+import { mutateStore } from '../store';
+import { formatLlmUsage } from '../lib/llm-usage';
+import type { ChatSession, ChatSessionOptions, LLMProviderClient } from './types';
 
-export function createChatSession(agent: Agent, systemPrompt: string): ChatSession {
+export function createChatSession(agent: Agent, systemPrompt: string, options: ChatSessionOptions = {}): ChatSession {
   const settings = getSettings();
   const providerId = agent.providerId || settings.defaultProviderId || 'openrouter';
   const provider = providerId ? settings.providers?.[providerId] : null;
@@ -29,8 +31,24 @@ export function createChatSession(agent: Agent, systemPrompt: string): ChatSessi
   const model = agent.model || provider.defaultModel || def.defaultModel;
 
   const client = createClient(providerId, provider.apiKey, baseUrl);
+  const onUsage = options.onUsage || ((usage) => {
+    const usageDetails = formatLlmUsage(usage);
+    if (!usageDetails) return;
 
-  return new ChatSessionWrapper(client, systemPrompt, model);
+    mutateStore(s => {
+      s.logs.unshift({
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        agentId: agent.id,
+        action: 'LLM Usage',
+        details: usageDetails,
+        type: 'info',
+      });
+      if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
+    });
+  });
+
+  return new ChatSessionWrapper(client, systemPrompt, model, onUsage);
 }
 
 export function createClient(

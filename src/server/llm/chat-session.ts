@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatSession, ToolCall } from './types';
+import type { ChatMessage, ChatSession, LLMUsage, ToolCall } from './types';
 import { companyTools } from '../lib/tool-definitions';
 
 export class ChatSessionWrapper implements ChatSession {
@@ -7,18 +7,23 @@ export class ChatSessionWrapper implements ChatSession {
   private messages: ChatMessage[] = [];
   private model: string;
 
-  constructor(client: any, systemPrompt: string, model: string) {
+  constructor(
+    client: any,
+    systemPrompt: string,
+    model: string,
+    private onUsage?: (usage: LLMUsage) => void
+  ) {
     this.client = client;
     this.systemPrompt = systemPrompt;
     this.model = model;
   }
 
-  async sendMessage(text: string): Promise<{ text: string; toolCalls?: ToolCall[] }> {
+  async sendMessage(text: string): Promise<{ text: string; toolCalls?: ToolCall[]; usage?: LLMUsage }> {
     this.messages.push({ role: 'user', content: text });
     return this.callApi();
   }
 
-  async sendToolResults(toolCalls: ToolCall[], results: unknown[]): Promise<{ text: string; toolCalls?: ToolCall[] }> {
+  async sendToolResults(toolCalls: ToolCall[], results: unknown[]): Promise<{ text: string; toolCalls?: ToolCall[]; usage?: LLMUsage }> {
     for (let i = 0; i < toolCalls.length; i++) {
       this.messages.push({
         role: 'tool',
@@ -29,7 +34,7 @@ export class ChatSessionWrapper implements ChatSession {
     return this.callApi();
   }
 
-  private async callApi(): Promise<{ text: string; toolCalls?: ToolCall[] }> {
+  private async callApi(): Promise<{ text: string; toolCalls?: ToolCall[]; usage?: LLMUsage }> {
     const messagesWithSystem: ChatMessage[] = [
       { role: 'system', content: this.systemPrompt },
       ...this.messages,
@@ -48,6 +53,10 @@ export class ChatSessionWrapper implements ChatSession {
       tool_calls: response.toolCalls,
     });
 
-    return { text: response.content, toolCalls: response.toolCalls };
+    if (response.usage && this.onUsage) {
+      this.onUsage(response.usage);
+    }
+
+    return { text: response.content, toolCalls: response.toolCalls, usage: response.usage };
   }
 }

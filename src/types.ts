@@ -271,7 +271,7 @@ export interface LLMProvider {
   enabled?: boolean;
 }
 
-export type ProviderId = 'opencode' | 'openai' | 'deepseek' | 'minimax' | 'kimi' | 'gemini';
+export type ProviderId = 'openai' | 'deepseek' | 'minimax' | 'kimi' | 'gemini';
 
 export interface AppSettings {
   braveApiKey?: string;

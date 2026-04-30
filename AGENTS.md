@@ -24,7 +24,7 @@
 - **Server**: Express.js 4 (port 4000)
 - **Cron**: node-cron
 - **YAML**: js-yaml
-- **AI Integration**: OpenCode API (OpenAI-совместимый function-calling)
+- **AI Integration**: OpenRouter API (OpenAI-совместимый function-calling)
 - **Persistence**: JSON-файлы в `~/.aicorp/` (app-settings.json + workspaces/*.json)
 
 ### Frontend
@@ -77,7 +77,6 @@
 │   │   ├── api.ts               # REST API route aggregator
 │   │   ├── store.ts             # Server-side persistent store
 │   │   ├── telegram.ts          # Telegram bot lifecycle + handleAskAgent orchestrator
-│   │   ├── opencode.ts          # OpenCode API client (OpenCodeChatSession)
 │   │   ├── cron.ts              # Cron job manager
 │   │   ├── agent-memory.ts      # Agent memory system
 │   │   ├── workspace-guard.ts   # Workspace security

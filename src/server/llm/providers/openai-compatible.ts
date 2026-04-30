@@ -30,6 +30,18 @@ export class OpenAICompatibleClient extends AIBaseClient {
           tool_calls?: ToolCall[];
         };
       }>;
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
+        prompt_tokens_details?: {
+          cached_tokens?: number;
+        };
+        completion_tokens_details?: {
+          reasoning_tokens?: number;
+        };
+        cost?: number;
+      };
     }>('/chat/completions', {
       method: 'POST',
       body: JSON.stringify(body),
@@ -44,6 +56,14 @@ export class OpenAICompatibleClient extends AIBaseClient {
     return {
       content: message.content || '',
       toolCalls: message.tool_calls,
+      usage: response.usage ? {
+        inputTokens: response.usage.prompt_tokens,
+        outputTokens: response.usage.completion_tokens,
+        totalTokens: response.usage.total_tokens,
+        cachedTokens: response.usage.prompt_tokens_details?.cached_tokens,
+        reasoningTokens: response.usage.completion_tokens_details?.reasoning_tokens,
+        cost: response.usage.cost,
+      } : undefined,
     };
   }
 
@@ -74,4 +94,4 @@ export class DeepSeekClient extends OpenAICompatibleClient {}
 export class MiniMaxClient extends OpenAICompatibleClient {}
 export class KimiClient extends OpenAICompatibleClient {}
 export class OpenAIClient extends OpenAICompatibleClient {}
-export class OpenCodeClient extends OpenAICompatibleClient {}
+export class OpenRouterCompatibleClient extends OpenAICompatibleClient {}

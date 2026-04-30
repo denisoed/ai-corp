@@ -9,15 +9,6 @@ export const PROVIDER_DEFS: Record<string, ProviderDefinition> = {
     type: 'openai-compatible',
     description: 'Aggregated API for 200+ AI models from various providers',
   },
-  // Coming soon:
-  // opencode: {
-  //   id: 'opencode',
-  //   name: 'OpenCode',
-  //   baseUrl: 'https://opencode.ai/zen/v1',
-  //   defaultModel: 'gpt-5.4-mini',
-  //   type: 'openai-compatible',
-  //   description: 'OpenCode AI models',
-  // },
   // openai: {
   //   id: 'openai',
   //   name: 'OpenAI',

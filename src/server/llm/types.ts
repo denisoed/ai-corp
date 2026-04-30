@@ -26,9 +26,19 @@ export interface Tool {
   };
 }
 
+export interface LLMUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cachedTokens?: number;
+  reasoningTokens?: number;
+  cost?: number;
+}
+
 export interface LLMResponse {
   content: string;
   toolCalls?: ToolCall[];
+  usage?: LLMUsage;
 }
 
 export interface LLMProviderClient {
@@ -54,6 +64,10 @@ export interface ProviderDefinition {
 }
 
 export interface ChatSession {
-  sendMessage(text: string): Promise<{ text: string; toolCalls?: ToolCall[] }>;
-  sendToolResults(toolCalls: ToolCall[], results: unknown[]): Promise<{ text: string; toolCalls?: ToolCall[] }>;
+  sendMessage(text: string): Promise<{ text: string; toolCalls?: ToolCall[]; usage?: LLMUsage }>;
+  sendToolResults(toolCalls: ToolCall[], results: unknown[]): Promise<{ text: string; toolCalls?: ToolCall[]; usage?: LLMUsage }>;
+}
+
+export interface ChatSessionOptions {
+  onUsage?: (usage: LLMUsage) => void;
 }

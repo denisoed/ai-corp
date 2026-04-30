@@ -2,8 +2,9 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { Agent, Workspace, AgentMemory, MemoryMessage } from '../types';
-import { summarizeAgentMemory } from './opencode';
 import { getStore } from './store';
+import { getSettings } from './lib/settings';
+import { getProviderClient, getProviderDef } from './llm';
 
 const AICORP_DIR = path.join(os.homedir(), '.aicorp');
 const WORKSPACES_DIR = path.join(AICORP_DIR, 'workspaces');
@@ -220,6 +221,104 @@ export async function maybeSummarize(
   }
 
   return memory;
+}
+
+export async function summarizeAgentMemory(memory: AgentMemory): Promise<AgentMemory> {
+  const now = new Date().toISOString();
+
+  const messagesToKeep = memory.recentMessages.slice(-KEEP_AFTER_SUMMARIZE);
+  const messagesToSummarize = memory.recentMessages.slice(0, -KEEP_AFTER_SUMMARIZE);
+
+  if (messagesToSummarize.length === 0) return memory;
+
+  const messagesText = messagesToSummarize
+    .map(m => `[${m.role}${m.source ? `:${m.source}` : ''}]: ${m.content}`)
+    .join('\n');
+
+  const currentSummary = memory.summary || '(empty)';
+  const currentFacts = memory.keyFacts.length > 0
+    ? memory.keyFacts.join('\n- ')
+    : '(empty)';
+
+  const systemPrompt = `You are a memory summarizer for an AI agent.
+Summarize the conversation messages below. Extract ONLY:
+- Key decisions that were made
+- Important facts and context (project names, file paths, technologies, configurations)
+- Active tasks and their statuses
+- Deadlines and priorities mentioned
+- Names of people, agents, or systems referenced
+- Any warnings, errors, or issues that need attention
+
+Keep your output concise. Discard small talk, repetition, and intermediate reasoning.`;
+
+  const userPrompt = `CURRENT SUMMARY:
+${currentSummary}
+
+CURRENT KEY FACTS:
+- ${currentFacts}
+
+MESSAGES TO SUMMARIZE:
+${messagesText}
+
+Respond ONLY with a JSON object (no markdown, no code block):
+{
+  "newSummary": "A concise updated summary merging old summary with new information. Include what the agent is currently doing, recent decisions, and important context. Maximum 500 words.",
+  "newFacts": ["fact string 1", "fact string 2"],
+  "activeTasks": [{"title": "task name", "status": "In Progress"}]
+}`;
+
+  let result: { newSummary: string; newFacts: string[]; activeTasks: { title: string; status: string }[] };
+
+  try {
+    const settings = getSettings();
+    const providerId = settings.defaultProviderId || 'openrouter';
+    const provider = settings.providers?.[providerId];
+    const providerDef = getProviderDef(providerId);
+
+    if (!provider || !providerDef || !provider.apiKey) {
+      throw new Error(`No LLM provider configured for memory summarization (${providerId}).`);
+    }
+
+    const client = getProviderClient(providerId);
+    if (!client) {
+      throw new Error(`Unable to create LLM client for memory summarization (${providerId}).`);
+    }
+
+    const model = provider.defaultModel || providerDef.defaultModel;
+    const response = await client.chat(model, [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ]);
+
+    let jsonStr = response.content.trim();
+    if (jsonStr.startsWith('```')) {
+      jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    }
+    result = JSON.parse(jsonStr);
+
+    if (!result.newSummary || !Array.isArray(result.newFacts)) {
+      throw new Error('Invalid summarization response structure');
+    }
+  } catch (e) {
+    console.error('[Memory Summarizer] LLM summarization failed, using fallback:', e);
+    result = {
+      newSummary: currentSummary,
+      newFacts: memory.keyFacts,
+      activeTasks: memory.activeTasks
+    };
+  }
+
+  const factSet = new Set([...memory.keyFacts, ...result.newFacts]);
+  const mergedFacts = Array.from(factSet).slice(-20);
+
+  return {
+    ...memory,
+    summary: result.newSummary.slice(0, 2000),
+    keyFacts: mergedFacts,
+    activeTasks: result.activeTasks || memory.activeTasks,
+    recentMessages: messagesToKeep,
+    lastSummarizedAt: now,
+  };
 }
 
 export function clearMemory(agentId: string): void {

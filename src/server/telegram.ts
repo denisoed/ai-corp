@@ -365,7 +365,7 @@ async function handleIncomingMessage(agentId: string, token: string, message: an
 }
 
 /**
- * Orchestrator tool: ask_agent — creates an OpenCode session for the target agent
+ * Orchestrator tool: ask_agent — creates an LLM session for the target agent
  * to process a request synchronously and return a reply.
  */
 export async function handleAskAgent(args: any, executingAgentId: string, token?: string): Promise<any> {
