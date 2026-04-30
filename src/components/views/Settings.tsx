@@ -3,8 +3,8 @@ import { Search, Globe, Key, Plus, Trash2, Eye, EyeOff, Check, Loader2, Play, Ci
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { MultiSelect } from '../ui/MultiSelect';
-import { CustomSelect, SelectItem } from '../ui/CustomSelect';
 import { Tabs, TabPanel } from '../ui/Tabs';
+import { SearchableSelect } from '../ui/SearchableSelect';
 import type { AppSettings, LLMProvider } from '../../types';
 
 const API_BASE = '/api';
@@ -600,15 +600,14 @@ export function Settings() {
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
                         <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Model</label>
-                        <CustomSelect
+                        <SearchableSelect
                           value={provider.defaultModel || ''}
-                          onValueChange={(val) => updateProvider(def.id, { defaultModel: val })}
+                          options={models}
                           placeholder={isLoadingModels ? 'Loading...' : (models.length > 0 ? 'Select model...' : 'No models loaded')}
-                        >
-                          {models.map(m => (
-                            <SelectItem key={m} value={m}>{m}</SelectItem>
-                          ))}
-                        </CustomSelect>
+                          searchPlaceholder="Search models..."
+                          onValueChange={(val) => updateProvider(def.id, { defaultModel: val })}
+                          loading={isLoadingModels}
+                        />
                       </div>
                       <div className="space-y-1">
                         <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">API Key</label>

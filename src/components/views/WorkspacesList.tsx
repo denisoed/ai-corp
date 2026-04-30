@@ -7,13 +7,14 @@ import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Input } from '../ui/Input';
 import { FolderPicker } from '../ui/FolderPicker';
-import { Plus, Briefcase, Users as UsersIcon, Trash2, X, User, Link2, MessageCircle, AlertTriangle, FolderKanban, FileText, Pencil, Check, Clock, Play, RotateCw, Shield, ShieldCheck, Eye, Edit3, List, Trash } from 'lucide-react';
+import { Plus, Briefcase, Users as UsersIcon, Trash2, X, User, Link2, MessageCircle, AlertTriangle, FolderKanban, FileText, Pencil, Check, Clock, Play, RotateCw, Shield, ShieldCheck, Eye, Edit3, List, Trash, Sparkles } from 'lucide-react';
 import { COMPANY_TEMPLATES } from '../../lib/templates';
 import { ReactFlow, Background, Controls, Node, Edge, useNodesState, useEdgesState } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { AgentNode } from './AgentNode';
 import { ParallelBezierEdge } from './ParallelBezierEdge';
 import { CustomSelect, SelectItem } from '../ui/CustomSelect';
+import { SearchableSelect } from '../ui/SearchableSelect';
 import { MultiSelect } from '../ui/MultiSelect';
 import { Tabs, TabPanel } from '../ui/Tabs';
 import { ChatFAB } from '../chat/ChatFAB';
@@ -227,6 +228,14 @@ export function WorkspacesList() {
 
   const selectedWorkspace = workspaces.find(w => w.id === showWorkspaceSettings);
   const selectedAgent = agents.find(a => a.id === selectedAgentId);
+
+  useEffect(() => {
+    if (!selectedAgent || !settingsData) return;
+    const providerId = selectedAgent.providerId || settingsData.defaultProviderId;
+    if (providerId) {
+      loadAgentModels(providerId);
+    }
+  }, [selectedAgent, settingsData, loadAgentModels]);
 
   useEffect(() => {
     if (selectedWorkspace) {
@@ -939,6 +948,7 @@ export function WorkspacesList() {
             <Tabs
               tabs={[
                 { id: 'info', label: 'Info', icon: <User size={14} /> },
+                { id: 'llm', label: 'LLM', icon: <Sparkles size={14} /> },
                 { id: 'personality', label: 'Personality', icon: <FileText size={14} /> },
                 { id: 'relationships', label: 'Team', icon: <Link2 size={14} /> },
                 { id: 'telegram', label: 'Telegram', icon: <MessageCircle size={14} /> },
@@ -973,55 +983,66 @@ export function WorkspacesList() {
                       ))}
                     </CustomSelect>
                   </div>
-                  {settingsData && Object.keys(settingsData.providers).length > 0 && (
-                    <>
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Provider</label>
-                        <CustomSelect
-                          value={selectedAgent.providerId || ''}
-                          onValueChange={(val) => {
-                            updateAgent(selectedAgent.id, { providerId: val || undefined });
-                            if (val) loadAgentModels(val);
-                          }}
-                          placeholder="Default provider"
-                        >
-                          <SelectItem value="">Default ({settingsData.providers[settingsData.defaultProviderId]?.name || 'None'})</SelectItem>
-                          {Object.entries(settingsData.providers).map(([id, p]: [string, LLMProvider]) => (
-                            <SelectItem key={id} value={id}>{p.name}</SelectItem>
-                          ))}
-                        </CustomSelect>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Model</label>
-                        {(() => {
-                          const providerId = selectedAgent.providerId || settingsData.defaultProviderId;
-                          const models = agentModels[providerId] || [];
-                          const isLoading = loadingAgentModels[providerId];
-                          return (
-                            <>
-                              <CustomSelect
-                                value={selectedAgent.model || ''}
-                                onValueChange={(val) => updateAgent(selectedAgent.id, { model: val })}
-                                placeholder={isLoading ? 'Loading...' : 'Select model...'}
-                              >
-                                <SelectItem value="">None</SelectItem>
-                                {models.map(m => (
-                                  <SelectItem key={m} value={m}>{m}</SelectItem>
-                                ))}
-                              </CustomSelect>
-                              <Input
-                                value={selectedAgent.model || ''}
-                                onChange={(e) => updateAgent(selectedAgent.id, { model: e.target.value })}
-                                placeholder="Or enter custom model..."
-                                className="bg-zinc-950 mt-2"
-                              />
-                            </>
-                          );
-                        })()}
-                      </div>
-                    </>
-                  )}
                 </div>
+              </TabPanel>
+
+              <TabPanel id="llm" activeTab={activeAgentTab} className="space-y-4">
+                {settingsData && Object.keys(settingsData.providers).length > 0 ? (
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Provider</label>
+                      <CustomSelect
+                        value={selectedAgent.providerId || '__default__'}
+                        onValueChange={(val) => {
+                          const providerId = val === '__default__' ? '' : val;
+                          updateAgent(selectedAgent.id, { providerId: providerId || undefined, model: '' });
+                          if (providerId) loadAgentModels(providerId);
+                        }}
+                        placeholder="Default provider"
+                      >
+                        <SelectItem value="__default__">Default ({settingsData.providers[settingsData.defaultProviderId]?.name || 'None'})</SelectItem>
+                        {Object.entries(settingsData.providers).map(([id, p]: [string, LLMProvider]) => (
+                          <SelectItem key={id} value={id}>{p.name}</SelectItem>
+                        ))}
+                      </CustomSelect>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Model</label>
+                      {(() => {
+                        const providerId = selectedAgent.providerId || settingsData.defaultProviderId;
+                        const models = providerId ? (agentModels[providerId] || []) : [];
+                        const isLoading = providerId ? !!loadingAgentModels[providerId] : false;
+                        return (
+                          <>
+                            <SearchableSelect
+                              value={selectedAgent.model || ''}
+                              options={models}
+                              placeholder={isLoading ? 'Loading...' : 'Select model...'}
+                              searchPlaceholder="Search models..."
+                              loading={isLoading}
+                              disabled={!providerId}
+                              onValueChange={(val) => updateAgent(selectedAgent.id, { model: val })}
+                            />
+                            {!providerId && (
+                              <p className="text-xs text-zinc-500 mt-1">Select a provider first.</p>
+                            )}
+                            {providerId && !isLoading && models.length === 0 && (
+                              <p className="text-xs text-zinc-500 mt-1">No models loaded for this provider.</p>
+                            )}
+                            <Input
+                              value={selectedAgent.model || ''}
+                              onChange={(e) => updateAgent(selectedAgent.id, { model: e.target.value })}
+                              placeholder="Or enter custom model..."
+                              className="bg-zinc-950 mt-2"
+                            />
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-zinc-500">No AI providers configured in Settings.</p>
+                )}
               </TabPanel>
 
               <TabPanel id="personality" activeTab={activeAgentTab} className="space-y-3">

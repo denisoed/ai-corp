@@ -1,15 +1,22 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import * as SelectPrimitive from '@radix-ui/react-select';
-import { Check, ChevronDown, ChevronUp } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Search } from 'lucide-react';
+import { Input } from './Input';
 
 type CustomSelectProps = React.ComponentPropsWithoutRef<typeof SelectPrimitive.Root> & {
   children: React.ReactNode;
   placeholder?: string;
   className?: string;
+  searchable?: boolean;
+  searchValue?: string;
+  onSearchValueChange?: (value: string) => void;
+  searchPlaceholder?: string;
 };
 
 export const CustomSelect = React.forwardRef<HTMLButtonElement, CustomSelectProps>(
-  ({ children, value, onValueChange, placeholder, className, ...props }, ref) => {
+  ({ children, value, onValueChange, placeholder, className, searchable = false, searchValue = '', onSearchValueChange, searchPlaceholder = 'Search...', ...props }, ref) => {
+    const searchInputRef = useRef<HTMLInputElement>(null);
+
     return (
       <SelectPrimitive.Root value={value} onValueChange={onValueChange} {...props}>
         <SelectPrimitive.Trigger
@@ -31,7 +38,24 @@ export const CustomSelect = React.forwardRef<HTMLButtonElement, CustomSelectProp
             <SelectPrimitive.ScrollUpButton className="flex cursor-default items-center justify-center py-1 text-zinc-500">
               <ChevronUp className="h-4 w-4" />
             </SelectPrimitive.ScrollUpButton>
-            <SelectPrimitive.Viewport className="h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)] p-1">
+            {searchable && (
+              <div className="border-b border-zinc-800 p-2">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                  <Input
+                    ref={searchInputRef}
+                    value={searchValue}
+                    onChange={(e) => onSearchValueChange?.(e.target.value)}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    onKeyUp={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    placeholder={searchPlaceholder}
+                    className="h-8 border-zinc-800 bg-zinc-900 pl-8 text-xs"
+                  />
+                </div>
+              </div>
+            )}
+            <SelectPrimitive.Viewport className="w-full min-w-[var(--radix-select-trigger-width)] p-1">
               {children}
             </SelectPrimitive.Viewport>
             <SelectPrimitive.ScrollDownButton className="flex cursor-default items-center justify-center py-1 text-zinc-500">

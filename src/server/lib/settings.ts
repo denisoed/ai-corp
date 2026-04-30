@@ -21,7 +21,12 @@ function migrate(raw: Record<string, unknown>): AppSettings {
         if (val && typeof val === 'object') {
           const p = val as Record<string, unknown>;
           const rawApiKey = typeof p.apiKey === 'string' ? p.apiKey : '';
-          const apiKey = isEncrypted(rawApiKey) ? decryptValue(rawApiKey) : rawApiKey;
+          let apiKey = rawApiKey;
+          let safetyCounter = 0;
+          while (isEncrypted(apiKey) && safetyCounter < 5) {
+            apiKey = decryptValue(apiKey);
+            safetyCounter += 1;
+          }
 
           acc[key] = {
             id: typeof p.id === 'string' ? p.id : key,
@@ -60,7 +65,17 @@ function readRawFile(): Record<string, unknown> | null {
 function writeSettingsFile(): void {
   try {
     fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
-    const cleaned = { ...settings };
+    const cleaned: AppSettings = {
+      ...settings,
+      providers: settings.providers
+        ? Object.fromEntries(
+            Object.entries(settings.providers).map(([id, provider]) => [
+              id,
+              { ...provider },
+            ])
+          )
+        : undefined,
+    };
     delete (cleaned as any).searchBackend;
 
     if (cleaned.providers) {

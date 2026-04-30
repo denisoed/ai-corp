@@ -10,6 +10,14 @@ export class OpenRouterClient extends AIBaseClient {
   private cache: Map<string, CachedModels> = new Map();
   private cacheTTL = 5 * 60 * 1000;
 
+  protected buildHeaders(): Record<string, string> {
+    return {
+      ...super.buildHeaders(),
+      'HTTP-Referer': process.env.OPENROUTER_HTTP_REFERER || 'http://localhost:3001',
+      'X-OpenRouter-Title': process.env.OPENROUTER_APP_TITLE || 'AI Corp',
+    };
+  }
+
   async chat(
     model: string,
     messages: ChatMessage[],
