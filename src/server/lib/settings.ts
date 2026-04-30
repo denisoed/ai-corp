@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import type { AppSettings, LLMProvider } from '../../types';
+import { encryptValue, decryptValue, isEncrypted } from './encryption';
 
 const DATA_DIR = path.join(os.homedir(), '.aicorp');
 const SETTINGS_FILE = path.join(DATA_DIR, 'app-settings.json');
@@ -19,12 +20,16 @@ function migrate(raw: Record<string, unknown>): AppSettings {
     ? Object.entries(raw.providers as Record<string, unknown>).reduce((acc, [key, val]) => {
         if (val && typeof val === 'object') {
           const p = val as Record<string, unknown>;
+          const rawApiKey = typeof p.apiKey === 'string' ? p.apiKey : '';
+          const apiKey = isEncrypted(rawApiKey) ? decryptValue(rawApiKey) : rawApiKey;
+
           acc[key] = {
             id: typeof p.id === 'string' ? p.id : key,
             name: typeof p.name === 'string' ? p.name : key,
-            apiKey: typeof p.apiKey === 'string' ? p.apiKey : '',
+            apiKey,
             baseUrl: typeof p.baseUrl === 'string' ? p.baseUrl : undefined,
             defaultModel: typeof p.defaultModel === 'string' ? p.defaultModel : '',
+            enabled: typeof p.enabled === 'boolean' ? p.enabled : false,
           };
         }
         return acc;
@@ -57,6 +62,15 @@ function writeSettingsFile(): void {
     fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
     const cleaned = { ...settings };
     delete (cleaned as any).searchBackend;
+
+    if (cleaned.providers) {
+      for (const [id, provider] of Object.entries(cleaned.providers)) {
+        if (provider.apiKey && provider.apiKey.length > 0) {
+          provider.apiKey = encryptValue(provider.apiKey);
+        }
+      }
+    }
+
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(cleaned, null, 2));
   } catch (e) {
     console.error('[Settings] Failed to write app-settings.json:', e);

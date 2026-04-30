@@ -55,9 +55,12 @@ router.get('/settings/providers/defs/:id', (req, res) => {
 
 router.post('/settings/providers/:id/test', async (req, res) => {
   try {
+    console.log(`[Settings] Testing provider: ${req.params.id}`);
     const success = await testProvider(req.params.id);
+    console.log(`[Settings] Provider test result: ${success}`);
     res.json({ success });
   } catch (e: any) {
+    console.error(`[Settings] Provider test error:`, e);
     res.status(500).json({ success: false, error: e.message });
   }
 });

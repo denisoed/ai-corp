@@ -268,6 +268,7 @@ export interface LLMProvider {
   apiKey: string;
   baseUrl?: string;
   defaultModel: string;
+  enabled?: boolean;
 }
 
 export type ProviderId = 'opencode' | 'openai' | 'deepseek' | 'minimax' | 'kimi' | 'gemini';

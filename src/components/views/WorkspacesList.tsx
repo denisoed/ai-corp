@@ -142,6 +142,8 @@ export function WorkspacesList() {
   const [showChatPanel, setShowChatPanel] = useState(false);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [settingsData, setSettingsData] = useState<{ providers: Record<string, LLMProvider>; defaultProviderId: string } | null>(null);
+  const [agentModels, setAgentModels] = useState<Record<string, string[]>>({});
+  const [loadingAgentModels, setLoadingAgentModels] = useState<Record<string, boolean>>({});
 
   const [newWsName, setNewWsName] = useState('');
   const [newWsDescription, setNewWsDescription] = useState('');
@@ -176,6 +178,20 @@ export function WorkspacesList() {
       .then(data => setSettingsData({ providers: data.providers || {}, defaultProviderId: data.defaultProviderId || '' }))
       .catch(() => setSettingsData(null));
   }, []);
+
+  const loadAgentModels = useCallback(async (providerId: string) => {
+    if (agentModels[providerId] || loadingAgentModels[providerId]) return;
+    setLoadingAgentModels(m => ({ ...m, [providerId]: true }));
+    try {
+      const res = await fetch(`/api/settings/providers/${providerId}/models`);
+      const data = await res.json();
+      setAgentModels(m => ({ ...m, [providerId]: data.models || [] }));
+    } catch (e) {
+      console.error('Failed to load models:', e);
+    } finally {
+      setLoadingAgentModels(m => ({ ...m, [providerId]: false }));
+    }
+  }, [agentModels, loadingAgentModels]);
 
   const startEdit = (filename: string) => {
     setEditContent(personalityFiles?.[filename] || '');
@@ -963,7 +979,10 @@ export function WorkspacesList() {
                         <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Provider</label>
                         <CustomSelect
                           value={selectedAgent.providerId || ''}
-                          onValueChange={(val) => updateAgent(selectedAgent.id, { providerId: val || undefined })}
+                          onValueChange={(val) => {
+                            updateAgent(selectedAgent.id, { providerId: val || undefined });
+                            if (val) loadAgentModels(val);
+                          }}
                           placeholder="Default provider"
                         >
                           <SelectItem value="">Default ({settingsData.providers[settingsData.defaultProviderId]?.name || 'None'})</SelectItem>
@@ -974,12 +993,31 @@ export function WorkspacesList() {
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Model</label>
-                        <Input
-                          value={selectedAgent.model || ''}
-                          onChange={(e) => updateAgent(selectedAgent.id, { model: e.target.value })}
-                          placeholder={settingsData.providers[selectedAgent.providerId || settingsData.defaultProviderId]?.defaultModel || 'Model name'}
-                          className="bg-zinc-950"
-                        />
+                        {(() => {
+                          const providerId = selectedAgent.providerId || settingsData.defaultProviderId;
+                          const models = agentModels[providerId] || [];
+                          const isLoading = loadingAgentModels[providerId];
+                          return (
+                            <>
+                              <CustomSelect
+                                value={selectedAgent.model || ''}
+                                onValueChange={(val) => updateAgent(selectedAgent.id, { model: val })}
+                                placeholder={isLoading ? 'Loading...' : 'Select model...'}
+                              >
+                                <SelectItem value="">None</SelectItem>
+                                {models.map(m => (
+                                  <SelectItem key={m} value={m}>{m}</SelectItem>
+                                ))}
+                              </CustomSelect>
+                              <Input
+                                value={selectedAgent.model || ''}
+                                onChange={(e) => updateAgent(selectedAgent.id, { model: e.target.value })}
+                                placeholder="Or enter custom model..."
+                                className="bg-zinc-950 mt-2"
+                              />
+                            </>
+                          );
+                        })()}
                       </div>
                     </>
                   )}

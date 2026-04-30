@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**AI Agent Company Dashboard** (AI Corp / Orchestra AI) — платформа оркестрации AI-агентов, которая позволяет создавать виртуальные «компании» из AI-агентов с разными ролями, управлять задачами через Kanban-доску, настраивать меж-агентское взаимодействие и подключать агентов к Telegram.
+**AI Agent Company Dashboard** (AI Corp) — платформа оркестрации AI-агентов, которая позволяет создавать виртуальные «компании» из AI-агентов с разными ролями, управлять задачами через Kanban-доску, настраивать меж-агентское взаимодействие и подключать агентов к Telegram.
 
 ### Ключевые возможности
 - Создание **Workspace** (рабочих пространств) с агентами, задачами и ролями
@@ -25,7 +25,7 @@
 - **Cron**: node-cron
 - **YAML**: js-yaml
 - **AI Integration**: OpenCode API (OpenAI-совместимый function-calling)
-- **Persistence**: JSON-файлы в `~/.aicorp/` (settings.json + workspaces/*.json)
+- **Persistence**: JSON-файлы в `~/.aicorp/` (app-settings.json + workspaces/*.json)
 
 ### Frontend
 - **Framework**: React 19 + React Router 7
@@ -45,6 +45,13 @@
 - Запуск: `npm test` (однократно), `npm run test:watch` (watch mode)
 - Тестировать в первую очередь чистые утилиты (lib/glob.ts, lib/telegram-formatter.ts)
 - Инструменты агентов тестировать с инжектируемым store
+
+### Security & Encryption
+- **API ключи**: Хранятся зашифрованными в `~/.aicorp/app-settings.json`
+- **Алгоритм**: AES-256-GCM
+- **Мастер-ключ**: Автогенерируется при первом запуске, хранится в `~/.aicorp/encryption.key`
+- **Формат**: `"apiKey": "enc:iv:authTag:encryptedData"`
+- **Важно**: При удалении `encryption.key` все API ключи станут недоступны (нужно будет ввести заново)
 
 ---
 

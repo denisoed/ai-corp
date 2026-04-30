@@ -3,6 +3,7 @@ import { Search, Globe, Key, Plus, Trash2, Eye, EyeOff, Check, Loader2, Play, Ci
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { MultiSelect } from '../ui/MultiSelect';
+import { CustomSelect, SelectItem } from '../ui/CustomSelect';
 import { Tabs, TabPanel } from '../ui/Tabs';
 import type { AppSettings, LLMProvider } from '../../types';
 
@@ -14,6 +15,7 @@ interface ProviderDef {
   baseUrl: string;
   defaultModel: string;
   type: string;
+  description?: string;
 }
 
 async function fetchSettings(): Promise<AppSettings> {
@@ -522,125 +524,118 @@ export function Settings() {
       <TabPanel id="providers" activeTab={activeTab}>
       {/* AI Providers Section */}
       <section className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-indigo-400" />
-            <h3 className="text-sm font-semibold text-white">AI Providers</h3>
-          </div>
-          {!showAddProvider && (
-            <Button variant="ghost" size="sm" onClick={() => setShowAddProvider(true)} className="text-zinc-400 hover:text-zinc-200">
-              <Plus className="h-4 w-4 mr-1" />
-              Add Provider
-            </Button>
-          )}
+        <div className="flex items-center gap-2 mb-4">
+          <Sparkles className="h-5 w-5 text-indigo-400" />
+          <h3 className="text-sm font-semibold text-white">AI Providers</h3>
         </div>
         <p className="text-xs text-zinc-500 mb-5">
-          Configure AI model providers. Each provider can have its own API key and default model. Set a default provider or configure per-agent in the agent settings.
+          Configure AI model providers. Each provider requires an API key to connect. Models are loaded dynamically from the provider.
         </p>
 
-        {showAddProvider && (
-          <div className="flex gap-2 mb-4 p-3 bg-zinc-950 rounded-lg border border-zinc-800">
-            <select
-              value={newProviderId}
-              onChange={e => setNewProviderId(e.target.value)}
-              className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-200"
-            >
-              <option value="">Select provider...</option>
-{Object.entries(providerDefs).map(([id, def]) => {
-                const d = def as ProviderDef;
-                return !providers[id] && <option key={id} value={id}>{d.name}</option>;
-              })}
-            </select>
-            <Button size="sm" onClick={addProvider} disabled={!newProviderId}>Add</Button>
-            <Button variant="ghost" size="sm" onClick={() => { setShowAddProvider(false); setNewProviderId(''); }}>
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-        )}
-
-        <div className="space-y-3">
-          {Object.entries(providers).map(([id, provider]) => {
-            const def = providerDefs[id];
-            const isDefault = defaultProviderId === id;
-            const testResult = providerTestResults[id];
-            const isTesting = testingProvider === id;
-            const models = providerModels[id] || [];
-            const isLoadingModels = loadingProviderModels[id];
+        <div className="space-y-4">
+          {(Object.values(providerDefs) as ProviderDef[]).map((def) => {
+            const provider = providers[def.id];
+            const isEnabled = provider?.enabled ?? false;
+            const testResult = providerTestResults[def.id];
+            const isTesting = testingProvider === def.id;
+            const models = providerModels[def.id] || [];
+            const isLoadingModels = loadingProviderModels[def.id];
 
             return (
-              <div key={id} className="p-4 bg-zinc-950 rounded-lg border border-zinc-800 space-y-3">
+              <div key={def.id} className="w-full p-4 bg-zinc-950 rounded-lg border border-zinc-800 space-y-4">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="radio"
-                      name="defaultProvider"
-                      checked={isDefault}
-                      onChange={() => setDefaultProvider(id)}
-                      className="accent-indigo-500"
-                    />
-                    <span className="text-sm font-medium text-white">{provider.name}</span>
-                    {isDefault && (
-                      <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded">Default</span>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-white">{def.name}</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded ${isEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-800 text-zinc-500'}`}>
+                        {isEnabled ? 'Active' : 'Disabled'}
+                      </span>
+                    </div>
+                    {def.description && (
+                      <p className="text-xs text-zinc-500 mt-1">{def.description}</p>
                     )}
                   </div>
                   <Button
-                    variant="ghost"
+                    variant={isEnabled ? 'outline' : 'default'}
                     size="sm"
-                    onClick={() => removeProvider(id)}
-                    className="text-zinc-600 hover:text-red-400"
+                    onClick={() => {
+                      if (!provider) {
+                        setSettings(s => ({
+                          ...s,
+                          providers: {
+                            ...s.providers,
+                            [def.id]: {
+                              id: def.id,
+                              name: def.name,
+                              apiKey: '',
+                              defaultModel: def.defaultModel,
+                              enabled: true,
+                            },
+                          },
+                          defaultProviderId: def.id,
+                        }));
+                      } else {
+                        updateProvider(def.id, { enabled: !provider.enabled });
+                      }
+                      setSaveStatus('idle');
+                    }}
+                    className={isEnabled ? 'text-zinc-400 hover:text-zinc-200' : ''}
                   >
-                    <Trash2 className="h-4 w-4" />
+                    {isEnabled ? 'Disable' : 'Enable'}
                   </Button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">API Key</label>
-                    <Input
-                      type="password"
-                      value={provider.apiKey}
-                      onChange={e => updateProvider(id, { apiKey: e.target.value })}
-                      placeholder="sk-..."
-                      className="bg-zinc-900 font-mono text-xs"
-                    />
-                  </div>
-                  {def && (
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Default Model</label>
-                      <Input
-                        value={provider.defaultModel}
-                        onChange={e => updateProvider(id, { defaultModel: e.target.value })}
-                        placeholder={def.defaultModel}
-                        className="bg-zinc-900 text-xs"
-                      />
+                {provider && isEnabled && (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Model</label>
+                        <CustomSelect
+                          value={provider.defaultModel || ''}
+                          onValueChange={(val) => updateProvider(def.id, { defaultModel: val })}
+                          placeholder={isLoadingModels ? 'Loading...' : (models.length > 0 ? 'Select model...' : 'No models loaded')}
+                        >
+                          {models.map(m => (
+                            <SelectItem key={m} value={m}>{m}</SelectItem>
+                          ))}
+                        </CustomSelect>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">API Key</label>
+                        <Input
+                          type="password"
+                          value={provider.apiKey}
+                          onChange={e => updateProvider(def.id, { apiKey: e.target.value })}
+                          placeholder="sk-..."
+                          className="bg-zinc-900 font-mono text-xs"
+                        />
+                      </div>
                     </div>
-                  )}
-                </div>
 
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleTestProvider(id, provider.apiKey, provider.baseUrl)}
-                    disabled={isTesting || !provider.apiKey}
-                  >
-                    {isTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Test Connection'}
-                  </Button>
-                  {testResult !== undefined && (
-                    <span className={`text-xs ${testResult ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {testResult ? 'Connected' : 'Failed'}
-                    </span>
-                  )}
-                </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          loadProviderModels(def.id);
+                          handleTestProvider(def.id, provider.apiKey, provider.baseUrl);
+                        }}
+                        disabled={isTesting || !provider.apiKey}
+                      >
+                        {isTesting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                        Test Connection
+                      </Button>
+                      {testResult !== undefined && (
+                        <span className={`text-xs ${testResult ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {testResult ? 'Connected' : 'Failed'}
+                        </span>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             );
           })}
-
-          {Object.keys(providers).length === 0 && (
-            <p className="text-xs text-zinc-600 py-4 text-center">
-              No AI providers configured. Add a provider to enable AI-powered agents.
-            </p>
-          )}
         </div>
       </section>
       </TabPanel>

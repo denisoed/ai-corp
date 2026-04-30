@@ -50,6 +50,7 @@ export interface ProviderDefinition {
   baseUrl: string;
   defaultModel: string;
   type: 'openai-compatible' | 'google';
+  description?: string;
 }
 
 export interface ChatSession {

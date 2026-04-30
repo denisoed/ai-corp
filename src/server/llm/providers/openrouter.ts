@@ -1,7 +1,15 @@
 import { AIBaseClient } from './base';
 import type { ChatMessage, LLMResponse, Tool, ToolCall } from '../types';
 
-export class OpenAICompatibleClient extends AIBaseClient {
+interface CachedModels {
+  models: string[];
+  timestamp: number;
+}
+
+export class OpenRouterClient extends AIBaseClient {
+  private cache: Map<string, CachedModels> = new Map();
+  private cacheTTL = 5 * 60 * 1000;
+
   async chat(
     model: string,
     messages: ChatMessage[],
@@ -47,16 +55,29 @@ export class OpenAICompatibleClient extends AIBaseClient {
     };
   }
 
-  async listModels(): Promise<string[]> {
+  async listModels(forceRefresh = false): Promise<string[]> {
+    const cached = this.cache.get(this.baseUrl);
+
+    if (!forceRefresh && cached && Date.now() - cached.timestamp < this.cacheTTL) {
+      return cached.models;
+    }
+
     try {
       const response = await this.request<{
         data: Array<{ id: string }>;
       }>('/models');
 
-      return response.data?.map(m => m.id) || [];
+      const models = response.data?.map(m => m.id) || [];
+
+      this.cache.set(this.baseUrl, {
+        models,
+        timestamp: Date.now(),
+      });
+
+      return models;
     } catch (e) {
-      console.warn('[OpenAICompatibleClient] Failed to list models:', e);
-      return [];
+      console.warn('[OpenRouterClient] Failed to list models:', e);
+      return cached?.models || [];
     }
   }
 
@@ -69,9 +90,3 @@ export class OpenAICompatibleClient extends AIBaseClient {
     }
   }
 }
-
-export class DeepSeekClient extends OpenAICompatibleClient {}
-export class MiniMaxClient extends OpenAICompatibleClient {}
-export class KimiClient extends OpenAICompatibleClient {}
-export class OpenAIClient extends OpenAICompatibleClient {}
-export class OpenCodeClient extends OpenAICompatibleClient {}
