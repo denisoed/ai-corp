@@ -27,6 +27,13 @@ export async function handleWebSearch(args: any, executingAgentId: string): Prom
   try {
     const results = await performSearch(query, limit);
 
+    if (results.length === 0) {
+      return {
+        success: false,
+        error: 'Search returned no results. Configure BRAVE_SEARCH_API_KEY or SEARXNG_URL for more reliable search.',
+      };
+    }
+
     logAction(
       'Web Search',
       `Searched "${query.slice(0, 80)}" — ${results.length} results.`,

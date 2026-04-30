@@ -42,25 +42,27 @@ class DuckDuckGoBackend implements SearchBackend {
       });
 
       if (!res.ok) {
-        console.warn(`[Search] DDG returned ${res.status} ${res.statusText}`);
-        return [];
+        throw new Error(`DuckDuckGo returned ${res.status} ${res.statusText}`);
       }
 
       const html = await res.text();
 
       if (html.includes('anomaly-modal') || html.includes('challenge-form')) {
-        console.warn('[Search] DuckDuckGo returned a CAPTCHA. Consider setting up BRAVE_SEARCH_API_KEY for reliable search.');
-        return [];
+        throw new Error('DuckDuckGo returned a CAPTCHA');
       }
 
-      return this.parseResults(html, limit);
+      const results = this.parseResults(html, limit);
+      if (results.length === 0) {
+        throw new Error('DuckDuckGo returned no parseable results');
+      }
+
+      return results;
     } catch (e: any) {
       if (e.name === 'AbortError' || e.name === 'TimeoutError') {
-        console.warn('[Search] DDG request timed out');
+        throw new Error('DuckDuckGo request timed out');
       } else {
-        console.warn(`[Search] DDG request failed: ${e.message}`);
+        throw e;
       }
-      return [];
     }
   }
 
@@ -233,7 +235,15 @@ class FallbackBackend implements SearchBackend {
       throw new Error('No results');
     } catch (e: any) {
       console.warn(`[Search] ${this.primaryName} failed (${e.message || 'no results'}), falling back to DuckDuckGo`);
-      return this.fallback.search(query, limit);
+      try {
+        const fallbackResults = await this.fallback.search(query, limit);
+        if (fallbackResults.length > 0) return fallbackResults;
+        throw new Error('DuckDuckGo returned no results');
+      } catch (fallbackError: any) {
+        throw new Error(
+          `${this.primaryName} failed (${e.message || 'no results'}); DuckDuckGo fallback failed (${fallbackError.message || 'no results'})`
+        );
+      }
     }
   }
 }
