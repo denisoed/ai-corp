@@ -256,6 +256,16 @@ export function Settings() {
     }
   }, [providerModels, loadingProviderModels]);
 
+  useEffect(() => {
+    if (!loaded) return;
+
+    for (const [providerId, provider] of Object.entries(settings.providers || {})) {
+      if (provider.enabled) {
+        loadProviderModels(providerId);
+      }
+    }
+  }, [loaded, settings.providers, loadProviderModels]);
+
   const handleTestProvider = useCallback(async (providerId: string, apiKey: string, baseUrl?: string) => {
     setTestingProvider(providerId);
     try {

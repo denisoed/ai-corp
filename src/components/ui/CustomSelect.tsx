@@ -2,7 +2,13 @@ import React from 'react';
 import * as SelectPrimitive from '@radix-ui/react-select';
 import { Check, ChevronDown, ChevronUp } from 'lucide-react';
 
-export const CustomSelect = React.forwardRef<HTMLButtonElement, any>(
+type CustomSelectProps = React.ComponentPropsWithoutRef<typeof SelectPrimitive.Root> & {
+  children: React.ReactNode;
+  placeholder?: string;
+  className?: string;
+};
+
+export const CustomSelect = React.forwardRef<HTMLButtonElement, CustomSelectProps>(
   ({ children, value, onValueChange, placeholder, className, ...props }, ref) => {
     return (
       <SelectPrimitive.Root value={value} onValueChange={onValueChange} {...props}>
@@ -38,7 +44,12 @@ export const CustomSelect = React.forwardRef<HTMLButtonElement, any>(
   }
 );
 
-export const SelectItem = React.forwardRef<HTMLDivElement, any>(
+type SelectItemProps = React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item> & {
+  children: React.ReactNode;
+  className?: string;
+};
+
+export const SelectItem = React.forwardRef<HTMLDivElement, SelectItemProps>(
   ({ className, children, ...props }, ref) => {
     return (
       <SelectPrimitive.Item
