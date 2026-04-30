@@ -231,11 +231,16 @@ export function WorkspacesList() {
 
   useEffect(() => {
     if (!selectedAgent || !settingsData) return;
-    const providerId = selectedAgent.providerId || settingsData.defaultProviderId;
+    const providerId = selectedAgent.providerId || (settingsData.providers.openrouter ? 'openrouter' : settingsData.defaultProviderId);
     if (providerId) {
       loadAgentModels(providerId);
     }
-  }, [selectedAgent, settingsData, loadAgentModels]);
+    if (!selectedAgent.providerId && settingsData.providers.openrouter) {
+      updateAgent(selectedAgent.id, { providerId: 'openrouter' }).catch(e => {
+        console.error('Failed to set default agent provider to OpenRouter:', e);
+      });
+    }
+  }, [selectedAgent, settingsData, loadAgentModels, updateAgent]);
 
   useEffect(() => {
     if (selectedWorkspace) {
@@ -992,7 +997,7 @@ export function WorkspacesList() {
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Provider</label>
                       <CustomSelect
-                        value={selectedAgent.providerId || '__default__'}
+                        value={selectedAgent.providerId || (settingsData.providers.openrouter ? 'openrouter' : settingsData.defaultProviderId || '__default__')}
                         onValueChange={(val) => {
                           const providerId = val === '__default__' ? '' : val;
                           updateAgent(selectedAgent.id, { providerId: providerId || undefined, model: '' });
@@ -1000,22 +1005,29 @@ export function WorkspacesList() {
                         }}
                         placeholder="Default provider"
                       >
-                        <SelectItem value="__default__">Default ({settingsData.providers[settingsData.defaultProviderId]?.name || 'None'})</SelectItem>
+                        {!settingsData.providers.openrouter && (
+                          <SelectItem value="__default__">Default ({settingsData.providers[settingsData.defaultProviderId]?.name || 'None'})</SelectItem>
+                        )}
+                        {settingsData.providers.openrouter && (
+                          <SelectItem value="openrouter">OpenRouter</SelectItem>
+                        )}
                         {Object.entries(settingsData.providers).map(([id, p]: [string, LLMProvider]) => (
-                          <SelectItem key={id} value={id}>{p.name}</SelectItem>
+                          id === 'openrouter' ? null : <SelectItem key={id} value={id}>{p.name}</SelectItem>
                         ))}
                       </CustomSelect>
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Model</label>
                       {(() => {
-                        const providerId = selectedAgent.providerId || settingsData.defaultProviderId;
+                        const providerId = selectedAgent.providerId || (settingsData.providers.openrouter ? 'openrouter' : settingsData.defaultProviderId);
+                        const provider = providerId ? settingsData.providers[providerId] : undefined;
+                        const selectedModel = selectedAgent.model || provider?.defaultModel || '';
                         const models = providerId ? (agentModels[providerId] || []) : [];
                         const isLoading = providerId ? !!loadingAgentModels[providerId] : false;
                         return (
                           <>
                             <SearchableSelect
-                              value={selectedAgent.model || ''}
+                              value={selectedModel}
                               options={models}
                               placeholder={isLoading ? 'Loading...' : 'Select model...'}
                               searchPlaceholder="Search models..."
@@ -1029,12 +1041,9 @@ export function WorkspacesList() {
                             {providerId && !isLoading && models.length === 0 && (
                               <p className="text-xs text-zinc-500 mt-1">No models loaded for this provider.</p>
                             )}
-                            <Input
-                              value={selectedAgent.model || ''}
-                              onChange={(e) => updateAgent(selectedAgent.id, { model: e.target.value })}
-                              placeholder="Or enter custom model..."
-                              className="bg-zinc-950 mt-2"
-                            />
+                            <p className="text-xs text-zinc-500 mt-1">
+                              Leave model empty to use the provider default from AI Providers.
+                            </p>
                           </>
                         );
                       })()}
