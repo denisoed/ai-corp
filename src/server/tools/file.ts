@@ -11,9 +11,14 @@ export async function handleReadFile(args: any, executingAgentId: string): Promi
       return { success: false, error: `You do not have file:read permission for "${args.path}".` };
     }
 
+    const { workspace } = assertAgentInWorkspace(executingAgentId);
+    if (!fs.existsSync(workspace.folderPath!)) {
+      return { success: false, error: `Workspace folder "${workspace.folderPath}" is not accessible from the server container.` };
+    }
+
     const targetPath = resolveWorkspacePath(executingAgentId, args.path);
     if (!fs.existsSync(targetPath)) {
-      return { success: false, error: `File "${args.path}" not found.` };
+      return { success: false, error: `Path "${args.path}" not found.` };
     }
 
     const stat = fs.statSync(targetPath);
@@ -87,6 +92,11 @@ export async function handleListFiles(args: any, executingAgentId: string): Prom
   try {
     if (!hasPermission(executingAgentId, 'file:list')) {
       return { success: false, error: 'You do not have file:list permission.' };
+    }
+
+    const { workspace } = assertAgentInWorkspace(executingAgentId);
+    if (!fs.existsSync(workspace.folderPath!)) {
+      return { success: false, error: `Workspace folder "${workspace.folderPath}" is not accessible from the server container.` };
     }
 
     const dirPath = args.path || '.';

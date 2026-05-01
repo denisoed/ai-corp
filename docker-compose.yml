@@ -1,21 +1,5 @@
 services:
-  ai-corp:
-    profiles: ["prod"]
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime
-    ports:
-      - "4000:4000"
-    environment:
-      - PORT=4000
-    volumes:
-      - ${HOME}/.aicorp:/root/.aicorp
-      - /var/run/docker.sock:/var/run/docker.sock
-    restart: unless-stopped
-
   web:
-    profiles: ["dev"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -27,34 +11,13 @@ services:
     environment:
       - CHOKIDAR_USEPOLLING=true
       - DISABLE_HMR=false
-      - VITE_API_PROXY_TARGET=http://server:4000
+      - VITE_API_PROXY_TARGET=http://host.docker.internal:4000
     volumes:
       - .:/app
       - web-node-modules:/app/node_modules
-    depends_on:
-      - server
-    restart: unless-stopped
-
-  server:
-    profiles: ["dev"]
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: deps
-    working_dir: /app
-    command: npm run dev:server
-    ports:
-      - "4000:4000"
-    environment:
-      - PORT=4000
-      - CHOKIDAR_USEPOLLING=true
-    volumes:
-      - .:/app
-      - ${HOME}/.aicorp:/root/.aicorp
-      - /var/run/docker.sock:/var/run/docker.sock
-      - server-node-modules:/app/node_modules
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
 volumes:
   web-node-modules:
-  server-node-modules:

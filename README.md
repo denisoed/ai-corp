@@ -25,39 +25,42 @@ The app uses:
 
 ## Run With Docker
 
-Use a single command to start the app:
+Use `make` to start, restart, and stop the stack with one command each:
 
 ```bash
-docker compose --profile prod up --build
+make bootstrap
+make start
+make restart
+make stop
+make status
+make logs
+make logs-web
+make logs-backend
 ```
 
 This starts:
-- the UI
-- the API server
-- background agent managers
+- the backend on the host via `npm run dev:server`
+- the UI in Docker via `docker compose up -d web`
+- background agent managers inside the backend
 
-The container mounts your local AI Corp data directory from `~/.aicorp` so the app keeps its state across restarts.
+The UI container proxies API calls to the host backend at `http://host.docker.internal:4000`.
 
-If you want the stack to start in the background:
-
-```bash
-docker compose --profile prod up -d --build
-```
+`make bootstrap` checks dependencies and validates the Docker compose config before first run.
 
 ## Run With Docker In Dev Mode
 
 For hot reload while editing code:
 
 ```bash
-docker compose --profile dev up --build
+make start
 ```
 
 This starts:
 - `web` on `http://localhost:3001`
 - `server` on `http://localhost:4000`
 
-Both services mount the repo source tree, so file changes are reflected immediately.
-The dependency layers are baked into the image, so the dev start does not run `npm install` on every launch.
+The UI mounts the repo source tree, so file changes are reflected immediately.
+The backend runs on the host, so it can see any workspace paths selected from the UI.
 
 ## Workspace Command Execution
 

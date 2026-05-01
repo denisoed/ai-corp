@@ -1,6 +1,9 @@
 FROM node:20-bookworm-slim AS base
 WORKDIR /app
 ENV NODE_ENV=production
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends docker.io \
+  && rm -rf /var/lib/apt/lists/*
 
 FROM base AS deps
 COPY package.json package-lock.json* ./

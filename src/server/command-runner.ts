@@ -159,7 +159,13 @@ export async function runCommandInWorkspace(input: RunCommandInput): Promise<Com
   if (!workspace?.folderPath) {
     return { success: false, status: 'error', reason: 'Workspace has no folder path configured.' };
   }
-  fs.mkdirSync(workspace.folderPath, { recursive: true });
+  if (!fs.existsSync(workspace.folderPath)) {
+    return {
+      success: false,
+      status: 'error',
+      reason: `Workspace folder "${workspace.folderPath}" is not accessible from the server container. Mount that host path into the Docker service or run the backend on the host.`
+    };
+  }
   if (input.existingRunId && !state.commandRuns.find(x => x.id === input.existingRunId)) {
     return { success: false, status: 'error', reason: 'Command run not found.' };
   }

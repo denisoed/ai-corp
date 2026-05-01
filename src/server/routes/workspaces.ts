@@ -13,8 +13,13 @@ function generateSlug(name: string): string {
 }
 
 router.post('/workspaces', (req, res) => {
+  const folderPath = req.body.folderPath ? path.resolve(req.body.folderPath) : undefined;
+  if (folderPath) {
+    fs.mkdirSync(folderPath, { recursive: true });
+  }
   const workspace = {
     ...req.body,
+    folderPath,
     id: crypto.randomUUID(),
     slug: req.body.slug || generateSlug(req.body.name),
     agentIds: [],
@@ -103,9 +108,14 @@ router.post('/workspaces/init', (req, res) => {
     return res.status(400).json({ error: 'folderPath is required' });
   }
 
-  const ymlPath = path.join(folderPath, '.aicorp.yml');
+  const resolvedFolderPath = path.resolve(folderPath);
+  if (!fs.existsSync(resolvedFolderPath)) {
+    fs.mkdirSync(resolvedFolderPath, { recursive: true });
+  }
+
+  const ymlPath = path.join(resolvedFolderPath, '.aicorp.yml');
   if (!fs.existsSync(ymlPath)) {
-    return res.status(404).json({ error: `.aicorp.yml not found in ${folderPath}` });
+    return res.status(404).json({ error: `.aicorp.yml not found in ${resolvedFolderPath}` });
   }
 
   let def: WorkspaceDefinition;
@@ -141,7 +151,7 @@ router.post('/workspaces/init', (req, res) => {
       name: def.workspace.slug,
       slug: def.workspace.slug,
       description: def.workspace.description || '',
-      folderPath,
+      folderPath: resolvedFolderPath,
       agentIds,
       color: '#6366f1',
       createdAt: new Date().toISOString(),
@@ -191,7 +201,7 @@ router.post('/workspaces/init', (req, res) => {
       timestamp: new Date().toISOString(),
       agentId: 'system',
       action: 'Workspace Initialized from .aicorp.yml',
-      details: `Initialized "${def.workspace.slug}" with ${def.agents?.length || 0} agents from ${folderPath}`,
+      details: `Initialized "${def.workspace.slug}" with ${def.agents?.length || 0} agents from ${resolvedFolderPath}`,
       type: 'success'
     });
     if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
