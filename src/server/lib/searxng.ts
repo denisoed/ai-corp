@@ -121,6 +121,10 @@ export async function launchSearXng(): Promise<SearXngLaunchResult> {
 
 export async function checkSearXngStatus(): Promise<{ running: boolean; url: string }> {
   const url = getSettings().searxngUrl || `http://localhost:${SEARXNG_PORT}`;
+  if (containerRunning()) {
+    return { running: true, url };
+  }
+
   try {
     const res = await fetch(`${url}/health`, {
       signal: AbortSignal.timeout(3000),

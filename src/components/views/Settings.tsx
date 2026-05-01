@@ -167,6 +167,7 @@ export function Settings() {
   const [launchMessage, setLaunchMessage] = useState('');
   const [launchError, setLaunchError] = useState(false);
   const [searxngRunning, setSearxngRunning] = useState(false);
+  const [searxngStatusLoading, setSearxngStatusLoading] = useState(false);
 
   const [providerDefs, setProviderDefs] = useState<Record<string, ProviderDef>>({});
   const [loadingProviderModels, setLoadingProviderModels] = useState<Record<string, boolean>>({});
@@ -190,10 +191,56 @@ export function Settings() {
   }, []);
 
   useEffect(() => {
-    if (settings.searchEngines?.includes('searxng')) {
-      fetchSearXngStatus().then(s => setSearxngRunning(s.running));
+    if (!loaded) return;
+
+    const shouldCheckSearXng = settings.searchEngines?.includes('searxng') || Boolean(settings.searxngUrl);
+    if (!shouldCheckSearXng) {
+      setSearxngRunning(false);
+      setSearxngStatusLoading(false);
+      return;
     }
-  }, [settings.searchEngines]);
+
+    let cancelled = false;
+    setSearxngStatusLoading(true);
+
+    fetchSearXngStatus()
+      .then(s => {
+        if (!cancelled) {
+          setSearxngRunning(s.running);
+        }
+      })
+      .catch(e => {
+        if (!cancelled) {
+          console.error('Failed to fetch SearXNG status:', e);
+          setSearxngRunning(false);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSearxngStatusLoading(false);
+        }
+      });
+
+    const interval = window.setInterval(() => {
+      fetchSearXngStatus()
+        .then(s => {
+          if (!cancelled) {
+            setSearxngRunning(s.running);
+          }
+        })
+        .catch(e => {
+          if (!cancelled) {
+            console.error('Failed to refresh SearXNG status:', e);
+            setSearxngRunning(false);
+          }
+        });
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [loaded, settings.searchEngines, settings.searxngUrl]);
 
   const updateField = useCallback((key: keyof AppSettings, value: string) => {
     setSettings(s => ({ ...s, [key]: value }));
@@ -354,10 +401,12 @@ export function Settings() {
       if (result.status !== 'error') {
         setSettings(s => ({ ...s, searxngUrl: result.url }));
         setSearxngRunning(true);
+        setSearxngStatusLoading(false);
       }
     } catch (e: any) {
       setLaunchMessage(e.message);
       setLaunchError(true);
+      setSearxngRunning(false);
     } finally {
       setLaunching(false);
     }
@@ -412,9 +461,27 @@ export function Settings() {
 
       <TabPanel id="search" activeTab={activeTab}>
       <section className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <Search className="h-5 w-5 text-indigo-400" />
-          <h3 className="text-sm font-semibold text-white">Search & Web</h3>
+        <div className="flex items-center justify-between gap-4 mb-4">
+          <div className="flex items-center gap-2">
+            <Search className="h-5 w-5 text-indigo-400" />
+            <h3 className="text-sm font-semibold text-white">Search & Web</h3>
+          </div>
+
+          {searxngEnabled && (
+            <div className="shrink-0 flex items-center">
+              {searxngRunning ? (
+                <span className="inline-flex items-center gap-1.5 text-xs leading-none text-emerald-400">
+                  <Circle className="h-2 w-2 fill-emerald-400 text-emerald-400" />
+                  <span>SearXNG running</span>
+                </span>
+              ) : searxngStatusLoading ? (
+                <span className="inline-flex items-center gap-1.5 text-xs leading-none text-zinc-400">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>Checking SearXNG</span>
+                </span>
+              ) : null}
+            </div>
+          )}
         </div>
         <p className="text-xs text-zinc-500 mb-5">
           Configure web search and content fetching. Agents with <code className="text-zinc-400">system:web_search</code> permission use these settings.
@@ -472,13 +539,6 @@ export function Settings() {
                     </>
                   )}
                 </Button>
-
-                {searxngRunning && !launching && (
-                  <span className="inline-flex items-center gap-1.5 ml-3 text-xs">
-                    <Circle className="h-2 w-2 fill-emerald-400 text-emerald-400" />
-                    <span className="text-emerald-400">Running</span>
-                  </span>
-                )}
 
                 {launchMessage && (
                   <p className={`text-xs ${launchError ? 'text-red-400' : 'text-emerald-400'}`}>

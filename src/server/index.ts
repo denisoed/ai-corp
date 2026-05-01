@@ -6,7 +6,8 @@ import { loadStore, getStore, ensureDefaultRoles } from './store';
 import { startTelegramManager } from './telegram';
 import { initMemorySystem } from './agent-memory';
 import { initCronManager } from './cron';
-import { loadSettings } from './lib/settings';
+import { getSettings, loadSettings } from './lib/settings';
+import { launchSearXng } from './lib/searxng';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -24,6 +25,28 @@ for (const ws of getStore().workspaces) {
 // Start background services
 startTelegramManager();
 initCronManager();
+
+void (async () => {
+  const settings = getSettings();
+  const searxngEnabled = settings.searchEngines?.includes('searxng');
+  const hasConfiguredUrl = Boolean(settings.searxngUrl);
+
+  if (!searxngEnabled && !hasConfiguredUrl) {
+    return;
+  }
+
+  try {
+    console.log('[Server] Auto-starting SearXNG...');
+    const result = await launchSearXng();
+    if (result.status === 'error') {
+      console.warn(`[Server] SearXNG auto-start failed: ${result.message}`);
+    } else {
+      console.log(`[Server] SearXNG auto-start result: ${result.message}`);
+    }
+  } catch (e: any) {
+    console.warn('[Server] SearXNG auto-start error:', e?.message || e);
+  }
+})();
 
 // Middleware
 app.use((req, res, next) => {
