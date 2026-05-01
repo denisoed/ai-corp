@@ -148,6 +148,12 @@ export type DomainEventType =
   | 'task.comment.added'
   | 'task.assignee.changed';
 
+export interface EventDefinition {
+  type: DomainEventType;
+  label: string;
+  description: string;
+}
+
 export interface DomainEvent {
   id: string;
   type: DomainEventType;
@@ -174,6 +180,11 @@ export interface EventSubscription {
     toStatus?: TaskStatus;
     assigneeId?: string;
   };
+}
+
+export interface EventStateSummary {
+  definitions: EventDefinition[];
+  subscriptions: EventSubscription[];
 }
 
 export interface MemoryMessage {

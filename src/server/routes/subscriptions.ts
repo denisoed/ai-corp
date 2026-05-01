@@ -41,4 +41,22 @@ router.delete('/subscriptions/:id', (req, res) => {
   res.json({ success: true });
 });
 
+router.patch('/subscriptions/:id', (req, res) => {
+  let updated: EventSubscription | undefined;
+  mutateStore(s => {
+    const sub = s.subscriptions.find(item => item.id === req.params.id);
+    if (!sub) return;
+    Object.assign(sub, req.body, {
+      updatedAt: new Date().toISOString(),
+      filters: {
+        ...sub.filters,
+        ...(req.body.filters || {}),
+      },
+    });
+    updated = sub;
+  });
+  if (!updated) return res.status(404).json({ error: 'Subscription not found' });
+  res.json(updated);
+});
+
 export default router;

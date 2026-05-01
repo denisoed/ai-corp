@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FolderKanban, KanbanSquare, Activity, Clock, Shield, Settings, Menu } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, KanbanSquare, Activity, Clock, Shield, Settings, Menu, HelpCircle, Bell } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/Button';
+import { useStore } from '../../store';
 
 interface SidebarItemProps {
   key?: React.Key;
@@ -38,7 +39,9 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const location = useLocation();
+  const eventDefinitions = useStore(s => s.eventDefinitions);
 
   useEffect(() => {
     setMobileOpen(false);
@@ -52,6 +55,7 @@ export function Layout({ children }: LayoutProps) {
     { id: 'board', label: 'Task Board', icon: KanbanSquare },
     { id: 'crons', label: 'Cron Jobs', icon: Clock },
     { id: 'roles', label: 'Roles', icon: Shield },
+    { id: 'events', label: 'Events', icon: Bell },
     { id: 'logs', label: 'Activity Logs', icon: Activity },
   ];
 
@@ -106,6 +110,10 @@ export function Layout({ children }: LayoutProps) {
               <span className="text-zinc-500">Tokens/min:</span>
               <span className="text-indigo-400 font-mono">14.2k</span>
             </div>
+            <Button variant="outline" size="sm" onClick={() => setShowHelp(true)} title="Event Reference">
+              <HelpCircle className="mr-1.5 h-4 w-4" />
+              Help
+            </Button>
           </div>
         </header>
 
@@ -120,6 +128,35 @@ export function Layout({ children }: LayoutProps) {
           className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden"
           onClick={() => setMobileOpen(false)}
         />
+      )}
+
+      {showHelp && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="absolute inset-0" onClick={() => setShowHelp(false)} />
+          <div className="relative w-full max-w-xl bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl max-h-[85vh] overflow-y-auto">
+            <div className="p-6 border-b border-zinc-800 sticky top-0 bg-zinc-950 z-10">
+              <h3 className="text-lg font-semibold text-zinc-100 flex items-center gap-2">
+                <HelpCircle size={18} className="text-indigo-400" />
+                Events Reference
+              </h3>
+              <p className="text-sm text-zinc-500 mt-1">Events drive subscriptions and notifications for agents.</p>
+            </div>
+            <div className="p-6 space-y-3">
+              {(eventDefinitions.length > 0 ? eventDefinitions : []).map(def => (
+                <div key={def.type} className="p-4 rounded-xl border border-zinc-800 bg-zinc-900">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-zinc-100">{def.label}</span>
+                    <code className="text-[10px] text-zinc-500 font-mono bg-zinc-950 px-1.5 py-0.5 rounded">{def.type}</code>
+                  </div>
+                  <p className="text-xs text-zinc-400 leading-relaxed mt-2">{def.description}</p>
+                </div>
+              ))}
+            </div>
+            <div className="p-6 border-t border-zinc-800 flex justify-end bg-zinc-950 sticky bottom-0">
+              <Button onClick={() => setShowHelp(false)}>Got it</Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

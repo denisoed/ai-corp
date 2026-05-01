@@ -12,6 +12,7 @@ import { TaskBoard } from './components/views/TaskBoard';
 import { ActivityLogs } from './components/views/ActivityLogs';
 import { CronJobs } from './components/views/CronJobs';
 import { RolesManagement } from './components/views/RolesManagement';
+import { EventsManagement } from './components/views/EventsManagement';
 import { Settings } from './components/views/Settings';
 import { useStore } from './store';
 import { useTelegramManager } from './lib/telegramAdapter';
@@ -42,6 +43,7 @@ export default function App() {
         <Route path="/logs" element={<ActivityLogs />} />
         <Route path="/crons" element={<CronJobs />} />
         <Route path="/roles" element={<RolesManagement />} />
+        <Route path="/events" element={<EventsManagement />} />
         <Route path="/settings" element={<Settings />} />
       </Routes>
     </Layout>

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Agent, Task, Log, Comment, TaskStatus, CompanyTemplate, ApprovalRequest, Workspace, CronJob, AgentMessage, Role, PermissionEntry, PermissionType } from './types';
+import { Agent, Task, Log, Comment, TaskStatus, CompanyTemplate, ApprovalRequest, Workspace, CronJob, AgentMessage, Role, PermissionEntry, PermissionType, EventSubscription, DomainEventType, EventDefinition } from './types';
 
 const API_BASE = '/api';
 
@@ -44,6 +44,8 @@ interface AppState {
   crons: CronJob[];
   messages: AgentMessage[];
   roles: Role[];
+  subscriptions: EventSubscription[];
+  eventDefinitions: EventDefinition[];
   totalCost: number;
   loading: boolean;
 
@@ -84,6 +86,9 @@ interface AppState {
   grantPermissionToAgent: (agentId: string, type: PermissionType, scope?: string[]) => Promise<void>;
   revokePermissionFromAgent: (agentId: string, type: PermissionType) => Promise<void>;
   sendMessageToAgent: (agentId: string, content: string) => Promise<void>;
+  createSubscription: (subscription: Omit<EventSubscription, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+  updateSubscription: (id: string, updates: Partial<Pick<EventSubscription, 'enabled' | 'channel' | 'instructions'>> & { filters?: Partial<EventSubscription['filters']> }) => Promise<void>;
+  deleteSubscription: (id: string) => Promise<void>;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -95,6 +100,8 @@ export const useStore = create<AppState>((set, get) => ({
   crons: [],
   messages: [],
   roles: [],
+  subscriptions: [],
+  eventDefinitions: [],
   totalCost: 0,
   loading: true,
 
@@ -302,6 +309,25 @@ export const useStore = create<AppState>((set, get) => ({
   sendMessageToAgent: async (agentId, content) => {
     const result = await apiPost('/messages/send', { agentId, content });
     set({ messages: [...get().messages, result.message] });
+  },
+
+  createSubscription: async (subscription) => {
+    await apiPost('/subscriptions', subscription);
+    const refreshed = await apiGet('/state');
+    set({ subscriptions: refreshed.subscriptions || [] });
+  },
+
+  updateSubscription: async (id, updates) => {
+    const current = get().subscriptions.find(s => s.id === id);
+    if (!current) return;
+    await apiPatch(`/subscriptions/${id}`, updates);
+    const refreshed = await apiGet('/state');
+    set({ subscriptions: refreshed.subscriptions || [] });
+  },
+
+  deleteSubscription: async (id) => {
+    await apiDelete(`/subscriptions/${id}`);
+    set({ subscriptions: get().subscriptions.filter(s => s.id !== id) });
   }
 }));
 

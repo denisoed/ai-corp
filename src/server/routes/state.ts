@@ -1,10 +1,14 @@
 import { Router } from 'express';
 import { getStore, mutateStore } from '../store';
+import { EVENT_DEFINITIONS } from '../event-registry';
 
 const router = Router();
 
 router.get('/state', (req, res) => {
-  res.json(getStore());
+  res.json({
+    ...getStore(),
+    eventDefinitions: EVENT_DEFINITIONS,
+  });
 });
 
 router.post('/logs', (req, res) => {
