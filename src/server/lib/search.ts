@@ -248,34 +248,77 @@ class FallbackBackend implements SearchBackend {
   }
 }
 
+class ChainedFallbackBackend implements SearchBackend {
+  private primary: SearchBackend;
+  private secondary: SearchBackend;
+  private tertiary: SearchBackend;
+  private primaryName: string;
+  private secondaryName: string;
+
+  constructor(
+    primary: SearchBackend,
+    secondary: SearchBackend,
+    tertiary: SearchBackend,
+    primaryName: string,
+    secondaryName: string,
+  ) {
+    this.primary = primary;
+    this.secondary = secondary;
+    this.tertiary = tertiary;
+    this.primaryName = primaryName;
+    this.secondaryName = secondaryName;
+  }
+
+  async search(query: string, limit: number): Promise<SearchResult[]> {
+    try {
+      const results = await this.primary.search(query, limit);
+      if (results.length > 0) return results;
+      throw new Error('No results');
+    } catch (primaryError: any) {
+      console.warn(`[Search] ${this.primaryName} failed (${primaryError.message || 'no results'}), falling back to ${this.secondaryName}`);
+      try {
+        const secondaryResults = await this.secondary.search(query, limit);
+        if (secondaryResults.length > 0) return secondaryResults;
+        throw new Error('No results');
+      } catch (secondaryError: any) {
+        console.warn(`[Search] ${this.secondaryName} failed (${secondaryError.message || 'no results'}), falling back to DuckDuckGo`);
+        try {
+          const tertiaryResults = await this.tertiary.search(query, limit);
+          if (tertiaryResults.length > 0) return tertiaryResults;
+          throw new Error('DuckDuckGo returned no results');
+        } catch (tertiaryError: any) {
+          throw new Error(
+            `${this.primaryName} failed (${primaryError.message || 'no results'}); ` +
+            `${this.secondaryName} failed (${secondaryError.message || 'no results'}); ` +
+            `DuckDuckGo fallback failed (${tertiaryError.message || 'no results'})`
+          );
+        }
+      }
+    }
+  }
+}
+
 function getSearchBackend(): SearchBackend {
   const appSettings = getSettings();
-  const engines = appSettings.searchEngines || [];
   const braveKey = appSettings.braveApiKey || process.env.BRAVE_SEARCH_API_KEY;
   const searxngUrl = appSettings.searxngUrl || process.env.SEARXNG_URL;
   const ddgBackend = new DuckDuckGoBackend();
+  const braveBackend = braveKey ? new BraveBackend(braveKey) : null;
+  const searxngBackend = searxngUrl ? new SearXngBackend(searxngUrl) : null;
 
-  if (engines.length === 0) {
-    if (braveKey) {
-      console.log('[Search] Using Brave Search backend (auto-detected)');
-      return new FallbackBackend(new BraveBackend(braveKey), ddgBackend, 'Brave');
-    }
-    if (searxngUrl) {
-      console.log(`[Search] Using SearXNG backend (auto-detected from SEARXNG_URL): ${searxngUrl}`);
-      return new FallbackBackend(new SearXngBackend(searxngUrl), ddgBackend, 'SearXNG');
-    }
-    console.log('[Search] Using DuckDuckGo backend (fallback)');
-    return ddgBackend;
+  if (braveBackend && searxngBackend) {
+    console.log(`[Search] Using Brave Search backend, then SearXNG, then DuckDuckGo`);
+    return new ChainedFallbackBackend(braveBackend, searxngBackend, ddgBackend, 'Brave', 'SearXNG');
   }
 
-  if (engines.includes('brave') && braveKey) {
-    console.log('[Search] Using Brave Search backend');
-    return new FallbackBackend(new BraveBackend(braveKey), ddgBackend, 'Brave');
+  if (braveBackend) {
+    console.log('[Search] Using Brave Search backend, then DuckDuckGo');
+    return new FallbackBackend(braveBackend, ddgBackend, 'Brave');
   }
 
-  if (engines.includes('searxng') && searxngUrl) {
-    console.log(`[Search] Using SearXNG backend: ${searxngUrl}`);
-    return new FallbackBackend(new SearXngBackend(searxngUrl), ddgBackend, 'SearXNG');
+  if (searxngBackend) {
+    console.log(`[Search] Using SearXNG backend, then DuckDuckGo: ${searxngUrl}`);
+    return new FallbackBackend(searxngBackend, ddgBackend, 'SearXNG');
   }
 
   console.log('[Search] Using DuckDuckGo backend');

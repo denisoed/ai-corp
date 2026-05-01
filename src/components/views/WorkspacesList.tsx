@@ -113,7 +113,7 @@ function computeTree(wsAgents: any[], rootId: string) {
 }
 
 export function WorkspacesList() {
-  const { agents, workspaces, crons, roles, addAgent, removeAgent, updateAgent, addWorkspace, updateWorkspace, removeWorkspace, assignAgentToWorkspace, applyTemplate, initWorkspaceFromYml, addLog, runCron, removeCron, updateCron, fetchCrons, assignRole, revokeRole, grantPermissionToAgent, revokePermissionFromAgent } = useStore();
+  const { agents, workspaces, crons, roles, addAgent, removeAgent, updateAgent, addWorkspace, updateWorkspace, removeWorkspace, assignAgentToWorkspace, applyTemplate, initWorkspaceFromYml, addLog, runCron, removeCron, updateCron, fetchCrons, assignRole, revokeRole, grantPermissionToAgent, revokePermissionFromAgent, sendMessageToAgent } = useStore();
   const [showAddAgent, setShowAddAgent] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
@@ -1907,7 +1907,14 @@ export function WorkspacesList() {
       )}
     </div>
       <ChatFAB onClick={() => setShowChatPanel(p => !p)} waitingCount={waitingCount} />
-      <ChatPanel visible={showChatPanel} onClose={() => setShowChatPanel(false)} threads={chatThreads} />
+      <ChatPanel
+        visible={showChatPanel}
+        onClose={() => setShowChatPanel(false)}
+        threads={chatThreads}
+        agents={agents}
+        workspaces={workspaces}
+        onSendMessage={sendMessageToAgent}
+      />
     </>
   );
 }

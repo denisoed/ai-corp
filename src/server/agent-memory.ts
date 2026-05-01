@@ -6,12 +6,23 @@ import { getStore } from './store';
 import { getSettings } from './lib/settings';
 import { getProviderClient, getProviderDef } from './llm';
 
-const AICORP_DIR = path.join(os.homedir(), '.aicorp');
+const AICORP_HOME = process.env.AICORP_HOME || os.homedir();
+const AICORP_DIR = path.join(AICORP_HOME, '.aicorp');
 const WORKSPACES_DIR = path.join(AICORP_DIR, 'workspaces');
 
 const MAX_RECENT_MESSAGES = 30;
 const SUMMARIZE_THRESHOLD = 30;
 const KEEP_AFTER_SUMMARIZE = 5;
+const MEMORY_SUMMARY_MAX_CHARS = 900;
+const MEMORY_FACTS_MAX = 12;
+const MEMORY_TASKS_MAX = 6;
+const MEMORY_CONTEXT_MESSAGES_MAX = 5;
+const MEMORY_SESSION_WINDOW_MAX = 30;
+const MEMORY_RETRIEVAL_MAX_SNIPPETS = 4;
+const MEMORY_RETRIEVAL_MAX_CHARS = 700;
+const MEMORY_RETRIEVAL_SCAN_FILES = 7;
+const MEMORY_RETRIEVAL_INDEX_MAX_TERMS = 80;
+const MEMORY_RETRIEVAL_INDEX_MAX_FILES = 14;
 
 export function ensureDir(dir: string) {
   fs.mkdirSync(dir, { recursive: true });
@@ -40,6 +51,10 @@ function memoryMdPath(agentId: string): string {
   return path.join(getAgentDir(agentId), 'memory.md');
 }
 
+function memoryIndexPath(agentId: string): string {
+  return path.join(getAgentDir(agentId), 'memory.index.json');
+}
+
 function sessionFile(agentId: string): string {
   const date = new Date().toISOString().slice(0, 10);
   return path.join(getAgentDir(agentId), 'sessions', `${date}.jsonl`);
@@ -64,12 +79,24 @@ export function createMemory(agent: Agent, workspace?: Workspace): AgentMemory {
     workspaceName: workspace?.name,
     workspaceFolder: workspace?.folderPath,
     summary: `Agent "${agent.name}"${roleStr} created.${workspace ? ` Workspace: ${workspace.name}.` : ''}`,
+    workingState: {
+      currentGoal: workspace ? `Operate within ${workspace.name}` : 'Initialize agent work',
+      openQuestions: [],
+      constraints: [],
+      importantDecisions: [],
+      activeWork: [],
+    },
     keyFacts: facts,
     activeTasks: [],
     recentMessages: [],
+    archivedMessages: 0,
     totalMessages: 0,
     totalSessions: 0,
     createdAt: now,
+    retrievalIndex: {
+      updatedAt: now,
+      terms: {},
+    },
   };
 
   const dir = getAgentDir(agent.id);
@@ -86,7 +113,14 @@ export function loadMemory(agentId: string): AgentMemory | null {
   try {
     if (fs.existsSync(file)) {
       const raw = fs.readFileSync(file, 'utf8');
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw) as AgentMemory;
+      const index = loadRetrievalIndex(agentId, parsed.retrievalIndex);
+      migrateLegacyRetrievalIndex(agentId, parsed.retrievalIndex);
+      return {
+        ...parsed,
+        retrievalIndex: index,
+        workingState: normalizeWorkingState(parsed.workingState || inferWorkingState(parsed.summary)),
+      };
     }
   } catch (e) {
     console.error(`[Memory] Failed to load memory for agent ${agentId}:`, e);
@@ -100,8 +134,13 @@ export function saveMemory(memory: AgentMemory): void {
   ensureDir(path.join(dir, 'sessions'));
 
   try {
-    fs.writeFileSync(memoryJsonPath(memory.agentId), JSON.stringify(memory, null, 2));
-    writeMemoryMd(memory);
+    const normalized = normalizeMemory(memory);
+    const { retrievalIndex, ...jsonMemory } = normalized;
+    fs.writeFileSync(memoryJsonPath(memory.agentId), JSON.stringify(jsonMemory, null, 2));
+    if (retrievalIndex) {
+      fs.writeFileSync(memoryIndexPath(memory.agentId), JSON.stringify(retrievalIndex, null, 2));
+    }
+    writeMemoryMd(normalized);
   } catch (e) {
     console.error(`[Memory] Failed to save memory for agent ${memory.agentId}:`, e);
   }
@@ -115,13 +154,13 @@ function writeMemoryMd(memory: AgentMemory): void {
     lines.push(`Workspace: ${memory.workspaceName}${memory.workspaceFolder ? ` (${memory.workspaceFolder})` : ''}`);
   }
   lines.push('');
-  lines.push('## Summary');
-  lines.push(memory.summary || '(empty)');
+  lines.push('## Working State');
+  lines.push(formatWorkingState(memory));
   lines.push('');
 
   if (memory.keyFacts.length > 0) {
     lines.push('## Key Facts');
-    for (const fact of memory.keyFacts) {
+    for (const fact of memory.keyFacts.slice(-MEMORY_FACTS_MAX)) {
       lines.push(`- ${fact}`);
     }
     lines.push('');
@@ -129,7 +168,7 @@ function writeMemoryMd(memory: AgentMemory): void {
 
   if (memory.activeTasks.length > 0) {
     lines.push('## Active Tasks');
-    for (const task of memory.activeTasks) {
+    for (const task of memory.activeTasks.slice(0, MEMORY_TASKS_MAX)) {
       lines.push(`- ${task.title} — ${task.status}`);
     }
     lines.push('');
@@ -137,13 +176,20 @@ function writeMemoryMd(memory: AgentMemory): void {
 
   if (memory.recentMessages.length > 0) {
     lines.push('## Recent Context');
-    for (const msg of memory.recentMessages) {
+    for (const msg of memory.recentMessages.slice(-MEMORY_CONTEXT_MESSAGES_MAX)) {
       const short = msg.timestamp.slice(11, 16);
       const source = msg.source ? ` [${msg.source}]` : '';
       lines.push(`[${short} ${msg.role}${source}] ${msg.content}`);
     }
     lines.push('');
   }
+
+  lines.push('## Memory Budget');
+  lines.push(`- Total messages: ${memory.totalMessages}`);
+  lines.push(`- Archived messages: ${memory.archivedMessages ?? 0}`);
+  lines.push(`- Recent window: ${memory.recentMessages.length} / ${MEMORY_SESSION_WINDOW_MAX}`);
+  lines.push(`- Facts kept: ${memory.keyFacts.length} / ${MEMORY_FACTS_MAX}`);
+  lines.push(`- Active tasks kept: ${memory.activeTasks.length} / ${MEMORY_TASKS_MAX}`);
 
   try {
     fs.writeFileSync(memoryMdPath(memory.agentId), lines.join('\n'));
@@ -179,6 +225,7 @@ export async function appendMessage(
 
   memory.recentMessages.push(fullMessage);
   memory.totalMessages++;
+  memory.retrievalIndex = updateRetrievalIndex(memory.retrievalIndex, fullMessage.content, fullMessage.source);
 
   // Append to session log
   try {
@@ -191,6 +238,7 @@ export async function appendMessage(
   // Trim buffer if it exceeds max
   while (memory.recentMessages.length > MAX_RECENT_MESSAGES) {
     memory.recentMessages.shift();
+    memory.archivedMessages = (memory.archivedMessages || 0) + 1;
   }
 
   saveMemory(memory);
@@ -236,6 +284,13 @@ export async function summarizeAgentMemory(memory: AgentMemory): Promise<AgentMe
     .join('\n');
 
   const currentSummary = memory.summary || '(empty)';
+  const currentWorkingState = memory.workingState || {
+    currentGoal: currentSummary,
+    openQuestions: [],
+    constraints: [],
+    importantDecisions: [],
+    activeWork: [],
+  };
   const currentFacts = memory.keyFacts.length > 0
     ? memory.keyFacts.join('\n- ')
     : '(empty)';
@@ -251,8 +306,8 @@ Summarize the conversation messages below. Extract ONLY:
 
 Keep your output concise. Discard small talk, repetition, and intermediate reasoning.`;
 
-  const userPrompt = `CURRENT SUMMARY:
-${currentSummary}
+  const userPrompt = `CURRENT WORKING STATE:
+${formatWorkingStateForPrompt(currentWorkingState)}
 
 CURRENT KEY FACTS:
 - ${currentFacts}
@@ -262,12 +317,22 @@ ${messagesText}
 
 Respond ONLY with a JSON object (no markdown, no code block):
 {
-  "newSummary": "A concise updated summary merging old summary with new information. Include what the agent is currently doing, recent decisions, and important context. Maximum 500 words.",
+  "workingState": {
+    "currentGoal": "A single concise sentence describing the main objective right now.",
+    "openQuestions": ["question 1"],
+    "constraints": ["constraint 1"],
+    "importantDecisions": ["decision 1"],
+    "activeWork": ["work item 1"]
+  },
   "newFacts": ["fact string 1", "fact string 2"],
   "activeTasks": [{"title": "task name", "status": "In Progress"}]
 }`;
 
-  let result: { newSummary: string; newFacts: string[]; activeTasks: { title: string; status: string }[] };
+  let result: {
+    workingState?: AgentMemory['workingState'];
+    newFacts: string[];
+    activeTasks: { title: string; status: string }[];
+  };
 
   try {
     const settings = getSettings();
@@ -296,27 +361,30 @@ Respond ONLY with a JSON object (no markdown, no code block):
     }
     result = JSON.parse(jsonStr);
 
-    if (!result.newSummary || !Array.isArray(result.newFacts)) {
+    if (!Array.isArray(result.newFacts)) {
       throw new Error('Invalid summarization response structure');
     }
   } catch (e) {
     console.error('[Memory Summarizer] LLM summarization failed, using fallback:', e);
     result = {
-      newSummary: currentSummary,
+      workingState: currentWorkingState,
       newFacts: memory.keyFacts,
       activeTasks: memory.activeTasks
     };
   }
 
   const factSet = new Set([...memory.keyFacts, ...result.newFacts]);
-  const mergedFacts = Array.from(factSet).slice(-20);
+  const mergedFacts = Array.from(factSet).slice(-MEMORY_FACTS_MAX);
+  const mergedWorkingState = normalizeWorkingState(result.workingState || currentWorkingState);
 
   return {
     ...memory,
-    summary: result.newSummary.slice(0, 2000),
+    summary: truncateText(renderWorkingStateSummary(mergedWorkingState), MEMORY_SUMMARY_MAX_CHARS),
+    workingState: mergedWorkingState,
     keyFacts: mergedFacts,
-    activeTasks: result.activeTasks || memory.activeTasks,
+    activeTasks: normalizeActiveTasks(result.activeTasks || memory.activeTasks),
     recentMessages: messagesToKeep,
+    archivedMessages: (memory.archivedMessages || 0) + messagesToSummarize.length,
     lastSummarizedAt: now,
   };
 }
@@ -426,6 +494,7 @@ export function buildSystemPrompt(agent: Agent): string {
   const identity = readPersonalityFile(agent.id, 'IDENTITY.md');
   const soul = readPersonalityFile(agent.id, 'SOUL.md');
   const memory = getMemoryContext(agent.id);
+  const retrieval = buildRetrievedMemoryContext(agent.id, memory);
   const store = getStore();
 
   const parts: string[] = [];
@@ -442,6 +511,9 @@ export function buildSystemPrompt(agent: Agent): string {
   if (memory) {
     parts.push(`# CONTEXT — What you remember from past interactions\n\n${memory}`);
   }
+  if (retrieval) {
+    parts.push(`# RETRIEVED CONTEXT — Relevant older fragments\n\n${retrieval}`);
+  }
 
   const pendingMessages = store.messages.filter(m =>
     m.toAgentId === agent.id && m.status !== 'replied'
@@ -456,6 +528,308 @@ export function buildSystemPrompt(agent: Agent): string {
   }
 
   return parts.join('\n\n---\n\n');
+}
+
+export function buildRetrievedMemoryContext(agentId: string, focusText: string): string {
+  const queryTerms = extractQueryTerms(focusText);
+  if (queryTerms.length === 0) return '';
+
+  const memoryTerms = extractQueryTerms(focusText);
+  const snippets = retrieveMemorySnippets(agentId, queryTerms, memoryTerms);
+  return formatRetrievedSnippets(snippets);
+}
+
+export function buildRetrievedMemoryContextFromFiles(sessionFiles: string[], focusText: string): string {
+  const queryTerms = extractQueryTerms(focusText);
+  if (queryTerms.length === 0) return '';
+
+  const snippets = retrieveMemorySnippetsFromFiles(sessionFiles, queryTerms);
+  return formatRetrievedSnippets(snippets);
+}
+
+function formatRetrievedSnippets(snippets: string[]): string {
+  if (snippets.length === 0) return '';
+
+  return snippets
+    .map((snippet, index) => `${index + 1}. ${snippet}`)
+    .join('\n');
+}
+
+export function retrieveMemorySnippets(agentId: string, queryTerms: string[], boostTerms: string[] = []): string[] {
+  const sessionFiles = listSessionFiles(agentId).slice(-MEMORY_RETRIEVAL_SCAN_FILES);
+  return retrieveMemorySnippetsFromFiles(sessionFiles, queryTerms, agentId, boostTerms);
+}
+
+export function retrieveMemorySnippetsFromFiles(sessionFiles: string[], queryTerms: string[], agentId = 'unknown', boostTerms: string[] = []): string[] {
+  const matches: { snippet: string; score: number; order: number }[] = [];
+  let order = 0;
+
+  for (let i = sessionFiles.length - 1; i >= 0; i--) {
+    const file = sessionFiles[i];
+    try {
+      const raw = fs.readFileSync(file, 'utf8').trim();
+      if (!raw) continue;
+      const lines = raw.split('\n').filter(Boolean);
+      for (let j = lines.length - 1; j >= 0; j--) {
+        const line = lines[j];
+        const score = scoreMemoryLine(line, queryTerms, boostTerms);
+        if (score <= 0) continue;
+        const snippet = truncateText(cleanSessionLine(line), MEMORY_RETRIEVAL_MAX_CHARS);
+        if (snippet && !matches.some(m => m.snippet === snippet)) {
+          matches.push({ snippet, score, order: order++ });
+        }
+      }
+    } catch (e) {
+      console.error(`[Memory] Failed to scan session file for agent ${agentId}:`, e);
+    }
+  }
+
+  return matches
+    .sort((a, b) => b.score - a.score || a.order - b.order)
+    .slice(0, MEMORY_RETRIEVAL_MAX_SNIPPETS)
+    .map(match => match.snippet);
+}
+
+function listSessionFiles(agentId: string): string[] {
+  const dir = path.join(getAgentDir(agentId), 'sessions');
+  try {
+    if (!fs.existsSync(dir)) return [];
+    return fs
+      .readdirSync(dir)
+      .filter(file => file.endsWith('.jsonl'))
+      .map(file => path.join(dir, file))
+      .sort((a, b) => a.localeCompare(b));
+  } catch (e) {
+    console.error(`[Memory] Failed to list session files for agent ${agentId}:`, e);
+    return [];
+  }
+}
+
+function extractQueryTerms(text: string): string[] {
+  const words = text
+    .toLowerCase()
+    .match(/[a-z0-9_/-]{4,}/g) || [];
+  return Array.from(new Set(words)).slice(0, 12);
+}
+
+function scoreMemoryLine(line: string, queryTerms: string[], boostTerms: string[]): number {
+  const lower = line.toLowerCase();
+  let score = 0;
+  for (const term of queryTerms) {
+    if (lower.includes(term)) score += 2;
+  }
+  for (const term of boostTerms) {
+    if (lower.includes(term)) score += 1;
+  }
+  if (/error|fail|timeout|blocked|urgent|decision|issue|bug|fix|deploy|approve/i.test(line)) {
+    score += 1;
+  }
+  return score;
+}
+
+function cleanSessionLine(line: string): string {
+  try {
+    const parsed = JSON.parse(line) as MemoryMessage;
+    const source = parsed.source ? ` [${parsed.source}]` : '';
+    return `[${parsed.timestamp.slice(11, 16)} ${parsed.role}${source}] ${parsed.content}`;
+  } catch {
+    return line.replace(/\s+/g, ' ').trim();
+  }
+}
+
+function normalizeMemory(memory: AgentMemory): AgentMemory {
+  const facts = dedupeStrings(memory.keyFacts).slice(-MEMORY_FACTS_MAX);
+  const recentMessages = memory.recentMessages.slice(-MEMORY_CONTEXT_MESSAGES_MAX * 2);
+  const workingState = normalizeWorkingState(memory.workingState || inferWorkingState(memory.summary));
+
+  return {
+    ...memory,
+    summary: truncateText(renderWorkingStateSummary(workingState), MEMORY_SUMMARY_MAX_CHARS),
+    workingState,
+    keyFacts: facts,
+    activeTasks: normalizeActiveTasks(memory.activeTasks),
+    recentMessages,
+    archivedMessages: memory.archivedMessages || 0,
+    retrievalIndex: pruneRetrievalIndex(memory.retrievalIndex, recentMessages),
+  };
+}
+
+function normalizeActiveTasks(tasks: { title: string; status: string }[]): { title: string; status: string }[] {
+  const seen = new Set<string>();
+  const normalized: { title: string; status: string }[] = [];
+  for (const task of tasks) {
+    const title = task.title.trim();
+    if (!title) continue;
+    const key = `${title.toLowerCase()}::${task.status.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push({ title, status: task.status.trim() || 'Unknown' });
+    if (normalized.length >= MEMORY_TASKS_MAX) break;
+  }
+  return normalized;
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(trimmed);
+  }
+  return result;
+}
+
+function truncateText(value: string, maxChars: number): string {
+  const compact = value.trim();
+  if (compact.length <= maxChars) return compact;
+  return `${compact.slice(0, maxChars - 1).trimEnd()}…`;
+}
+
+function formatWorkingState(memory: AgentMemory): string {
+  return formatWorkingStateForPrompt(normalizeWorkingState(memory.workingState || inferWorkingState(memory.summary)));
+}
+
+function formatWorkingStateForPrompt(state: NonNullable<AgentMemory['workingState']>): string {
+  const lines: string[] = [];
+  lines.push(`Current goal: ${state.currentGoal || '(none)'}`);
+  lines.push(`Open questions: ${state.openQuestions.length > 0 ? state.openQuestions.join(' | ') : '(none)'}`);
+  lines.push(`Constraints: ${state.constraints.length > 0 ? state.constraints.join(' | ') : '(none)'}`);
+  lines.push(`Important decisions: ${state.importantDecisions.length > 0 ? state.importantDecisions.join(' | ') : '(none)'}`);
+  lines.push(`Active work: ${state.activeWork.length > 0 ? state.activeWork.join(' | ') : '(none)'}`);
+  return lines.join('\n');
+}
+
+function renderWorkingStateSummary(state: NonNullable<AgentMemory['workingState']>): string {
+  return `${state.currentGoal}${state.importantDecisions.length > 0 ? ` Decisions: ${state.importantDecisions.join('; ')}` : ''}${state.activeWork.length > 0 ? ` Work: ${state.activeWork.join('; ')}` : ''}`;
+}
+
+function inferWorkingState(summary: string): NonNullable<AgentMemory['workingState']> {
+  return {
+    currentGoal: summary || '(none)',
+    openQuestions: [],
+    constraints: [],
+    importantDecisions: [],
+    activeWork: [],
+  };
+}
+
+function normalizeWorkingState(state?: AgentMemory['workingState']): NonNullable<AgentMemory['workingState']> {
+  const currentGoal = truncateText(state?.currentGoal || '(none)', 220);
+  return {
+    currentGoal,
+    openQuestions: dedupeAndTrim(state?.openQuestions || []).slice(0, 4),
+    constraints: dedupeAndTrim(state?.constraints || []).slice(0, 4),
+    importantDecisions: dedupeAndTrim(state?.importantDecisions || []).slice(0, 4),
+    activeWork: dedupeAndTrim(state?.activeWork || []).slice(0, 4),
+  };
+}
+
+function dedupeAndTrim(values: string[]): string[] {
+  return dedupeStrings(values).map(v => truncateText(v, 180));
+}
+
+function updateRetrievalIndex(
+  index: AgentMemory['retrievalIndex'] | undefined,
+  content: string,
+  source?: MemoryMessage['source']
+): NonNullable<AgentMemory['retrievalIndex']> {
+  const nextTerms = { ...(index?.terms || {}) };
+  const tokens = extractQueryTerms(content);
+  for (const token of tokens) {
+    nextTerms[token] = (nextTerms[token] || 0) + 1 + (source === 'system' ? 1 : 0);
+  }
+
+  const sortedTerms = Object.entries(nextTerms)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, MEMORY_RETRIEVAL_INDEX_MAX_TERMS);
+
+  return {
+    updatedAt: new Date().toISOString(),
+    terms: Object.fromEntries(sortedTerms),
+  };
+}
+
+function pruneRetrievalIndex(
+  index: AgentMemory['retrievalIndex'] | undefined,
+  recentMessages: MemoryMessage[]
+): NonNullable<AgentMemory['retrievalIndex']> {
+  const baseTerms = { ...(index?.terms || {}) };
+  const recentTerms = recentMessages.flatMap(msg => extractQueryTerms(msg.content));
+  for (const term of recentTerms) {
+    baseTerms[term] = (baseTerms[term] || 0) + 1;
+  }
+  const sortedTerms = Object.entries(baseTerms)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, MEMORY_RETRIEVAL_INDEX_MAX_TERMS);
+
+  return {
+    updatedAt: index?.updatedAt || new Date().toISOString(),
+    terms: Object.fromEntries(sortedTerms),
+  };
+}
+
+function loadRetrievalIndex(
+  agentId: string,
+  fallback?: AgentMemory['retrievalIndex']
+): NonNullable<AgentMemory['retrievalIndex']> {
+  const file = memoryIndexPath(agentId);
+  try {
+    if (fs.existsSync(file)) {
+      const raw = fs.readFileSync(file, 'utf8');
+      const parsed = JSON.parse(raw) as AgentMemory['retrievalIndex'];
+      if (parsed?.terms) {
+        return capRetrievalIndex(parsed);
+      }
+    }
+  } catch (e) {
+    console.error(`[Memory] Failed to load retrieval index for agent ${agentId}:`, e);
+  }
+
+  const migrated = capRetrievalIndex(fallback);
+  try {
+    if (migrated.terms && Object.keys(migrated.terms).length > 0) {
+      ensureDir(path.dirname(file));
+      fs.writeFileSync(file, JSON.stringify(migrated, null, 2));
+    }
+  } catch (e) {
+    console.error(`[Memory] Failed to migrate retrieval index for agent ${agentId}:`, e);
+  }
+  return migrated;
+}
+
+export function migrateLegacyRetrievalIndex(
+  agentId: string,
+  fallback?: AgentMemory['retrievalIndex']
+): boolean {
+  const file = memoryIndexPath(agentId);
+  const migrated = capRetrievalIndex(fallback);
+  try {
+    if (migrated.terms && Object.keys(migrated.terms).length > 0) {
+      ensureDir(path.dirname(file));
+      fs.writeFileSync(file, JSON.stringify(migrated, null, 2));
+      return true;
+    }
+  } catch (e) {
+    console.error(`[Memory] Failed to migrate retrieval index for agent ${agentId}:`, e);
+  }
+  return false;
+}
+
+function capRetrievalIndex(
+  index: AgentMemory['retrievalIndex'] | undefined
+): NonNullable<AgentMemory['retrievalIndex']> {
+  const terms = Object.entries(index?.terms || {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, MEMORY_RETRIEVAL_INDEX_MAX_TERMS);
+
+  return {
+    updatedAt: index?.updatedAt || new Date().toISOString(),
+    terms: Object.fromEntries(terms),
+  };
 }
 
 function generateRoleMd(agent: Agent): string {

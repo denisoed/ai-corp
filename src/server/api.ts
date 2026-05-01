@@ -6,6 +6,7 @@ import taskRoutes from './routes/tasks';
 import roleRoutes from './routes/roles';
 import cronRoutes from './routes/crons';
 import settingsRoutes from './routes/settings';
+import messageRoutes from './routes/messages';
 
 const router = Router();
 
@@ -16,5 +17,6 @@ router.use(taskRoutes);
 router.use(roleRoutes);
 router.use(cronRoutes);
 router.use(settingsRoutes);
+router.use(messageRoutes);
 
 export default router;

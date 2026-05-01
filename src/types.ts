@@ -147,13 +147,25 @@ export interface AgentMemory {
   workspaceName?: string;
   workspaceFolder?: string;
   summary: string;
+  workingState?: {
+    currentGoal: string;
+    openQuestions: string[];
+    constraints: string[];
+    importantDecisions: string[];
+    activeWork: string[];
+  };
   keyFacts: string[];
   activeTasks: { title: string; status: string }[];
   recentMessages: MemoryMessage[];
+  archivedMessages?: number;
   lastSummarizedAt?: string;
   totalMessages: number;
   totalSessions: number;
   createdAt: string;
+  retrievalIndex?: {
+    updatedAt: string;
+    terms: Record<string, number>;
+  };
 }
 
 export interface Log {

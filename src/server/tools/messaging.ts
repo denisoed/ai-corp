@@ -44,6 +44,15 @@ export async function handleSendMessage(args: any, executingAgentId: string): Pr
   });
 
   logAction('Message Sent', `Sent message to ${targetAgent.name} (id: ${message.id}).`, 'info', executingAgentId);
+
+  // Process the recipient immediately so the reply is generated in the same flow.
+  try {
+    const { processPendingMessage } = await import('../telegram');
+    await processPendingMessage(targetAgent);
+  } catch (err) {
+    console.error(`[Messaging] Failed to process ${targetAgent.name}:`, err);
+  }
+
   return { success: true, messageId: message.id, to: targetAgent.name, status: 'delivered' };
 }
 

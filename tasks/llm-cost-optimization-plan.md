@@ -36,12 +36,27 @@ Reduce token usage and cost per LLM call without breaking tool-calling, agent be
   - dynamic context: memory and pending messages
 - Keep the core prompt always.
 - Add dynamic context only when it actually helps the current request.
+- Status: partial
+- Done in memory layer:
+  - memory is now bounded and compact instead of growing as a full history dump
+  - `memory.md` includes a structured working state plus only a short recent window
+  - older context is retrieved selectively from session logs instead of being appended wholesale
+- Still open:
+  - split core prompt vs dynamic context at the prompt assembly level
+  - decide when memory should be omitted entirely for low-context requests
 
 ### 4. Limit memory context size
 - Cap summary length.
 - Limit key facts to a fixed number of items.
 - Keep recent context short.
 - Avoid carrying too many old messages into `memory.md`.
+- Status: done
+- Done:
+  - summary is truncated
+  - key facts and active tasks are capped
+  - recent context in `memory.md` is bounded
+  - retrieval snippets are bounded and ranked
+  - regression tests cover size limits and retrieval behavior
 
 ### 5. Keep tool outputs compact
 - Tool results should be short and structured.
@@ -71,6 +86,7 @@ Reduce token usage and cost per LLM call without breaking tool-calling, agent be
   - memory summarization
   - text-only calls
 - Without this, optimization is guesswork.
+- Status: open
 
 ## Priority Order
 1. Stop sending tools in text-only flows.

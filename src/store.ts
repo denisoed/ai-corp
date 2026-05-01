@@ -83,6 +83,7 @@ interface AppState {
   revokeRole: (agentId: string, roleId: string) => Promise<void>;
   grantPermissionToAgent: (agentId: string, type: PermissionType, scope?: string[]) => Promise<void>;
   revokePermissionFromAgent: (agentId: string, type: PermissionType) => Promise<void>;
+  sendMessageToAgent: (agentId: string, content: string) => Promise<void>;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -296,12 +297,18 @@ export const useStore = create<AppState>((set, get) => ({
     set({
       agents: get().agents.map(a => a.id === agentId ? { ...a, permissions: result.permissions } : a),
     });
+  },
+
+  sendMessageToAgent: async (agentId, content) => {
+    const result = await apiPost('/messages/send', { agentId, content });
+    set({ messages: [...get().messages, result.message] });
   }
 }));
 
 export interface ChatThread {
   chatId: string;
-  agents: [Agent, Agent];
+  kind: 'agent-thread' | 'admin-thread';
+  agents: [Agent | null, Agent | null];
   workspaceId: string;
   workspaceName: string;
   messages: AgentMessage[];
@@ -340,22 +347,28 @@ export function useAgentChats(): ChatThread[] {
     const [idA, idB] = chatId.split('::');
     const agentA = agentMap.get(idA);
     const agentB = agentMap.get(idB);
-    if (!agentA || !agentB) continue;
+    const fromUser = idA === 'user' || idB === 'user';
+    if (!agentA && !agentB) continue;
 
     const sorted = msgs.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const lastMessage = sorted[sorted.length - 1];
 
-    const ws = workspaceMap.get(agentA.workspaceId) || workspaceMap.get(agentB.workspaceId);
+    const ws = agentA?.workspaceId
+      ? workspaceMap.get(agentA.workspaceId)
+      : agentB?.workspaceId
+        ? workspaceMap.get(agentB.workspaceId)
+        : undefined;
 
     threads.push({
       chatId,
-      agents: [agentA, agentB],
+      kind: fromUser ? 'admin-thread' : 'agent-thread',
+      agents: [agentA || null, agentB || null],
       workspaceId: ws?.id || 'orphans',
       workspaceName: ws?.name || 'No Workspace',
       messages: sorted,
       lastMessage,
       lastMessageTime: lastMessage.createdAt.slice(11, 16),
-      waitingReply: lastMessage.status === 'pending' && lastMessage.toAgentId !== lastMessage.fromAgentId,
+      waitingReply: !fromUser && lastMessage.status === 'pending' && lastMessage.toAgentId !== lastMessage.fromAgentId,
     });
   }
 

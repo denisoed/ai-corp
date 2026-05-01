@@ -13,7 +13,7 @@ const WORKSPACE_COLORS = [
 
 export function ChatListView({ threads, onSelectChat }: ChatListViewProps) {
   const grouped = useMemo(() => {
-    const map = new Map<string, { workspaceId: string; workspaceName: string; threads: ChatThread[] }>();
+    const map = new Map<string, { workspaceId: string; workspaceName: string; agentThreads: ChatThread[]; adminThreads: ChatThread[] }>();
 
     for (const thread of threads) {
       const key = thread.workspaceId;
@@ -21,10 +21,16 @@ export function ChatListView({ threads, onSelectChat }: ChatListViewProps) {
         map.set(key, {
           workspaceId: thread.workspaceId,
           workspaceName: thread.workspaceName,
-          threads: [],
+          agentThreads: [],
+          adminThreads: [],
         });
       }
-      map.get(key)!.threads.push(thread);
+      const bucket = map.get(key)!;
+      if (thread.kind === 'admin-thread') {
+        bucket.adminThreads.push(thread);
+      } else {
+        bucket.agentThreads.push(thread);
+      }
     }
 
     return Array.from(map.values());
@@ -48,10 +54,15 @@ export function ChatListView({ threads, onSelectChat }: ChatListViewProps) {
               style={{ borderLeftColor: colorIndex(gi), borderLeftWidth: 3 }}
             >
               <span>{group.workspaceName}</span>
-              <span className="text-zinc-600 font-normal">{group.threads.length}</span>
+              <span className="text-zinc-600 font-normal">{group.agentThreads.length + group.adminThreads.length}</span>
             </div>
 
-            {group.threads.map((thread) => (
+            {group.agentThreads.length > 0 && (
+              <div className="px-4 py-2 text-[10px] uppercase tracking-wider text-zinc-500 bg-zinc-900/70 border-b border-zinc-800/40">
+                Agent conversations
+              </div>
+            )}
+            {group.agentThreads.map((thread) => (
               <button
                 key={thread.chatId}
                 onClick={() => onSelectChat(thread.chatId)}
@@ -90,6 +101,54 @@ export function ChatListView({ threads, onSelectChat }: ChatListViewProps) {
                 </div>
               </button>
             ))}
+
+            {group.adminThreads.length > 0 && (
+              <div className="px-4 py-2 text-[10px] uppercase tracking-wider text-zinc-500 bg-zinc-900/70 border-b border-zinc-800/40">
+                Admin chats
+              </div>
+            )}
+            {group.adminThreads.map((thread) => {
+              const agent = thread.agents.find(a => a?.id !== 'user') || thread.agents[0];
+              return (
+                <button
+                  key={thread.chatId}
+                  onClick={() => onSelectChat(thread.chatId)}
+                  className="w-full text-left px-4 py-3 hover:bg-zinc-800/50 transition-colors border-b border-zinc-800/30 flex items-start gap-3"
+                >
+                  <div className="flex items-center mt-0.5 shrink-0">
+                    <div className="w-4 h-4 rounded-full bg-sky-500/30 flex items-center justify-center text-[8px] text-sky-300 font-bold">
+                      A
+                    </div>
+                    <div className="w-3 h-px bg-zinc-600" />
+                    <div className="w-4 h-4 rounded-full bg-emerald-500/30 flex items-center justify-center text-[8px] text-emerald-300 font-bold">
+                      {agent?.name.charAt(0) || '?'}
+                    </div>
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm text-zinc-200 truncate">
+                        Admin ↔ {agent?.name || 'Agent'}
+                      </span>
+                      <span className="text-[10px] text-zinc-500 shrink-0">{thread.lastMessageTime}</span>
+                    </div>
+                    <p className="text-xs text-zinc-500 truncate mt-0.5">
+                      {stripMarkdown(thread.lastMessage.content).slice(0, 80)}
+                    </p>
+                  </div>
+
+                  <div className="shrink-0 self-center">
+                    {thread.waitingReply ? (
+                      <span className="w-2 h-2 rounded-full bg-amber-400 block" title="Waiting for reply" />
+                    ) : thread.lastMessage.status === 'replied' ? (
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 block" title="Replied" />
+                    ) : (
+                      <span className="w-2 h-2 rounded-full bg-zinc-600 block" title="Delivered" />
+                    )}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         ))}
       </div>
