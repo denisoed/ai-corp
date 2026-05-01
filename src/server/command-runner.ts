@@ -103,6 +103,18 @@ function getWorkspaceSettings(agentId: string): WorkspaceCommandExecutionSetting
   return workspace.settings?.commandExecution || {};
 }
 
+function resolveWorkspaceCwd(workspacePath: string, inputCwd?: string): string {
+  const base = path.resolve(workspacePath);
+  const candidate = path.resolve(base, inputCwd || '.');
+  const relative = path.relative(base, candidate);
+
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error(`cwd "${inputCwd || '.'}" resolves outside workspace "${base}"`);
+  }
+
+  return relative === '' ? '.' : relative;
+}
+
 function buildDockerRunArgs(containerName: string, workspacePath: string, command: string, args: string[], options: {
   cwd: string;
   env?: Record<string, string>;
@@ -177,9 +189,11 @@ export async function runCommandInWorkspace(input: RunCommandInput): Promise<Com
 
   const command = input.command.trim();
   const args = input.args || [];
-  const cwd = path.posix.normalize((input.cwd || '.').replace(/\\/g, '/'));
-  if (cwd.startsWith('..')) {
-    return { success: false, status: 'denied', reason: 'cwd must stay inside the workspace.' };
+  let cwd: string;
+  try {
+    cwd = resolveWorkspaceCwd(workspace.folderPath, input.cwd);
+  } catch (error: any) {
+    return { success: false, status: 'denied', reason: error?.message || 'cwd must stay inside the workspace.' };
   }
 
   const policy = buildCommandPolicy(command, args, settings);
