@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FolderKanban, KanbanSquare, Activity, Clock, Shield, Settings, Menu, HelpCircle, Bell } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, KanbanSquare, Activity, Clock, Shield, Settings, Menu, HelpCircle, Bell, MessageSquare } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/Button';
 import { useStore } from '../../store';
@@ -52,6 +52,7 @@ export function Layout({ children }: LayoutProps) {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'workspaces', label: 'Workspaces', icon: FolderKanban },
+    { id: 'chats', label: 'Chats', icon: MessageSquare },
     { id: 'board', label: 'Task Board', icon: KanbanSquare },
     { id: 'crons', label: 'Cron Jobs', icon: Clock },
     { id: 'roles', label: 'Roles', icon: Shield },

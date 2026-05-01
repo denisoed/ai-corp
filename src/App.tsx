@@ -8,6 +8,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/layout/Layout';
 import { Dashboard } from './components/views/Dashboard';
 import { WorkspacesList } from './components/views/WorkspacesList';
+import { ChatsPage } from './components/views/ChatsPage';
 import { TaskBoard } from './components/views/TaskBoard';
 import { ActivityLogs } from './components/views/ActivityLogs';
 import { CronJobs } from './components/views/CronJobs';
@@ -39,6 +40,7 @@ export default function App() {
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/workspaces" element={<WorkspacesList />} />
+        <Route path="/chats" element={<ChatsPage />} />
         <Route path="/board" element={<TaskBoard />} />
         <Route path="/logs" element={<ActivityLogs />} />
         <Route path="/crons" element={<CronJobs />} />

@@ -6,15 +6,16 @@ import { MessageBubble } from './MessageBubble';
 import { cn } from '../../lib/utils';
 
 interface ChatPanelProps {
-  visible: boolean;
-  onClose: () => void;
+  visible?: boolean;
+  onClose?: () => void;
   threads: ChatThread[];
   agents: Agent[];
   workspaces: Workspace[];
   onSendMessage: (agentId: string, content: string) => Promise<void>;
+  mode?: 'modal' | 'page';
 }
 
-export function ChatPanel({ visible, onClose, threads, agents, workspaces, onSendMessage }: ChatPanelProps) {
+export function ChatPanel({ visible = true, onClose, threads, agents, workspaces, onSendMessage, mode = 'modal' }: ChatPanelProps) {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
@@ -121,24 +122,38 @@ export function ChatPanel({ visible, onClose, threads, agents, workspaces, onSen
 
   if (!visible) return null;
 
+  const shellClasses = mode === 'modal'
+    ? 'fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in-0 duration-200'
+    : 'w-full h-full min-h-0 overflow-hidden';
+
+  const panelClasses = mode === 'modal'
+    ? 'relative z-[101] w-full max-w-[1400px] h-[90vh] bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden'
+    : 'w-full h-full min-h-0 bg-transparent border-0 rounded-none shadow-none flex flex-col overflow-hidden';
+
+  const headerClasses = mode === 'modal'
+    ? 'flex items-center justify-between px-4 py-3 border-b border-zinc-800 shrink-0 bg-zinc-950/90 backdrop-blur'
+    : 'flex items-center justify-between px-0 py-0 pb-4 shrink-0';
+
   return (
-    <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in-0 duration-200">
-      <div className="relative z-[101] w-full max-w-[1400px] h-[90vh] bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 shrink-0 bg-zinc-950/90 backdrop-blur">
+    <div className={shellClasses}>
+      <div className={panelClasses}>
+        <div className={headerClasses}>
           <div className="min-w-0">
             <div className="text-sm font-semibold text-zinc-100">Workspace Chats</div>
             <div className="text-xs text-zinc-500">Select a workspace, then either open a chat or start a direct message.</div>
           </div>
-          <button
-            onClick={onClose}
-            className="text-zinc-500 hover:text-white transition-colors p-1 rounded-md hover:bg-zinc-800"
-          >
-            <X size={14} />
-          </button>
+          {mode === 'modal' && onClose ? (
+            <button
+              onClick={onClose}
+              className="text-zinc-500 hover:text-white transition-colors p-1 rounded-md hover:bg-zinc-800"
+            >
+              <X size={14} />
+            </button>
+          ) : null}
         </div>
 
-        <div className="flex-1 min-h-0 grid grid-cols-[240px_280px_1fr]">
-          <aside className="border-r border-zinc-800 bg-zinc-950 overflow-y-auto">
+        <div className="flex-1 min-h-0 grid grid-cols-[240px_280px_1fr] overflow-hidden">
+          <aside className="border-r border-zinc-800 bg-zinc-950 overflow-hidden">
             <div className="px-3 py-2 text-[11px] uppercase tracking-wider text-zinc-500 border-b border-zinc-800">Workspaces</div>
             {workspaces.map(workspace => (
               <button
@@ -161,7 +176,7 @@ export function ChatPanel({ visible, onClose, threads, agents, workspaces, onSen
             ))}
           </aside>
 
-          <aside className="border-r border-zinc-800 bg-zinc-950 overflow-y-auto">
+          <aside className="border-r border-zinc-800 bg-zinc-950 overflow-hidden">
             <div className="px-3 py-2 text-[11px] uppercase tracking-wider text-zinc-500 border-b border-zinc-800">Agents</div>
             {workspaceAgents.length === 0 && (
               <div className="p-4 text-sm text-zinc-500">No agents in this workspace.</div>
@@ -193,7 +208,7 @@ export function ChatPanel({ visible, onClose, threads, agents, workspaces, onSen
             })}
           </aside>
 
-          <div className="flex flex-col min-h-0 bg-zinc-950">
+          <div className="flex flex-col min-h-0 bg-zinc-950 overflow-hidden">
             <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800 shrink-0">
               <div className="min-w-0">
                 <div className="text-sm font-medium text-zinc-100 truncate">
@@ -212,8 +227,8 @@ export function ChatPanel({ visible, onClose, threads, agents, workspaces, onSen
             </div>
 
             {selectedAgentId ? (
-                <div className="flex-1 min-h-0 grid grid-cols-[320px_1fr]">
-                  <div className="border-r border-zinc-800 bg-zinc-950 overflow-y-auto">
+                <div className="flex-1 min-h-0 grid grid-cols-[320px_1fr] overflow-hidden">
+                  <div className="border-r border-zinc-800 bg-zinc-950 overflow-hidden">
                   <div className="px-4 py-3 border-b border-zinc-800">
                     <div className="text-sm font-medium text-zinc-100">{selectedAgent?.name}</div>
                     <div className="text-xs text-zinc-500 mt-1">{selectedAgent?.role || 'Agent'}</div>
@@ -301,7 +316,7 @@ export function ChatPanel({ visible, onClose, threads, agents, workspaces, onSen
                   </div>
                 </div>
 
-                <div className="flex flex-col min-h-0">
+                  <div className="flex flex-col min-h-0 overflow-hidden">
                   <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4">
                     {selectedThread ? (
                       <div className="max-w-3xl mx-auto flex flex-col gap-4">

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { useStore, useAgentChats } from '../../store';
+import { useStore } from '../../store';
 import type { PermissionType, PermissionEntry, LLMProvider } from '../../types';
 import * as d3 from 'd3';
 import { Card, CardContent } from '../ui/Card';
@@ -17,8 +17,6 @@ import { CustomSelect, SelectItem } from '../ui/CustomSelect';
 import { SearchableSelect } from '../ui/SearchableSelect';
 import { MultiSelect } from '../ui/MultiSelect';
 import { Tabs, TabPanel } from '../ui/Tabs';
-import { ChatFAB } from '../chat/ChatFAB';
-import { ChatPanel } from '../chat/ChatPanel';
 import { cn } from '../../lib/utils';
 
 const WORKSPACE_COLORS = [
@@ -113,7 +111,7 @@ function computeTree(wsAgents: any[], rootId: string) {
 }
 
 export function WorkspacesList() {
-  const { agents, workspaces, crons, roles, addAgent, removeAgent, updateAgent, addWorkspace, updateWorkspace, removeWorkspace, assignAgentToWorkspace, applyTemplate, initWorkspaceFromYml, addLog, runCron, removeCron, updateCron, fetchCrons, assignRole, revokeRole, grantPermissionToAgent, revokePermissionFromAgent, sendMessageToAgent } = useStore();
+  const { agents, workspaces, crons, roles, addAgent, removeAgent, updateAgent, addWorkspace, updateWorkspace, removeWorkspace, assignAgentToWorkspace, applyTemplate, initWorkspaceFromYml, addLog, runCron, removeCron, updateCron, fetchCrons, assignRole, revokeRole, grantPermissionToAgent, revokePermissionFromAgent } = useStore();
   const [showAddAgent, setShowAddAgent] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
@@ -140,7 +138,6 @@ export function WorkspacesList() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [activeAgentTab, setActiveAgentTab] = useState('info');
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('settings');
-  const [showChatPanel, setShowChatPanel] = useState(false);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [settingsData, setSettingsData] = useState<{ providers: Record<string, LLMProvider>; defaultProviderId: string } | null>(null);
   const [agentModels, setAgentModels] = useState<Record<string, string[]>>({});
@@ -151,9 +148,6 @@ export function WorkspacesList() {
   const [newWsFolder, setNewWsFolder] = useState('');
   const [newWsColor, setNewWsColor] = useState(DEFAULT_COLOR);
   const [newWsSlug, setNewWsSlug] = useState('');
-
-  const chatThreads = useAgentChats();
-  const waitingCount = chatThreads.filter(t => t.waitingReply).length;
 
   useEffect(() => {
     if (selectedAgentId) {
@@ -859,7 +853,7 @@ export function WorkspacesList() {
 
   return (
     <>
-    <div className="h-full flex flex-col space-y-6">
+      <div className="h-full flex flex-col space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 flex-none shrink-0 border-b border-zinc-800 pb-4">
         <div>
           <h2 className="text-xs uppercase font-bold tracking-widest text-zinc-500">Workspaces</h2>
@@ -1905,16 +1899,7 @@ export function WorkspacesList() {
           </div>
         </div>
       )}
-    </div>
-      <ChatFAB onClick={() => setShowChatPanel(p => !p)} waitingCount={waitingCount} />
-      <ChatPanel
-        visible={showChatPanel}
-        onClose={() => setShowChatPanel(false)}
-        threads={chatThreads}
-        agents={agents}
-        workspaces={workspaces}
-        onSendMessage={sendMessageToAgent}
-      />
+      </div>
     </>
   );
 }
