@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FolderKanban, KanbanSquare, Activity, Clock, Shield, Settings, Menu, HelpCircle, Bell, MessageSquare } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, KanbanSquare, Activity, Clock, Shield, Settings, Menu, Bell, MessageSquare } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/Button';
-import { useStore } from '../../store';
 
 interface SidebarItemProps {
   key?: React.Key;
@@ -39,9 +38,7 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [showHelp, setShowHelp] = useState(false);
   const location = useLocation();
-  const eventDefinitions = useStore(s => s.eventDefinitions);
 
   useEffect(() => {
     setMobileOpen(false);
@@ -94,7 +91,7 @@ export function Layout({ children }: LayoutProps) {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className="h-16 border-b border-zinc-800 flex items-center justify-between px-8 bg-zinc-900/50">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 min-w-0">
             <Button
               variant="ghost"
               size="icon"
@@ -103,19 +100,9 @@ export function Layout({ children }: LayoutProps) {
             >
               <Menu className="h-5 w-5 text-zinc-300" />
             </Button>
-            <h1 className="text-xl font-semibold text-white tracking-tight">Orchestra AI <span className="text-zinc-500 font-normal ml-2 hidden sm:inline-block capitalize">/ {viewName}</span></h1>
-            <span className="hidden md:inline-block px-2 py-0.5 bg-emerald-500/10 text-emerald-400 text-xs rounded border border-emerald-500/20">SYSTEM STABLE</span>
+            <h1 className="text-xl font-semibold text-white tracking-tight truncate">AI Corp <span className="text-zinc-500 font-normal ml-2 hidden sm:inline-block capitalize">/ {viewName}</span></h1>
           </div>
-          <div className="flex items-center gap-6">
-            <div className="hidden sm:flex items-center gap-2 text-xs">
-              <span className="text-zinc-500">Tokens/min:</span>
-              <span className="text-indigo-400 font-mono">14.2k</span>
-            </div>
-            <Button variant="outline" size="sm" onClick={() => setShowHelp(true)} title="Event Reference">
-              <HelpCircle className="mr-1.5 h-4 w-4" />
-              Help
-            </Button>
-          </div>
+          <span className="hidden md:inline-flex px-2 py-0.5 bg-emerald-500/10 text-emerald-400 text-xs rounded border border-emerald-500/20 whitespace-nowrap ml-auto">SYSTEM STABLE</span>
         </header>
 
         <main className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
@@ -131,34 +118,6 @@ export function Layout({ children }: LayoutProps) {
         />
       )}
 
-      {showHelp && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="absolute inset-0" onClick={() => setShowHelp(false)} />
-          <div className="relative w-full max-w-xl bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl max-h-[85vh] overflow-y-auto">
-            <div className="p-6 border-b border-zinc-800 sticky top-0 bg-zinc-950 z-10">
-              <h3 className="text-lg font-semibold text-zinc-100 flex items-center gap-2">
-                <HelpCircle size={18} className="text-indigo-400" />
-                Events Reference
-              </h3>
-              <p className="text-sm text-zinc-500 mt-1">Events drive subscriptions and notifications for agents.</p>
-            </div>
-            <div className="p-6 space-y-3">
-              {(eventDefinitions.length > 0 ? eventDefinitions : []).map(def => (
-                <div key={def.type} className="p-4 rounded-xl border border-zinc-800 bg-zinc-900">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-zinc-100">{def.label}</span>
-                    <code className="text-[10px] text-zinc-500 font-mono bg-zinc-950 px-1.5 py-0.5 rounded">{def.type}</code>
-                  </div>
-                  <p className="text-xs text-zinc-400 leading-relaxed mt-2">{def.description}</p>
-                </div>
-              ))}
-            </div>
-            <div className="p-6 border-t border-zinc-800 flex justify-end bg-zinc-950 sticky bottom-0">
-              <Button onClick={() => setShowHelp(false)}>Got it</Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
