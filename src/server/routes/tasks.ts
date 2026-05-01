@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getStore, mutateStore, agentsAreConnected } from '../store';
 import { createTaskAssigneeChangedEvent, createTaskCommentAddedEvent, createTaskCompletedEvent, createTaskStatusChangedEvent, publishEvent } from '../events';
+import { resumeApprovedCommand } from '../command-runner';
 
 const router = Router();
 
@@ -136,6 +137,17 @@ router.post('/approvals/:id/resolve', (req, res) => {
         if (task.status !== previousStatus) {
           void publishEvent(createTaskStatusChangedEvent(task, previousStatus, task.status, 'user'));
         }
+      }
+    }
+
+    if (approval.commandRunId && approved) {
+      void resumeApprovedCommand(approval.commandRunId);
+    } else if (approval.commandRunId && !approved) {
+      const commandRun = s.commandRuns.find(r => r.id === approval.commandRunId);
+      if (commandRun) {
+        commandRun.status = 'denied';
+        commandRun.reason = 'Command approval rejected by user.';
+        commandRun.finishedAt = new Date().toISOString();
       }
     }
 

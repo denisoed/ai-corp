@@ -101,7 +101,7 @@ export async function handleGrantPermissionToRole(args: any, executingAgentId: s
   const role = state.roles.find(r => r.name.toLowerCase() === args.roleName.toLowerCase() && r.workspaceId === executingAgent?.workspaceId);
   if (!role) return { success: false, error: `Role "${args.roleName}" not found.` };
 
-  const validTypes: PermissionType[] = ['file:read', 'file:write', 'file:delete', 'file:list', 'system:manage_agents', 'system:manage_permissions', 'system:manage_roles', 'system:manage_crons', 'system:broadcast'];
+  const validTypes: PermissionType[] = ['file:read', 'file:write', 'file:delete', 'file:list', 'system:run_commands', 'system:approve_commands', 'system:manage_agents', 'system:manage_permissions', 'system:manage_roles', 'system:manage_crons', 'system:broadcast'];
   if (!validTypes.includes(args.permissionType)) {
     return { success: false, error: `Invalid permission type "${args.permissionType}". Valid: ${validTypes.join(', ')}` };
   }
@@ -273,6 +273,8 @@ export async function handleListPermissions(args: any, executingAgentId: string)
       { type: 'file:write', description: 'Create/modify files in workspace', scopeable: true },
       { type: 'file:delete', description: 'Delete files in workspace', scopeable: true },
       { type: 'file:list', description: 'List directory contents', scopeable: true },
+      { type: 'system:run_commands', description: 'Run shell commands in the workspace Docker sandbox', scopeable: false },
+      { type: 'system:approve_commands', description: 'Approve pending command runs', scopeable: false },
       { type: 'system:manage_agents', description: 'Create/update/delete agents', scopeable: false },
       { type: 'system:manage_permissions', description: 'Assign/revoke roles to agents', scopeable: false },
       { type: 'system:manage_roles', description: 'Create/update/delete roles', scopeable: false },
@@ -296,6 +298,7 @@ export async function handleGrantPermissionToAgent(args: any, executingAgentId: 
 
   const validTypes: PermissionType[] = [
     'file:read', 'file:write', 'file:delete', 'file:list',
+    'system:run_commands', 'system:approve_commands',
     'system:manage_agents', 'system:manage_permissions', 'system:manage_roles',
     'system:manage_crons', 'system:broadcast', 'system:web_search', 'system:fetch_url',
   ];

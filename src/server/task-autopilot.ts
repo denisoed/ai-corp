@@ -177,12 +177,15 @@ export async function requestApproval(input: ApprovalRequestInput & { taskTitle?
     : input.taskTitle
       ? store.tasks.find(t => t.title.toLowerCase().includes(input.taskTitle!.toLowerCase()))
       : undefined;
-  if (!task) return { success: false, error: `Task "${input.taskTitle || input.taskId || 'unknown'}" not found.` };
+  if (!task && !input.commandRunId) {
+    return { success: false, error: `Task "${input.taskTitle || input.taskId || 'unknown'}" not found.` };
+  }
 
   const approval = {
     id: crypto.randomUUID(),
-    taskId: task.id,
+    taskId: task?.id,
     agentId: input.agentId,
+    commandRunId: input.commandRunId,
     action: input.action,
     risk: input.risk,
     estimatedCost: input.estimatedCost,
@@ -213,6 +216,6 @@ export async function requestApproval(input: ApprovalRequestInput & { taskTitle?
     if (a) a.status = 'Blocked';
   });
 
-  logTask(agent.id, 'Approval Requested', `Requested approval for "${input.action}" on task ${task?.title || input.taskTitle || 'n/a'}.`, 'warning');
+  logTask(agent.id, 'Approval Requested', `Requested approval for "${input.action}"${task ? ` on task ${task.title}` : ''}.`, 'warning');
   return { success: true, approvalId: approval.id };
 }

@@ -1263,6 +1263,8 @@ export function WorkspacesList() {
                                   p.type.startsWith('system:manage_agents') ? 'text-purple-400 border-purple-500/20 bg-purple-500/5' :
                                   p.type.startsWith('system:manage_permissions') ? 'text-amber-400 border-amber-500/20 bg-amber-500/5' :
                                   p.type.startsWith('system:manage_roles') ? 'text-indigo-400 border-indigo-500/20 bg-indigo-500/5' :
+                                  p.type.startsWith('system:run_commands') ? 'text-slate-400 border-slate-500/20 bg-slate-500/5' :
+                                  p.type.startsWith('system:approve_commands') ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5' :
                                   p.type.startsWith('system:broadcast') ? 'text-orange-400 border-orange-500/20 bg-orange-500/5' :
                                   p.type.startsWith('system:web_search') ? 'text-green-400 border-green-500/20 bg-green-500/5' :
                                   p.type.startsWith('system:fetch_url') ? 'text-teal-400 border-teal-500/20 bg-teal-500/5' :
@@ -1285,7 +1287,7 @@ export function WorkspacesList() {
                         <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Extra Permissions (direct)</label>
                         <p className="text-[10px] text-zinc-600 leading-tight">Grant individual permissions on top of roles. Useful for quick one-off access without creating a role.</p>
                         <div className="flex flex-wrap gap-1">
-                          {(['file:read', 'file:write', 'file:delete', 'file:list', 'system:web_search', 'system:fetch_url', 'system:manage_agents', 'system:manage_crons', 'system:broadcast'] as PermissionType[])
+                          {(['file:read', 'file:write', 'file:delete', 'file:list', 'system:run_commands', 'system:approve_commands', 'system:web_search', 'system:fetch_url', 'system:manage_agents', 'system:manage_crons', 'system:broadcast'] as PermissionType[])
                             .filter(pt => !uniquePerms.has(pt) || (selectedAgent.permissions || []).some(p => p.type === pt))
                             .map(pt => {
                             const hasDirect = (selectedAgent.permissions || []).some(p => p.type === pt);
@@ -1304,6 +1306,8 @@ export function WorkspacesList() {
                                   hasDirect
                                     ? (pt.startsWith('system:web_search') ? 'bg-green-500/15 text-green-300 border-green-500/20 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/20' :
                                        pt.startsWith('system:fetch_url') ? 'bg-teal-500/15 text-teal-300 border-teal-500/20 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/20' :
+                                       pt.startsWith('system:run_commands') ? 'bg-slate-500/15 text-slate-300 border-slate-500/20 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/20' :
+                                       pt.startsWith('system:approve_commands') ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/20 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/20' :
                                        'bg-indigo-500/15 text-indigo-300 border-indigo-500/30 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/20')
                                     : 'bg-zinc-800 text-zinc-500 border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300'
                                 )}

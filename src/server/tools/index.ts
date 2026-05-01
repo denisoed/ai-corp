@@ -73,6 +73,7 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     case 'ask_agent': return (await import('../telegram')).handleAskAgent(args, executingAgentId, token);
 
     // File tools
+    case 'run_command': return (await import('./command')).handleRunCommand(args, executingAgentId);
     case 'read_file': return (await import('./file')).handleReadFile(args, executingAgentId);
     case 'write_file': return (await import('./file')).handleWriteFile(args, executingAgentId);
     case 'delete_file': return (await import('./file')).handleDeleteFile(args, executingAgentId);

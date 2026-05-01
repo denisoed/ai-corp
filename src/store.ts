@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Agent, Task, Log, Comment, TaskStatus, CompanyTemplate, ApprovalRequest, Workspace, CronJob, AgentMessage, Role, PermissionEntry, PermissionType, EventSubscription, DomainEventType, EventDefinition } from './types';
+import { Agent, Task, Log, Comment, TaskStatus, CompanyTemplate, ApprovalRequest, Workspace, CronJob, AgentMessage, Role, PermissionEntry, PermissionType, EventSubscription, DomainEventType, EventDefinition, CommandRun } from './types';
 
 const API_BASE = '/api';
 
@@ -41,6 +41,7 @@ interface AppState {
   tasks: Task[];
   logs: Log[];
   approvals: ApprovalRequest[];
+  commandRuns: CommandRun[];
   crons: CronJob[];
   messages: AgentMessage[];
   roles: Role[];
@@ -97,6 +98,7 @@ export const useStore = create<AppState>((set, get) => ({
   tasks: [],
   logs: [],
   approvals: [],
+  commandRuns: [],
   crons: [],
   messages: [],
   roles: [],

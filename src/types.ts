@@ -7,6 +7,8 @@ export type PermissionType =
   | 'file:write'
   | 'file:delete'
   | 'file:list'
+  | 'system:run_commands'
+  | 'system:approve_commands'
   | 'system:manage_agents'
   | 'system:manage_permissions'
   | 'system:manage_roles'
@@ -35,6 +37,19 @@ export interface WorkspaceSettings {
   maxParallelTasks?: number;
   allowedRepos?: string[];
   envVars?: Record<string, string>;
+  commandExecution?: WorkspaceCommandExecutionSettings;
+}
+
+export interface WorkspaceCommandExecutionSettings {
+  enabled?: boolean;
+  dockerImage?: string;
+  allowNetwork?: boolean;
+  allowDestructiveCommands?: boolean;
+  allowGitWrite?: boolean;
+  timeoutMs?: number;
+  cpuLimit?: number;
+  memoryLimitMb?: number;
+  pidsLimit?: number;
 }
 
 export interface Workspace {
@@ -88,6 +103,7 @@ export interface ApprovalRequest {
   id: string;
   taskId?: string;
   agentId: string;
+  commandRunId?: string;
   action: string;
   risk: TaskRisk;
   estimatedCost: number;
@@ -99,6 +115,7 @@ export interface ApprovalRequest {
 export interface ApprovalRequestInput {
   taskId?: string;
   agentId: string;
+  commandRunId?: string;
   action: string;
   risk: TaskRisk;
   estimatedCost: number;
@@ -229,6 +246,41 @@ export interface Log {
   action: string;
   details: string;
   type: 'info' | 'success' | 'warning' | 'error';
+}
+
+export type CommandRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'needs_approval' | 'denied' | 'error';
+
+export interface CommandRun {
+  id: string;
+  workspaceId: string;
+  agentId: string;
+  command: string;
+  args: string[];
+  cwd: string;
+  env?: Record<string, string>;
+  status: CommandRunStatus;
+  exitCode?: number;
+  stdout?: string;
+  stderr?: string;
+  reason?: string;
+  approvalRequestId?: string;
+  containerName?: string;
+  startedAt: string;
+  finishedAt?: string;
+  durationMs?: number;
+}
+
+export interface CommandRunResult {
+  success: boolean;
+  status: CommandRunStatus;
+  commandRunId?: string;
+  exitCode?: number;
+  stdout?: string;
+  stderr?: string;
+  reason?: string;
+  approvalRequestId?: string;
+  containerName?: string;
+  durationMs?: number;
 }
 
 export interface AgentTemplate {

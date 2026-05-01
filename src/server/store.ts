@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { Agent, Task, Log, ApprovalRequest, Workspace, AgentMessage, Role, PermissionEntry, PermissionType, EventSubscription } from '../types';
+import { Agent, Task, Log, ApprovalRequest, Workspace, AgentMessage, Role, PermissionEntry, PermissionType, EventSubscription, CommandRun } from '../types';
 import { matchesGlob } from './lib/glob';
 
 const DATA_DIR = path.join(os.homedir(), '.aicorp');
@@ -21,6 +21,7 @@ export interface StoreData {
   messages: AgentMessage[];
   roles: Role[];
   subscriptions: EventSubscription[];
+  commandRuns: CommandRun[];
   totalCost: number;
 }
 
@@ -32,6 +33,7 @@ interface WorkspaceData {
   messages: AgentMessage[];
   roles: Role[];
   subscriptions: EventSubscription[];
+  commandRuns: CommandRun[];
 }
 
 function readJson<T>(file: string, fallback: T): T {
@@ -72,6 +74,7 @@ let store: StoreData = {
   messages: [],
   roles: [],
   subscriptions: [],
+  commandRuns: [],
   totalCost: 0
 };
 
@@ -107,7 +110,7 @@ function applyOrphanMigration() {
 
 function partitionStore(): Map<string, WorkspaceData> {
   const buckets = new Map<string, WorkspaceData>();
-  const emptyData = (): WorkspaceData => ({ agents: [], tasks: [], logs: [], approvals: [], messages: [], roles: [], subscriptions: [] });
+  const emptyData = (): WorkspaceData => ({ agents: [], tasks: [], logs: [], approvals: [], messages: [], roles: [], subscriptions: [], commandRuns: [] });
 
   for (const ws of store.workspaces) {
     buckets.set(ws.id, emptyData());
@@ -163,6 +166,15 @@ function partitionStore(): Map<string, WorkspaceData> {
     bucket.subscriptions.push(sub);
   }
 
+  // Command runs are scoped to the executing agent's workspace.
+  if (store.commandRuns.length > 0) {
+    for (const commandRun of store.commandRuns) {
+      const wsId = commandRun.workspaceId || '_global';
+      const bucket = buckets.get(wsId) || buckets.get('_global')!;
+      bucket.commandRuns.push(commandRun);
+    }
+  }
+
   return buckets;
 }
 
@@ -181,6 +193,7 @@ export function loadStore() {
       const allMessages: AgentMessage[] = readJson(path.join(GLOBAL_DIR, 'messages.json'), []);
       const allRoles: Role[] = readJson(path.join(GLOBAL_DIR, 'roles.json'), []);
       const allSubscriptions: EventSubscription[] = readJson(path.join(GLOBAL_DIR, 'subscriptions.json'), []);
+      const allCommandRuns: CommandRun[] = readJson(path.join(GLOBAL_DIR, 'command-runs.json'), []);
 
       for (const ws of workspaces) {
         allAgents.push(...readJson<Agent[]>(wsFile(ws.slug, 'agents.json'), []));
@@ -201,6 +214,7 @@ export function loadStore() {
         messages: allMessages,
         roles: allRoles,
         subscriptions: allSubscriptions,
+        commandRuns: allCommandRuns,
         totalCost: settings.totalCost
       };
 
@@ -218,6 +232,7 @@ export function loadStore() {
         messages: old.messages || [],
         roles: (old as any).roles || [],
         subscriptions: (old as any).subscriptions || [],
+        commandRuns: (old as any).commandRuns || [],
         totalCost: old.totalCost ?? 0
       };
 
@@ -255,6 +270,7 @@ export function saveStore() {
   writeJson(path.join(GLOBAL_DIR, 'messages.json'), global.messages);
   writeJson(path.join(GLOBAL_DIR, 'roles.json'), global.roles);
   writeJson(path.join(GLOBAL_DIR, 'subscriptions.json'), global.subscriptions);
+  writeJson(path.join(GLOBAL_DIR, 'command-runs.json'), global.commandRuns);
 
   for (const ws of store.workspaces) {
     const data = buckets.get(ws.id);
@@ -266,11 +282,12 @@ export function saveStore() {
       writeJson(wsFile(ws.slug, 'messages.json'), data.messages);
       writeJson(wsFile(ws.slug, 'roles.json'), data.roles);
       writeJson(wsFile(ws.slug, 'subscriptions.json'), data.subscriptions);
+      writeJson(wsFile(ws.slug, 'command-runs.json'), data.commandRuns);
     }
   }
 
   const knownSlugs = new Set(store.workspaces.map(w => w.slug));
-  const files = ['agents.json', 'tasks.json', 'logs.json', 'approvals.json', 'messages.json', 'roles.json', 'subscriptions.json'];
+  const files = ['agents.json', 'tasks.json', 'logs.json', 'approvals.json', 'messages.json', 'roles.json', 'subscriptions.json', 'command-runs.json'];
   try {
     if (fs.existsSync(WORKSPACES_DIR)) {
       for (const entry of fs.readdirSync(WORKSPACES_DIR, { withFileTypes: true })) {

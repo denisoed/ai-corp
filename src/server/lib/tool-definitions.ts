@@ -637,6 +637,25 @@ export const companyTools = [
   {
     type: 'function' as const,
     function: {
+      name: 'run_command',
+      description: 'Run a shell command inside the workspace Docker sandbox. Use detach=true for long-running dev servers. Commands may require approval depending on workspace policy.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          command: { type: 'string' as const, description: 'Executable to run, e.g. "npm" or "git"' },
+          args: { type: 'array' as const, items: { type: 'string' as const }, description: 'Optional command arguments' },
+          cwd: { type: 'string' as const, description: 'Optional path relative to the workspace root' },
+          env: { type: 'object' as const, additionalProperties: { type: 'string' as const }, description: 'Optional environment variables for the command' },
+          timeoutMs: { type: 'number' as const, description: 'Optional timeout in milliseconds' },
+          detach: { type: 'boolean' as const, description: 'Set true for long-running processes like npm run dev' }
+        },
+        required: ['command']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'read_file',
       description: 'Read the contents of a file in the workspace. Path is relative to the workspace root.',
       parameters: {

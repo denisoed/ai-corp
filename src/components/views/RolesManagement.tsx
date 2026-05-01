@@ -13,6 +13,8 @@ const ALL_PERMISSION_TYPES: { type: PermissionType; label: string; icon: string;
   { type: 'file:write',             label: 'Write files',       icon: '✏️',   desc: 'Can create and modify files in the workspace directory (respecting scope).' },
   { type: 'file:delete',            label: 'Delete files',      icon: '🗑',   desc: 'Can delete files in the workspace directory (respecting scope).' },
   { type: 'file:list',              label: 'List directories',  icon: '📂',   desc: 'Can browse the workspace directory structure and list files.' },
+  { type: 'system:run_commands',    label: 'Run commands',      icon: '⚙️',   desc: 'Can run shell commands inside the workspace Docker sandbox.' },
+  { type: 'system:approve_commands',label: 'Approve commands',  icon: '✅',   desc: 'Can approve pending command runs.' },
   { type: 'system:manage_agents',   label: 'Manage agents',     icon: '🤖',   desc: 'Can create, update, and delete agents in the workspace.' },
   { type: 'system:manage_permissions', label: 'Manage permissions', icon: '🔑', desc: 'Can assign and revoke roles to/from agents.' },
   { type: 'system:manage_roles',    label: 'Manage roles',      icon: '🛡',   desc: 'Can create, update, and delete roles.' },
@@ -27,6 +29,8 @@ const PERM_COLORS: Record<string, string> = {
   'file:write':   'bg-emerald-500/15 text-emerald-300 border-emerald-500/20',
   'file:delete':  'bg-red-500/15 text-red-300 border-red-500/20',
   'file:list':    'bg-cyan-500/15 text-cyan-300 border-cyan-500/20',
+  'system:run_commands': 'bg-slate-500/15 text-slate-300 border-slate-500/20',
+  'system:approve_commands': 'bg-emerald-500/15 text-emerald-300 border-emerald-500/20',
   'system:manage_agents':   'bg-purple-500/15 text-purple-300 border-purple-500/20',
   'system:manage_permissions': 'bg-amber-500/15 text-amber-300 border-amber-500/20',
   'system:manage_roles':    'bg-indigo-500/15 text-indigo-300 border-indigo-500/20',
@@ -528,7 +532,7 @@ export function RolesManagement() {
                 <div className="pt-1 border-t border-zinc-800/50">
                   <span className="text-[10px] text-zinc-500 mb-1.5 block">Extra permissions (direct):</span>
                   <div className="flex flex-wrap gap-1">
-                    {(['file:read', 'file:write', 'file:delete', 'file:list', 'system:web_search', 'system:fetch_url', 'system:manage_agents', 'system:manage_crons', 'system:broadcast'] as PermissionType[])
+                    {(['file:read', 'file:write', 'file:delete', 'file:list', 'system:run_commands', 'system:approve_commands', 'system:web_search', 'system:fetch_url', 'system:manage_agents', 'system:manage_crons', 'system:broadcast'] as PermissionType[])
                       .filter(pt => !uniquePerms.has(pt) || (agent.permissions || []).some(p => p.type === pt))
                       .map(pt => {
                       const hasDirect = (agent.permissions || []).some(p => p.type === pt);
