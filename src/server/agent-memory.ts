@@ -3,6 +3,7 @@ import path from 'path';
 import os from 'os';
 import { Agent, Workspace, AgentMemory, MemoryMessage } from '../types';
 import { getStore } from './store';
+import { EVENT_DEFINITIONS } from './event-registry';
 import { getSettings } from './lib/settings';
 import { getProviderClient, getProviderDef } from './llm';
 
@@ -526,6 +527,9 @@ export function buildSystemPrompt(agent: Agent): string {
     });
     parts.push(`# PENDING MESSAGES — You have ${pendingMessages.length} unread message(s)\n\n${msgLines.join('\n')}`);
   }
+
+  const supportedEvents = EVENT_DEFINITIONS.map(def => `- ${def.type}: ${def.description}`).join('\n');
+  parts.push(`# EVENT SUBSCRIPTIONS\n\nIf the user asks you to watch, track, notify, follow, or alert on something happening in the system, use the subscription tools:\n- subscribe_to_event\n- list_subscriptions\n- update_subscription\n- delete_subscription\n\nThink in terms of events, not just tasks. The supported event registry currently includes:\n${supportedEvents}\n\nFor requests like "If task X reaches Done, tell me and give a brief summary", create a subscription with:\n- eventType: task.status.changed\n- taskTitle or taskId: the target task\n- channel: telegram\n- instructions: a short summary request in natural language\n\nWhen the user says "notify me" or "tell me", default the subscription channel to telegram unless they explicitly ask for in-app only.`);
 
   return parts.join('\n\n---\n\n');
 }

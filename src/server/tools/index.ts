@@ -36,6 +36,15 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     case 'complete_subtask': return (await import('./task')).handleCompleteSubtask(args, executingAgentId);
     case 'add_task_tag': return (await import('./task')).handleAddTaskTag(args, executingAgentId);
     case 'remove_task_tag': return (await import('./task')).handleRemoveTaskTag(args, executingAgentId);
+    case 'subscribe_to_event': return (await import('../events')).handleSubscribeToEvent(args, executingAgentId);
+    case 'list_subscriptions': return (await import('../events')).listSubscriptions(executingAgentId);
+    case 'update_subscription': return (await import('../events')).updateSubscription(executingAgentId, args.subscriptionId, {
+      enabled: args.enabled,
+      channel: args.channel,
+      instructions: args.instructions,
+      filters: args.filters
+    });
+    case 'delete_subscription': return (await import('../events')).deleteSubscription(executingAgentId, args.subscriptionId);
     case 'search_tasks': return (await import('./task')).handleSearchTasks(args, executingAgentId);
     case 'get_task_details': return (await import('./task')).handleGetTaskDetails(args, executingAgentId);
     case 'get_company_state': return (await import('./task')).handleGetCompanyState(args, executingAgentId);

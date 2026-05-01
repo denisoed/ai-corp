@@ -1,3 +1,9 @@
+import { EVENT_DEFINITIONS } from '../event-registry';
+
+const eventTypeDescription = EVENT_DEFINITIONS
+  .map(def => `${def.type} - ${def.description}`)
+  .join('; ');
+
 export const companyTools = [
   {
     type: 'function' as const,
@@ -187,6 +193,66 @@ export const companyTools = [
           tag: { type: 'string' as const, description: 'Tag to remove' }
         },
         required: ['taskTitle', 'tag']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'subscribe_to_event',
+      description: 'Subscribe to a domain event. Use this when you want notifications about a specific change in the system, such as a task update, message reply, approval, or another supported event.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          eventType: { type: 'string' as const, description: `Optional. Supported event types: ${eventTypeDescription}` },
+          taskTitle: { type: 'string' as const, description: 'Optional. Title or partial title of the task to watch when subscribing to task events' },
+          taskId: { type: 'string' as const, description: 'Optional. Exact task id to watch when subscribing to task events' },
+          channel: { type: 'string' as const, description: 'Optional. telegram or in_app (default: telegram)' },
+          instructions: { type: 'string' as const, description: 'Optional. Extra wording to include in the notification, like "give me a short summary".' }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'list_subscriptions',
+      description: 'List your active subscriptions so you can review what you are tracking.',
+      parameters: {
+        type: 'object' as const,
+        properties: {},
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'update_subscription',
+      description: 'Update an existing subscription, for example to enable or disable it, change the delivery channel, or adjust instructions.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          subscriptionId: { type: 'string' as const, description: 'The subscription id to update' },
+          enabled: { type: 'boolean' as const, description: 'Optional. Turn the subscription on or off' },
+          channel: { type: 'string' as const, description: 'Optional. telegram or in_app' },
+          instructions: { type: 'string' as const, description: 'Optional. Replace or set the notification instructions' }
+        },
+        required: ['subscriptionId']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'delete_subscription',
+      description: 'Delete a subscription permanently.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          subscriptionId: { type: 'string' as const, description: 'The subscription id to delete' }
+        },
+        required: ['subscriptionId']
       }
     }
   },

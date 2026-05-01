@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getStore, mutateStore, agentsAreConnected } from '../store';
+import { createTaskAssigneeChangedEvent, createTaskCommentAddedEvent, createTaskCompletedEvent, createTaskStatusChangedEvent, publishEvent } from '../events';
 
 const router = Router();
 
@@ -37,6 +38,8 @@ router.post('/tasks', (req, res) => {
 router.patch('/tasks/:id', (req, res) => {
   const agentId = req.headers['x-agent-id'] as string | undefined;
   const store = getStore();
+  const before = store.tasks.find(t => t.id === req.params.id);
+  const previousStatus = before?.status;
 
   if (agentId && req.body.assigneeId) {
     if (!agentsAreConnected(agentId, req.body.assigneeId, store.agents)) {
@@ -52,6 +55,15 @@ router.patch('/tasks/:id', (req, res) => {
     }
   });
   const updated = getStore().tasks.find(t => t.id === req.params.id);
+  if (updated && req.body.assigneeId && updated.assigneeId !== req.body.assigneeId) {
+    void publishEvent(createTaskAssigneeChangedEvent(updated, before?.assigneeId, req.body.assigneeId, agentId));
+  }
+  if (updated && previousStatus && updated.status !== previousStatus) {
+    void publishEvent(createTaskStatusChangedEvent(updated, previousStatus, updated.status, agentId));
+    if (updated.status === 'Done') {
+      void publishEvent(createTaskCompletedEvent(updated, agentId));
+    }
+  }
   logTaskRoute(agentId || 'system', 'Task Updated', `Updated task ${req.params.id} with fields: ${Object.keys(req.body || {}).join(', ') || 'none'}.`, 'info');
   res.json(updated);
 });
@@ -77,6 +89,9 @@ router.post('/tasks/:taskId/comments', (req, res) => {
     }
   });
   const updated = getStore().tasks.find(t => t.id === req.params.taskId);
+  if (updated) {
+    void publishEvent(createTaskCommentAddedEvent(updated, comment, agentId));
+  }
   logTaskRoute(agentId || 'system', 'Task Comment Added', `Added comment to task ${req.params.taskId}.`, 'info');
   res.json(updated);
 });
@@ -104,6 +119,7 @@ router.post('/approvals/:id/resolve', (req, res) => {
     if (approval.taskId) {
       const task = s.tasks.find(t => t.id === approval.taskId);
       if (task) {
+        const previousStatus = task.status;
         task.status = 'In Progress';
         task.updatedAt = new Date().toISOString();
         if (!approved) {
@@ -117,6 +133,9 @@ router.post('/approvals/:id/resolve', (req, res) => {
           createdAt: new Date().toISOString(),
           type: 'action'
         });
+        if (task.status !== previousStatus) {
+          void publishEvent(createTaskStatusChangedEvent(task, previousStatus, task.status, 'user'));
+        }
       }
     }
 

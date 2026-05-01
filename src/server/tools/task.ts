@@ -1,6 +1,7 @@
 import { mutateStore, getStore, agentsAreConnected } from '../store';
 import { Task, TaskPriority, TaskRisk, TaskStatus, Comment } from '../../types';
 import { findAgent, logAction } from './agent';
+import { createTaskAssigneeChangedEvent, createTaskCommentAddedEvent, createTaskCompletedEvent, createTaskStatusChangedEvent, publishEvent } from '../events';
 
 function findTask(title: string): Task | undefined {
   const state = getStore();
@@ -47,15 +48,23 @@ export async function handleMoveTask(args: any, executingAgentId: string): Promi
   const task = findTask(args.taskTitle);
   if (!task) return { success: false, error: `Task "${args.taskTitle}" not found.` };
   const now = new Date().toISOString();
+  const previousStatus = task.status;
+  const nextStatus = args.newStatus as TaskStatus;
 
   mutateStore(s => {
     const t = s.tasks.find(x => x.id === task.id);
     if (t) {
-      t.status = args.newStatus as TaskStatus;
+      t.status = nextStatus;
       t.updatedAt = now;
     }
   });
   logAction('Task Moved', `Moved "${task.title}" to ${args.newStatus}.`, 'info', executingAgentId);
+  if (previousStatus !== nextStatus) {
+    void publishEvent(createTaskStatusChangedEvent({ ...task, status: nextStatus, updatedAt: now }, previousStatus, nextStatus, executingAgentId));
+    if (nextStatus === 'Done') {
+      void publishEvent(createTaskCompletedEvent({ ...task, status: nextStatus, updatedAt: now }, executingAgentId));
+    }
+  }
   return { success: true, message: `Task "${task.title}" moved to ${args.newStatus}.` };
 }
 
@@ -70,6 +79,7 @@ export async function handleAssignTask(args: any, executingAgentId: string): Pro
   }
 
   const now = new Date().toISOString();
+  const previousAssigneeId = task.assigneeId;
   mutateStore(s => {
     const t = s.tasks.find(x => x.id === task.id);
     if (t) {
@@ -78,6 +88,9 @@ export async function handleAssignTask(args: any, executingAgentId: string): Pro
     }
   });
   logAction('Task Assigned', `Assigned "${task.title}" to ${agent.name}.`, 'info', executingAgentId);
+  if (previousAssigneeId !== agent.id) {
+    void publishEvent(createTaskAssigneeChangedEvent({ ...task, assigneeId: agent.id, updatedAt: now }, previousAssigneeId, agent.id, executingAgentId));
+  }
   return { success: true, message: `Task "${task.title}" assigned to ${agent.name}.` };
 }
 
@@ -136,6 +149,13 @@ export async function handleAddTaskComment(args: any, executingAgentId: string):
       t.updatedAt = now;
     }
   });
+  const updated = getStore().tasks.find(x => x.id === task.id);
+  if (updated) {
+    const latestComment = updated.comments[updated.comments.length - 1];
+    if (latestComment) {
+      void publishEvent(createTaskCommentAddedEvent(updated, latestComment, executingAgentId));
+    }
+  }
   logAction('Comment Added', `Added comment to "${task.title}".`, 'info', executingAgentId);
   return { success: true, message: `Comment added to "${task.title}".` };
 }

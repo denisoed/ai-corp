@@ -142,6 +142,40 @@ export interface Task {
   subtasks: SubTask[];
 }
 
+export type DomainEventType =
+  | 'task.status.changed'
+  | 'task.completed'
+  | 'task.comment.added'
+  | 'task.assignee.changed';
+
+export interface DomainEvent {
+  id: string;
+  type: DomainEventType;
+  workspaceId?: string;
+  taskId?: string;
+  createdAt: string;
+  payload: Record<string, unknown>;
+}
+
+export type SubscriptionChannel = 'telegram' | 'in_app';
+
+export interface EventSubscription {
+  id: string;
+  agentId: string;
+  eventType: DomainEventType;
+  channel: SubscriptionChannel;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  instructions?: string;
+  filters: {
+    taskId?: string;
+    fromStatus?: TaskStatus;
+    toStatus?: TaskStatus;
+    assigneeId?: string;
+  };
+}
+
 export interface MemoryMessage {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;

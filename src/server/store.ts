@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { Agent, Task, Log, ApprovalRequest, Workspace, AgentMessage, Role, PermissionEntry, PermissionType } from '../types';
+import { Agent, Task, Log, ApprovalRequest, Workspace, AgentMessage, Role, PermissionEntry, PermissionType, EventSubscription } from '../types';
 import { matchesGlob } from './lib/glob';
 
 const DATA_DIR = path.join(os.homedir(), '.aicorp');
@@ -20,6 +20,7 @@ export interface StoreData {
   approvals: ApprovalRequest[];
   messages: AgentMessage[];
   roles: Role[];
+  subscriptions: EventSubscription[];
   totalCost: number;
 }
 
@@ -30,6 +31,7 @@ interface WorkspaceData {
   approvals: ApprovalRequest[];
   messages: AgentMessage[];
   roles: Role[];
+  subscriptions: EventSubscription[];
 }
 
 function readJson<T>(file: string, fallback: T): T {
@@ -69,6 +71,7 @@ let store: StoreData = {
   approvals: [],
   messages: [],
   roles: [],
+  subscriptions: [],
   totalCost: 0
 };
 
@@ -104,7 +107,7 @@ function applyOrphanMigration() {
 
 function partitionStore(): Map<string, WorkspaceData> {
   const buckets = new Map<string, WorkspaceData>();
-  const emptyData = (): WorkspaceData => ({ agents: [], tasks: [], logs: [], approvals: [], messages: [], roles: [] });
+  const emptyData = (): WorkspaceData => ({ agents: [], tasks: [], logs: [], approvals: [], messages: [], roles: [], subscriptions: [] });
 
   for (const ws of store.workspaces) {
     buckets.set(ws.id, emptyData());
@@ -154,6 +157,12 @@ function partitionStore(): Map<string, WorkspaceData> {
     bucket.roles.push(role);
   }
 
+  for (const sub of store.subscriptions) {
+    const agentWorkspaceId = agentWorkspace.get(sub.agentId) || '_global';
+    const bucket = buckets.get(agentWorkspaceId) || buckets.get('_global')!;
+    bucket.subscriptions.push(sub);
+  }
+
   return buckets;
 }
 
@@ -171,6 +180,7 @@ export function loadStore() {
       const allApprovals: ApprovalRequest[] = readJson(path.join(GLOBAL_DIR, 'approvals.json'), []);
       const allMessages: AgentMessage[] = readJson(path.join(GLOBAL_DIR, 'messages.json'), []);
       const allRoles: Role[] = readJson(path.join(GLOBAL_DIR, 'roles.json'), []);
+      const allSubscriptions: EventSubscription[] = readJson(path.join(GLOBAL_DIR, 'subscriptions.json'), []);
 
       for (const ws of workspaces) {
         allAgents.push(...readJson<Agent[]>(wsFile(ws.slug, 'agents.json'), []));
@@ -179,6 +189,7 @@ export function loadStore() {
         allApprovals.push(...readJson<ApprovalRequest[]>(wsFile(ws.slug, 'approvals.json'), []));
         allMessages.push(...readJson<AgentMessage[]>(wsFile(ws.slug, 'messages.json'), []));
         allRoles.push(...readJson<Role[]>(wsFile(ws.slug, 'roles.json'), []));
+        allSubscriptions.push(...readJson<EventSubscription[]>(wsFile(ws.slug, 'subscriptions.json'), []));
       }
 
       store = {
@@ -189,6 +200,7 @@ export function loadStore() {
         approvals: allApprovals,
         messages: allMessages,
         roles: allRoles,
+        subscriptions: allSubscriptions,
         totalCost: settings.totalCost
       };
 
@@ -205,6 +217,7 @@ export function loadStore() {
         approvals: old.approvals || [],
         messages: old.messages || [],
         roles: (old as any).roles || [],
+        subscriptions: (old as any).subscriptions || [],
         totalCost: old.totalCost ?? 0
       };
 
@@ -241,6 +254,7 @@ export function saveStore() {
   writeJson(path.join(GLOBAL_DIR, 'approvals.json'), global.approvals);
   writeJson(path.join(GLOBAL_DIR, 'messages.json'), global.messages);
   writeJson(path.join(GLOBAL_DIR, 'roles.json'), global.roles);
+  writeJson(path.join(GLOBAL_DIR, 'subscriptions.json'), global.subscriptions);
 
   for (const ws of store.workspaces) {
     const data = buckets.get(ws.id);
@@ -251,11 +265,12 @@ export function saveStore() {
       writeJson(wsFile(ws.slug, 'approvals.json'), data.approvals);
       writeJson(wsFile(ws.slug, 'messages.json'), data.messages);
       writeJson(wsFile(ws.slug, 'roles.json'), data.roles);
+      writeJson(wsFile(ws.slug, 'subscriptions.json'), data.subscriptions);
     }
   }
 
   const knownSlugs = new Set(store.workspaces.map(w => w.slug));
-  const files = ['agents.json', 'tasks.json', 'logs.json', 'approvals.json', 'messages.json', 'roles.json'];
+  const files = ['agents.json', 'tasks.json', 'logs.json', 'approvals.json', 'messages.json', 'roles.json', 'subscriptions.json'];
   try {
     if (fs.existsSync(WORKSPACES_DIR)) {
       for (const entry of fs.readdirSync(WORKSPACES_DIR, { withFileTypes: true })) {
