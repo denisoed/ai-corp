@@ -96,6 +96,15 @@ export interface ApprovalRequest {
   details?: string;
 }
 
+export interface ApprovalRequestInput {
+  taskId?: string;
+  agentId: string;
+  action: string;
+  risk: TaskRisk;
+  estimatedCost: number;
+  details?: string;
+}
+
 export interface Comment {
   id: string;
   authorId: string; 

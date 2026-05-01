@@ -46,6 +46,14 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     case 'remove_connection': return (await import('./connection')).handleRemoveConnection(args, executingAgentId);
     case 'update_connection': return (await import('./connection')).handleUpdateConnection(args, executingAgentId);
     case 'resolve_approval': return (await import('./connection')).handleResolveApproval(args, executingAgentId);
+    case 'request_approval': return (await import('../task-autopilot')).requestApproval({
+      agentId: executingAgentId,
+      taskTitle: args.taskTitle,
+      action: args.action,
+      risk: args.risk,
+      estimatedCost: args.estimatedCost,
+      details: `${args.question}${args.taskTitle ? ` (Task: ${args.taskTitle})` : ''}`
+    });
 
     // Messaging tools
     case 'send_message': return (await import('./messaging')).handleSendMessage(args, executingAgentId);

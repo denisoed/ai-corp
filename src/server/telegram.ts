@@ -37,6 +37,8 @@ export async function processPendingMessage(agent: Agent): Promise<void> {
   const senderName = sender?.name || 'Unknown';
   const senderRole = sender?.role || 'Agent';
 
+  logTaskWorkflow(agent.id, 'Queued Request Started', `Processing queued request from ${senderName} (${senderRole}). Message ${pending.id}.`, 'info');
+
   const targetSystemPrompt = buildSystemPrompt(freshAgent) +
     `\n\nYou are responding to a queued request from ${senderName} (${senderRole}), a connected agent. Use reply_to_message("${pending.id}", content) to send your reply. You have full tool access — do whatever work is needed before replying.`;
 
@@ -46,11 +48,14 @@ export async function processPendingMessage(agent: Agent): Promise<void> {
   try {
     const chatSession = createChatSession(freshAgent, targetSystemPrompt);
     const userMessage = `Request from ${senderName} (${senderRole}):\n\n${pending.content}\n\nDo the work, then call reply_to_message("${pending.id}", "your response") to reply.`;
+    logTaskWorkflow(agent.id, 'LLM Session Started', `Sending queued request ${pending.id} to model.`, 'info');
     let response = await chatSession.sendMessage(userMessage);
     let replyText = response.text;
 
     while (response.toolCalls && response.toolCalls.length > 0) {
+      logTaskWorkflow(agent.id, 'Tool Calls Planned', `Model returned ${response.toolCalls.length} tool call(s) for message ${pending.id}: ${response.toolCalls.map(c => c.function.name).join(', ')}.`, 'info');
       if (Date.now() - startTime > TIMEOUT_MS) {
+        logTaskWorkflow(agent.id, 'Queued Request Timeout', `Timeout while processing message ${pending.id}.`, 'warning');
         mutateStore(s => {
           const m = s.messages.find(x => x.id === pending.id);
           if (m) { m.status = 'delivered'; m.reply = 'Timeout — agent did not respond in 2 minutes.'; m.repliedAt = new Date().toISOString(); }
@@ -61,9 +66,12 @@ export async function processPendingMessage(agent: Agent): Promise<void> {
       const results = [];
       for (const call of response.toolCalls) {
         const toolArgs = JSON.parse(call.function.arguments);
+        logTaskWorkflow(agent.id, 'Executing Tool', `Calling ${call.function.name} with args ${JSON.stringify(toolArgs).slice(0, 500)}.`, 'info');
         const result = await executeTool(call.function.name, toolArgs, agent.id, undefined);
+        logTaskWorkflow(agent.id, 'Tool Result', `${call.function.name} returned ${JSON.stringify(result).slice(0, 500)}.`, result?.success === false ? 'warning' : 'info');
         results.push(result);
       }
+      logTaskWorkflow(agent.id, 'Sending Tool Results', `Returning ${results.length} tool result(s) to model for message ${pending.id}.`, 'info');
       response = await chatSession.sendToolResults(response.toolCalls, results);
       if (response.text) {
         replyText = response.text;
@@ -99,7 +107,9 @@ export async function processPendingMessage(agent: Agent): Promise<void> {
     });
 
     logAction('Queued Request Processed', `Processed queued request from ${senderName}.`, 'info', agent.id);
+    logTaskWorkflow(agent.id, 'Queued Request Finished', `Completed queued request from ${senderName} (${senderRole}).`, 'success');
   } catch (e: any) {
+    logTaskWorkflow(agent.id, 'Queued Request Failed', `Error while processing message ${pending.id}: ${e.message}`, 'error');
     mutateStore(s => {
       const m = s.messages.find(x => x.id === pending.id);
       if (m) { m.status = 'delivered'; m.reply = `Error: ${e.message}`; m.repliedAt = new Date().toISOString(); }
@@ -139,6 +149,10 @@ function logAction(action: string, details: string, type: 'info' | 'success' | '
     });
     if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
   });
+}
+
+function logTaskWorkflow(agentId: string, action: string, details: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') {
+  logAction(action, `[TaskWorkflow] ${details}`, type, agentId);
 }
 
 export function startTelegramManager() {
@@ -400,6 +414,8 @@ export async function handleAskAgent(args: any, executingAgentId: string, token?
     s.messages.push(message);
   });
 
+  logTaskWorkflow(executingAgentId, 'Ask Agent Started', `Request ${messageId} sent to ${targetAgent.name}.`, 'info');
+
   const wasBusy = (targetAgent.activeSessions || 0) > 0;
 
   mutateStore(s => {
@@ -429,11 +445,14 @@ export async function handleAskAgent(args: any, executingAgentId: string, token?
   try {
     const chatSession = createChatSession(targetAgent, targetSystemPrompt);
     const userMessage = `Request from ${senderName} (${senderRole}):\n\n${args.content}\n\n${busyUserNote}`;
+    logTaskWorkflow(targetAgent.id, 'LLM Session Started', `Processing ask_agent request ${messageId} from ${senderName}.`, 'info');
     let response = await chatSession.sendMessage(userMessage);
     let replyText = response.text;
 
     while (response.toolCalls && response.toolCalls.length > 0) {
+      logTaskWorkflow(targetAgent.id, 'Tool Calls Planned', `Model returned ${response.toolCalls.length} tool call(s) for ask_agent request ${messageId}: ${response.toolCalls.map(c => c.function.name).join(', ')}.`, 'info');
       if (Date.now() - startTime > TIMEOUT_MS) {
+        logTaskWorkflow(targetAgent.id, 'Ask Agent Timeout', `Timeout while processing request ${messageId}.`, 'warning');
         mutateStore(s => {
           const m = s.messages.find(x => x.id === messageId);
           if (m) { m.status = 'delivered'; m.reply = 'Timeout — agent did not respond in 2 minutes.'; m.repliedAt = now; }
@@ -444,9 +463,12 @@ export async function handleAskAgent(args: any, executingAgentId: string, token?
       const results = [];
       for (const call of response.toolCalls) {
         const toolArgs = JSON.parse(call.function.arguments);
+        logTaskWorkflow(targetAgent.id, 'Executing Tool', `Calling ${call.function.name} with args ${JSON.stringify(toolArgs).slice(0, 500)} for request ${messageId}.`, 'info');
         const result = await executeTool(call.function.name, toolArgs, targetAgent.id, undefined);
+        logTaskWorkflow(targetAgent.id, 'Tool Result', `${call.function.name} returned ${JSON.stringify(result).slice(0, 500)} for request ${messageId}.`, result?.success === false ? 'warning' : 'info');
         results.push(result);
       }
+      logTaskWorkflow(targetAgent.id, 'Sending Tool Results', `Returning ${results.length} tool result(s) to model for ask_agent request ${messageId}.`, 'info');
       response = await chatSession.sendToolResults(response.toolCalls, results);
       if (response.text) {
         replyText = response.text;
@@ -490,8 +512,10 @@ export async function handleAskAgent(args: any, executingAgentId: string, token?
     });
 
     logAction('Agent Asked', `Asked ${targetAgent.name} and got reply.`, 'info', executingAgentId);
+    logTaskWorkflow(targetAgent.id, 'Ask Agent Finished', `Completed request ${messageId} from ${senderName}.`, 'success');
     return { success: true, from: targetAgent.name, role: targetAgent.role, reply: stored?.reply || replyText };
   } catch (e: any) {
+    logTaskWorkflow(targetAgent.id, 'Ask Agent Failed', `Error while processing request ${messageId}: ${e.message}`, 'error');
     mutateStore(s => {
       const m = s.messages.find(x => x.id === messageId);
       if (m) { m.status = 'delivered'; m.reply = `Error: ${e.message}`; m.repliedAt = now; }

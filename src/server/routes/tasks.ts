@@ -3,6 +3,20 @@ import { getStore, mutateStore, agentsAreConnected } from '../store';
 
 const router = Router();
 
+function logTaskRoute(agentId: string, action: string, details: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') {
+  mutateStore(s => {
+    s.logs.unshift({
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      agentId,
+      action,
+      details: `[TaskRoute] ${details}`,
+      type
+    });
+    if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
+  });
+}
+
 router.post('/tasks', (req, res) => {
   const task = {
     ...req.body,
@@ -16,6 +30,7 @@ router.post('/tasks', (req, res) => {
   mutateStore(s => {
     s.tasks.push(task);
   });
+  logTaskRoute(req.headers['x-agent-id'] as string | undefined || 'system', 'Task Created', `Created task "${task.title}" with status ${task.status}.`, 'success');
   res.json(task);
 });
 
@@ -37,6 +52,7 @@ router.patch('/tasks/:id', (req, res) => {
     }
   });
   const updated = getStore().tasks.find(t => t.id === req.params.id);
+  logTaskRoute(agentId || 'system', 'Task Updated', `Updated task ${req.params.id} with fields: ${Object.keys(req.body || {}).join(', ') || 'none'}.`, 'info');
   res.json(updated);
 });
 
@@ -61,6 +77,7 @@ router.post('/tasks/:taskId/comments', (req, res) => {
     }
   });
   const updated = getStore().tasks.find(t => t.id === req.params.taskId);
+  logTaskRoute(agentId || 'system', 'Task Comment Added', `Added comment to task ${req.params.taskId}.`, 'info');
   res.json(updated);
 });
 
@@ -87,7 +104,7 @@ router.post('/approvals/:id/resolve', (req, res) => {
     if (approval.taskId) {
       const task = s.tasks.find(t => t.id === approval.taskId);
       if (task) {
-        task.status = approved ? 'Review' : 'In Progress';
+        task.status = 'In Progress';
         task.updatedAt = new Date().toISOString();
         if (!approved) {
           task.subtasks.push(fixSubtask);
@@ -124,6 +141,8 @@ router.post('/approvals/:id/resolve', (req, res) => {
       agents: s.agents
     };
   });
+
+  logTaskRoute('user', 'Approval Resolved', `Approval ${req.params.id} resolved as ${approved ? 'approved' : 'rejected'}.`, approved ? 'success' : 'warning');
 
   res.json(result);
 });

@@ -72,7 +72,7 @@ export async function handleResolveApproval(args: any, executingAgentId: string)
     if (approval.taskId) {
       const task = s.tasks.find(t => t.id === approval.taskId);
       if (task) {
-        task.status = args.approved ? 'Review' : 'In Progress';
+        task.status = 'In Progress';
         task.updatedAt = now;
         if (!args.approved) {
           task.subtasks.push(fixSubtask);

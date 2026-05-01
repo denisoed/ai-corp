@@ -329,6 +329,24 @@ export const companyTools = [
   {
     type: 'function' as const,
     function: {
+      name: 'request_approval',
+      description: 'Create a pending approval request when the agent needs human confirmation to continue the current task.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          taskTitle: { type: 'string' as const, description: 'Title or partial title of the task that needs approval' },
+          action: { type: 'string' as const, description: 'What action or decision needs approval' },
+          question: { type: 'string' as const, description: 'Short question for the human reviewer' },
+          risk: { type: 'string' as const, description: 'Must be: low, medium, high, or critical' },
+          estimatedCost: { type: 'number' as const, description: 'Estimated cost or effort for the pending decision' }
+        },
+        required: ['taskTitle', 'action', 'question', 'risk', 'estimatedCost']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'search_tasks',
       description: 'Find tasks matching criteria.',
       parameters: {
