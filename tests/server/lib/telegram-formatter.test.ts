@@ -48,4 +48,19 @@ describe('markdownToTelegramHtml', () => {
     const result = markdownToTelegramHtml('line1\n\n\n\n\nline2');
     expect(result).not.toMatch(/\n{4,}/);
   });
+
+  it('renders paragraph content without throwing on nested block tokens', () => {
+    const result = markdownToTelegramHtml('Paragraph one.\n\n- item 1\n- item 2\n\nParagraph two.');
+    expect(result).toContain('Paragraph one.');
+    expect(result).toContain('- item 1');
+    expect(result).toContain('- item 2');
+    expect(result).toContain('Paragraph two.');
+  });
+
+  it('renders tables as pretty preformatted blocks', () => {
+    const result = markdownToTelegramHtml('| Name | Role |\n| --- | --- |\n| Alex | Manager |');
+    expect(result).toContain('<pre>');
+    expect(result).toContain('Name | Role');
+    expect(result).toContain('Alex | Manager');
+  });
 });

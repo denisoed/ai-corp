@@ -61,15 +61,75 @@ function fixIndentedLists(text: string): string {
   return result.join('\n');
 }
 
+function renderTokensAsInline(renderer: Renderer, tokens?: Tokens.Generic[] | null): string {
+  if (!tokens || tokens.length === 0) {
+    return '';
+  }
+
+  if (tokens.length === 1 && tokens[0].type === 'paragraph' && 'tokens' in tokens[0]) {
+    return renderTokensAsInline(renderer, tokens[0].tokens as Tokens.Generic[] | null);
+  }
+
+  return renderer.parser.parseInline(tokens);
+}
+
+function renderTokensAsBlock(renderer: Renderer, tokens?: Tokens.Generic[] | null): string {
+  if (!tokens || tokens.length === 0) {
+    return '';
+  }
+
+  return renderer.parser.parse(tokens);
+}
+
+function renderTableCell(renderer: Renderer, tokens?: Tokens.Generic[] | null): string {
+  const content = renderTokensAsInline(renderer, tokens).replace(/\s+/g, ' ').trim();
+  return content || ' ';
+}
+
+function padCell(text: string, width: number): string {
+  const clean = text.trim();
+  if (clean.length >= width) {
+    return clean;
+  }
+
+  return clean + ' '.repeat(width - clean.length);
+}
+
+function renderPrettyTable(renderer: Renderer, header: Tokens.Table['header'], rows: Tokens.Table['rows']): string {
+  const headerCells = header.map((cell) => renderTableCell(renderer, cell.tokens));
+  const rowCells = rows.map((row) => row.map((cell) => renderTableCell(renderer, cell.tokens)));
+  const columnCount = Math.max(headerCells.length, ...rowCells.map((row) => row.length), 0);
+
+  const widths = Array.from({ length: columnCount }, (_, index) => {
+    const values = [
+      headerCells[index] || '',
+      ...rowCells.map((row) => row[index] || '')
+    ];
+
+    return Math.max(0, ...values.map((value) => value.trim().length));
+  });
+
+  const formatRow = (cells: string[]) =>
+    cells.map((cell, index) => padCell(cell, widths[index] || 0)).join(' | ');
+
+  const lines = [
+    formatRow(headerCells),
+    widths.map((width) => '-'.repeat(Math.max(3, width))).join('-+-'),
+    ...rowCells.map(formatRow)
+  ];
+
+  return `<pre>${escapeHtml(lines.join('\n'))}</pre>\n\n`;
+}
+
 class TelegramRenderer extends Renderer {
   paragraph({ tokens }: Tokens.Paragraph): string {
-    return this.parser.parseInline(tokens) + '\n\n';
+    return renderTokensAsInline(this, tokens) + '\n\n';
   }
   strong({ tokens }: Tokens.Strong): string {
-    return `<b>${this.parser.parseInline(tokens)}</b>`;
+    return `<b>${renderTokensAsInline(this, tokens)}</b>`;
   }
   em({ tokens }: Tokens.Em): string {
-    return `<i>${this.parser.parseInline(tokens)}</i>`;
+    return `<i>${renderTokensAsInline(this, tokens)}</i>`;
   }
   codespan({ text }: Tokens.Codespan): string {
     return `<code>${escapeHtml(text)}</code>`;
@@ -78,32 +138,40 @@ class TelegramRenderer extends Renderer {
     return `<pre>${escapeHtml(text)}</pre>\n\n`;
   }
   link({ href, tokens }: Tokens.Link): string {
-    return `<a href="${href}">${this.parser.parseInline(tokens)}</a>`;
+    return `<a href="${href}">${renderTokensAsInline(this, tokens)}</a>`;
   }
   list({ items, ordered, start }: Tokens.List): string {
     const startNum = typeof start === 'number' ? start : 1;
     return items.map((item, i) => {
-      const content = item.tokens ? this.parser.parseInline(item.tokens) : item.text;
+      const content = renderTokensAsBlock(this, item.tokens) || item.text;
       const prefix = ordered ? `${startNum + i}.` : '-';
       return `${prefix} ${content}\n`;
     }).join('') + '\n';
   }
   listitem({ text, tokens }: Tokens.ListItem): string {
-    const content = tokens ? this.parser.parseInline(tokens) : text;
+    const content = renderTokensAsBlock(this, tokens) || text;
     return `- ${content}\n`;
   }
   heading({ tokens }: Tokens.Heading): string {
-    return `<b>${this.parser.parseInline(tokens)}</b>\n\n`;
+    return `<b>${renderTokensAsInline(this, tokens)}</b>\n\n`;
   }
   blockquote({ tokens }: Tokens.Blockquote): string {
-    return this.parser.parse(tokens);
+    return renderTokensAsBlock(this, tokens);
   }
   del({ tokens }: Tokens.Del): string {
-    return this.parser.parseInline(tokens);
+    return renderTokensAsInline(this, tokens);
   }
   image(): string { return ''; }
   hr(): string { return ''; }
-  table(): string { return ''; }
+  table({ header, rows }: Tokens.Table): string {
+    return renderPrettyTable(this, header, rows);
+  }
+  tablerow({ text }: Tokens.TableRow): string {
+    return `${text}\n`;
+  }
+  tablecell({ tokens }: Tokens.TableCell): string {
+    return renderTableCell(this, tokens);
+  }
   html(): string { return ''; }
   br(): string { return '\n'; }
   checkbox(): string { return ''; }
