@@ -23,6 +23,42 @@ The app uses:
 - frontend dev server on `http://localhost:3001`
 - backend API on `http://localhost:4000`
 
+## Run With Docker
+
+Use a single command to start the app:
+
+```bash
+docker compose --profile prod up --build
+```
+
+This starts:
+- the UI
+- the API server
+- background agent managers
+
+The container mounts your local AI Corp data directory from `~/.aicorp` so the app keeps its state across restarts.
+
+If you want the stack to start in the background:
+
+```bash
+docker compose --profile prod up -d --build
+```
+
+## Run With Docker In Dev Mode
+
+For hot reload while editing code:
+
+```bash
+docker compose --profile dev up --build
+```
+
+This starts:
+- `web` on `http://localhost:3001`
+- `server` on `http://localhost:4000`
+
+Both services mount the repo source tree, so file changes are reflected immediately.
+The dependency layers are baked into the image, so the dev start does not run `npm install` on every launch.
+
 ## Workspace Command Execution
 
 Agents can execute shell commands inside a Docker sandbox that is scoped to their workspace.
