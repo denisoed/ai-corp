@@ -400,6 +400,9 @@ export function Settings() {
       setLaunchError(result.status === 'error');
       if (result.status !== 'error') {
         setSettings(s => ({ ...s, searxngUrl: result.url }));
+        const nextSettings = { ...settings, searxngUrl: result.url };
+        const saved = await saveSettings(nextSettings);
+        setSettings(saved);
         setSearxngRunning(true);
         setSearxngStatusLoading(false);
       }
