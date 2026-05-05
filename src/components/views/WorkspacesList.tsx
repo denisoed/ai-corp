@@ -273,6 +273,29 @@ export function WorkspacesList() {
 
       const { desc } = computeTree(wsAgents, rootId);
 
+      const hasCollabs = new Set<string>();
+      wsAgents.forEach(a => {
+        if (a.collaborators && a.collaborators.length > 0) hasCollabs.add(a.id);
+      });
+
+      const STAGGER = 50;
+      const yGroups = new Map<number, typeof desc>();
+      desc.forEach(node => {
+        if (node.data.id === rootId) return;
+        const key = node.y;
+        if (!yGroups.has(key)) yGroups.set(key, []);
+        yGroups.get(key)!.push(node);
+      });
+      yGroups.forEach(group => {
+        group.sort((a, b) => a.x - b.x);
+        const rowHasCollabs = group.some(n => hasCollabs.has(n.data.id));
+        if (rowHasCollabs) {
+          group.forEach((node, i) => {
+            if (i % 2 === 1) node.y += STAGGER;
+          });
+        }
+      });
+
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       desc.forEach(node => {
         if (node.data.id === rootId) return;
