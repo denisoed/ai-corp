@@ -10,8 +10,19 @@ import { Search, ChevronDown, Filter } from 'lucide-react';
 
 type LogTab = 'system' | string;
 type LogFilter = 'all' | 'info' | 'success' | 'warning' | 'error';
+type TimeRange = '1h' | '3h' | '12h' | '24h' | '7d' | '30d' | 'all';
 
 const PAGE_SIZE = 25;
+
+const TIME_RANGES: Array<{ id: TimeRange; label: string }> = [
+  { id: '1h', label: '1h' },
+  { id: '3h', label: '3h' },
+  { id: '12h', label: '12h' },
+  { id: '24h', label: '24h' },
+  { id: '7d', label: 'Week' },
+  { id: '30d', label: 'Month' },
+  { id: 'all', label: 'All' },
+];
 
 const FILTERS: Array<{ id: LogFilter; label: string }> = [
   { id: 'all', label: 'All' },
@@ -129,6 +140,7 @@ export function ActivityLogs() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [selectedItem, setSelectedItem] = useState<UnifiedItem | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [timeRange, setTimeRange] = useState<TimeRange>('all');
 
   const agentMap = useMemo(() => {
     const map = new Map<string, typeof agents[0]>();
@@ -285,6 +297,21 @@ export function ActivityLogs() {
       );
     }
 
+    if (timeRange !== 'all') {
+      const now = Date.now();
+      const ranges: Record<TimeRange, number> = {
+        '1h': 60 * 60 * 1000,
+        '3h': 3 * 60 * 60 * 1000,
+        '12h': 12 * 60 * 60 * 1000,
+        '24h': 24 * 60 * 60 * 1000,
+        '7d': 7 * 24 * 60 * 60 * 1000,
+        '30d': 30 * 24 * 60 * 60 * 1000,
+        'all': 0,
+      };
+      const cutoff = now - ranges[timeRange];
+      filtered = filtered.filter(item => Date.parse(item.timestamp) >= cutoff);
+    }
+
     return filtered;
   };
 
@@ -419,63 +446,88 @@ export function ActivityLogs() {
           </button>
         </div>
 
-        {/* Severity filters (always visible) */}
-        <div className="flex flex-wrap gap-1.5">
-          {FILTERS.map(filter => (
-            <button
-              key={filter.id}
-              type="button"
-              onClick={() => { setActiveFilter(filter.id); setVisibleCount(PAGE_SIZE); }}
-              className={cn(
-                "px-2.5 py-1 rounded-md border text-[10px] font-medium transition-colors",
-                activeFilter === filter.id
-                  ? filterTone(filter.id)
-                  : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300 hover:border-zinc-700'
-              )}
-            >
-              {filter.label}
-            </button>
-          ))}
-        </div>
-
         {/* Advanced filters (collapsible) */}
         {showFilters && (
-          <div className="space-y-2 p-3 rounded-lg bg-zinc-900 border border-zinc-800">
-            <p className="text-[10px] text-zinc-500 font-medium">Source</p>
-            <div className="flex flex-wrap gap-1">
-              {SOURCES.map(s => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => { setSourceFilter(s.id); setVisibleCount(PAGE_SIZE); }}
-                  className={cn(
-                    "px-2 py-0.5 rounded-md border text-[10px] font-medium transition-colors",
-                    sourceFilter === s.id
-                      ? s.id === 'all' ? 'border-zinc-600 text-zinc-200 bg-zinc-800' : sourceBadgeColor(s.id)
-                      : 'bg-zinc-950 text-zinc-600 border-zinc-800 hover:text-zinc-400'
-                  )}
-                >
-                  {s.label}
-                </button>
-              ))}
+          <div className="space-y-3 p-3 rounded-lg bg-zinc-900 border border-zinc-800">
+            <div>
+              <p className="text-[10px] text-zinc-500 font-medium mb-1.5">Time Range</p>
+              <div className="flex flex-wrap gap-1">
+                {TIME_RANGES.map(tr => (
+                  <button
+                    key={tr.id}
+                    type="button"
+                    onClick={() => { setTimeRange(tr.id); setVisibleCount(PAGE_SIZE); }}
+                    className={cn(
+                      "px-2 py-0.5 rounded-md border text-[10px] font-medium transition-colors",
+                      timeRange === tr.id
+                        ? 'border-indigo-500/30 text-indigo-300 bg-indigo-500/10'
+                        : 'bg-zinc-950 text-zinc-600 border-zinc-800 hover:text-zinc-400'
+                    )}
+                  >
+                    {tr.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <p className="text-[10px] text-zinc-500 font-medium">Category</p>
-            <div className="flex flex-wrap gap-1">
-              {CATEGORIES.map(c => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => { setCategoryFilter(c.id); setVisibleCount(PAGE_SIZE); }}
-                  className={cn(
-                    "px-2 py-0.5 rounded-md border text-[10px] font-medium transition-colors",
-                    categoryFilter === c.id
-                      ? c.id === 'all' ? 'border-zinc-600 text-zinc-200 bg-zinc-800' : 'border-zinc-600 text-zinc-300 bg-zinc-800'
-                      : 'bg-zinc-950 text-zinc-600 border-zinc-800 hover:text-zinc-400'
-                  )}
-                >
-                  {c.label}
-                </button>
-              ))}
+            <div>
+              <p className="text-[10px] text-zinc-500 font-medium mb-1.5">Severity</p>
+              <div className="flex flex-wrap gap-1">
+                {FILTERS.map(filter => (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    onClick={() => { setActiveFilter(filter.id); setVisibleCount(PAGE_SIZE); }}
+                    className={cn(
+                      "px-2 py-0.5 rounded-md border text-[10px] font-medium transition-colors",
+                      activeFilter === filter.id
+                        ? filterTone(filter.id)
+                        : 'bg-zinc-950 text-zinc-600 border-zinc-800 hover:text-zinc-400'
+                    )}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] text-zinc-500 font-medium mb-1.5">Source</p>
+              <div className="flex flex-wrap gap-1">
+                {SOURCES.map(s => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => { setSourceFilter(s.id); setVisibleCount(PAGE_SIZE); }}
+                    className={cn(
+                      "px-2 py-0.5 rounded-md border text-[10px] font-medium transition-colors",
+                      sourceFilter === s.id
+                        ? s.id === 'all' ? 'border-zinc-600 text-zinc-200 bg-zinc-800' : sourceBadgeColor(s.id)
+                        : 'bg-zinc-950 text-zinc-600 border-zinc-800 hover:text-zinc-400'
+                    )}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] text-zinc-500 font-medium mb-1.5">Category</p>
+              <div className="flex flex-wrap gap-1">
+                {CATEGORIES.map(c => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => { setCategoryFilter(c.id); setVisibleCount(PAGE_SIZE); }}
+                    className={cn(
+                      "px-2 py-0.5 rounded-md border text-[10px] font-medium transition-colors",
+                      categoryFilter === c.id
+                        ? c.id === 'all' ? 'border-zinc-600 text-zinc-200 bg-zinc-800' : 'border-zinc-600 text-zinc-300 bg-zinc-800'
+                        : 'bg-zinc-950 text-zinc-600 border-zinc-800 hover:text-zinc-400'
+                    )}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
