@@ -447,29 +447,48 @@ export function ActivityLogs() {
 
       {/* Search + Filters */}
       <div className="space-y-2">
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
-            <input
-              type="text"
-              placeholder="Search logs..."
-              value={searchQuery}
-              onChange={(e) => { setSearchQuery(e.target.value); setVisibleCount(PAGE_SIZE); }}
-              className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md bg-zinc-900 border border-zinc-800 text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-zinc-700"
-            />
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-1">
+            {FILTERS.map(filter => (
+              <button
+                key={filter.id}
+                type="button"
+                onClick={() => { setActiveFilter(filter.id); setVisibleCount(PAGE_SIZE); }}
+                className={cn(
+                  "px-2 py-0.5 rounded-md border text-[10px] font-medium transition-colors",
+                  activeFilter === filter.id
+                    ? filterTone(filter.id)
+                    : 'bg-zinc-900 text-zinc-600 border-zinc-800 hover:text-zinc-400'
+                )}
+              >
+                {filter.label}
+              </button>
+            ))}
           </div>
-          <button
-            type="button"
-            onClick={() => setShowFilters(!showFilters)}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium transition-colors",
-              showFilters ? 'border-indigo-500/30 text-indigo-400 bg-indigo-500/10' : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'
-            )}
-          >
-            <Filter className="w-3 h-3" />
-            Filters
-            <ChevronDown className={cn("w-3 h-3 transition-transform", showFilters && "rotate-180")} />
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="relative w-[300px]">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+              <input
+                type="text"
+                placeholder="Search logs..."
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setVisibleCount(PAGE_SIZE); }}
+                className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md bg-zinc-900 border border-zinc-800 text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-zinc-700"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowFilters(!showFilters)}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium transition-colors",
+                showFilters ? 'border-indigo-500/30 text-indigo-400 bg-indigo-500/10' : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'
+              )}
+            >
+              <Filter className="w-3 h-3" />
+              Filters
+              <ChevronDown className={cn("w-3 h-3 transition-transform", showFilters && "rotate-180")} />
+            </button>
+          </div>
         </div>
 
         {/* Advanced filters (collapsible) */}
@@ -491,26 +510,6 @@ export function ActivityLogs() {
                     )}
                   >
                     {tr.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <p className="text-[10px] text-zinc-500 font-medium mb-1.5">Severity</p>
-              <div className="flex flex-wrap gap-1">
-                {FILTERS.map(filter => (
-                  <button
-                    key={filter.id}
-                    type="button"
-                    onClick={() => { setActiveFilter(filter.id); setVisibleCount(PAGE_SIZE); }}
-                    className={cn(
-                      "px-2 py-0.5 rounded-md border text-[10px] font-medium transition-colors",
-                      activeFilter === filter.id
-                        ? filterTone(filter.id)
-                        : 'bg-zinc-950 text-zinc-600 border-zinc-800 hover:text-zinc-400'
-                    )}
-                  >
-                    {filter.label}
                   </button>
                 ))}
               </div>
