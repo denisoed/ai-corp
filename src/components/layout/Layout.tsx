@@ -90,7 +90,7 @@ export function Layout({ children }: LayoutProps) {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-16 border-b border-zinc-800 flex items-center justify-between px-8 bg-zinc-900/50">
+        <header className="h-16 border-b border-zinc-800 flex items-center justify-between px-6 bg-zinc-900/50">
           <div className="flex items-center gap-4 min-w-0">
             <Button
               variant="ghost"
@@ -100,7 +100,7 @@ export function Layout({ children }: LayoutProps) {
             >
               <Menu className="h-5 w-5 text-zinc-300" />
             </Button>
-            <h1 className="text-xl font-semibold text-white tracking-tight truncate">AI Corp <span className="text-zinc-500 font-normal ml-2 hidden sm:inline-block capitalize">/ {viewName}</span></h1>
+            <h1 className="text-xl font-semibold text-white tracking-tight truncate"><span className="text-zinc-500 font-normal hidden sm:inline-block capitalize">{viewName}</span></h1>
           </div>
           <span className="hidden md:inline-flex px-2 py-0.5 bg-emerald-500/10 text-emerald-400 text-xs rounded border border-emerald-500/20 whitespace-nowrap ml-auto">SYSTEM STABLE</span>
         </header>

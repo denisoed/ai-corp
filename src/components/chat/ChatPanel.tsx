@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { Send, X } from 'lucide-react';
 import { Agent, Workspace } from '../../types';
 import { ChatThread } from '../../store';
@@ -23,6 +23,13 @@ export function ChatPanel({ visible = true, onClose, threads, agents, workspaces
   const [adminSending, setAdminSending] = useState(false);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, [selectedChatId]);
 
   const workspaceThreads = useMemo(() => {
     if (!selectedWorkspaceId) return threads;
@@ -153,8 +160,8 @@ export function ChatPanel({ visible = true, onClose, threads, agents, workspaces
         </div>
 
         <div className="flex-1 min-h-0 grid grid-cols-[240px_280px_1fr] overflow-hidden">
-          <aside className="border-r border-zinc-800 bg-zinc-950 overflow-hidden">
-            <div className="px-3 py-2 text-[11px] uppercase tracking-wider text-zinc-500 border-b border-zinc-800">Workspaces</div>
+          <aside className="border-r border-zinc-800 bg-zinc-950 overflow-y-auto">
+            <div className="px-3 py-2 text-[11px] uppercase tracking-wider text-zinc-500 border-b border-zinc-800 sticky top-0 bg-zinc-950">Workspaces</div>
             {workspaces.map(workspace => (
               <button
                 key={workspace.id}
@@ -176,8 +183,8 @@ export function ChatPanel({ visible = true, onClose, threads, agents, workspaces
             ))}
           </aside>
 
-          <aside className="border-r border-zinc-800 bg-zinc-950 overflow-hidden">
-            <div className="px-3 py-2 text-[11px] uppercase tracking-wider text-zinc-500 border-b border-zinc-800">Agents</div>
+          <aside className="border-r border-zinc-800 bg-zinc-950 overflow-y-auto">
+            <div className="px-3 py-2 text-[11px] uppercase tracking-wider text-zinc-500 border-b border-zinc-800 sticky top-0 bg-zinc-950">Agents</div>
             {workspaceAgents.length === 0 && (
               <div className="p-4 text-sm text-zinc-500">No agents in this workspace.</div>
             )}
@@ -228,11 +235,7 @@ export function ChatPanel({ visible = true, onClose, threads, agents, workspaces
 
             {selectedAgentId ? (
                 <div className="flex-1 min-h-0 grid grid-cols-[320px_1fr] overflow-hidden">
-                  <div className="border-r border-zinc-800 bg-zinc-950 overflow-hidden">
-                  <div className="px-4 py-3 border-b border-zinc-800">
-                    <div className="text-sm font-medium text-zinc-100">{selectedAgent?.name}</div>
-                    <div className="text-xs text-zinc-500 mt-1">{selectedAgent?.role || 'Agent'}</div>
-                  </div>
+                  <div className="border-r border-zinc-800 bg-zinc-950 overflow-y-auto">
 
                   <div className="px-4 py-3 border-b border-zinc-800">
                     <div className="text-[11px] uppercase tracking-wider text-zinc-500 mb-2">Message as Admin</div>
@@ -317,7 +320,7 @@ export function ChatPanel({ visible = true, onClose, threads, agents, workspaces
                 </div>
 
                   <div className="flex flex-col min-h-0 overflow-hidden">
-                  <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4">
+                  <div ref={chatScrollRef} className="flex-1 min-h-0 overflow-y-auto px-4 py-4">
                     {selectedThread ? (
                       <div className="max-w-3xl mx-auto flex flex-col gap-4">
                         {selectedThread.messages.flatMap(msg => {
