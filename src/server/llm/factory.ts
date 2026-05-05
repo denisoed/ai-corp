@@ -32,47 +32,23 @@ export function createChatSession(agent: Agent, systemPrompt: string, options: C
 
   const client = createClient(providerId, provider.apiKey, baseUrl);
 
-  const onUsage = options.onUsage || ((usage) => {
-    const usageDetails = formatLlmUsage(usage);
-    if (!usageDetails) return;
-
-    mutateStore(s => {
-      s.logs.unshift({
-        id: crypto.randomUUID(),
-        timestamp: new Date().toISOString(),
-        agentId: agent.id,
-        action: 'LLM Usage',
-        details: usageDetails,
-        type: 'info',
-        source: 'llm',
-        category: 'llm',
-        workspaceId: agent.workspaceId,
-        metadata: {
-          model,
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
-          totalTokens: usage.totalTokens,
-          cachedTokens: usage.cachedTokens,
-          reasoningTokens: usage.reasoningTokens,
-          cost: usage.cost,
-        },
-      });
-      if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
-    });
-  });
+  const onUsage = options.onUsage;
 
   const onResponse = options.onResponse || ((messages, response, llmModel) => {
     const funcNames = response.toolCalls?.map(c => c.function.name) || [];
     const usage = response.usage;
-    const usageStr = usage ? formatLlmUsage(usage) : '';
+    const usageDetails = usage ? formatLlmUsage(usage) : null;
+    const parts: string[] = [`Model: ${llmModel}`];
+    if (funcNames.length > 0) parts.push(`Tools: ${funcNames.join(', ')}`);
+    if (usageDetails) parts.push(usageDetails);
 
     mutateStore(s => {
       s.logs.unshift({
         id: crypto.randomUUID(),
         timestamp: new Date().toISOString(),
         agentId: agent.id,
-        action: 'LLM Response',
-        details: `Model: ${llmModel}${funcNames.length > 0 ? ` | Tools: ${funcNames.join(', ')}` : ''}${usageStr ? ` | ${usageStr}` : ''}`,
+        action: 'LLM Call',
+        details: parts.join(' | '),
         type: 'info',
         source: 'llm',
         category: 'llm',
@@ -85,7 +61,13 @@ export function createChatSession(agent: Agent, systemPrompt: string, options: C
           cachedTokens: usage?.cachedTokens,
           reasoningTokens: usage?.reasoningTokens,
           cost: usage?.cost,
-          promptMessages: messages.map(m => ({ role: m.role, content: m.content, tool_calls: m.tool_calls })),
+          promptMessages: messages.map(m => ({
+            role: m.role,
+            content: m.content,
+            tool_calls: m.tool_calls,
+            name: m.name,
+            tool_call_id: m.tool_call_id,
+          })),
           responseContent: response.content,
           functionCalls: funcNames.length > 0 ? funcNames : undefined,
         },
