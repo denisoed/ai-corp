@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import {
-  isPasswordSet, setPassword, verifyPassword,
+  isPasswordSet, setPassword, verifyPassword, deletePassword,
   getStoredPassword, generateToken, revokeToken
 } from '../auth';
 import { validateToken } from '../db';
@@ -91,6 +91,29 @@ router.post('/auth/change-password', (req, res) => {
 
   const token = generateToken();
   res.json({ token, message: 'Password changed successfully' });
+});
+
+// Delete password — remove auth entirely, return to open mode
+router.delete('/auth/password', (req, res) => {
+  if (!isPasswordSet()) {
+    res.status(400).json({ error: 'No password is set.' });
+    return;
+  }
+
+  const { password } = req.body;
+  if (!password || typeof password !== 'string') {
+    res.status(400).json({ error: 'Password is required' });
+    return;
+  }
+
+  const stored = getStoredPassword();
+  if (!stored || !verifyPassword(password, stored)) {
+    res.status(401).json({ error: 'Invalid password' });
+    return;
+  }
+
+  deletePassword();
+  res.json({ message: 'Password removed. Authentication disabled.' });
 });
 
 export default router;

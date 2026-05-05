@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import type { Request, Response, NextFunction } from 'express';
-import { getDb, validateToken, saveToken, deleteToken, cleanupExpiredTokens, loadSetting, saveSetting } from './db';
+import { getDb, validateToken, saveToken, deleteToken, clearAllTokens, cleanupExpiredTokens, loadSetting, saveSetting, deleteSetting } from './db';
 
 const TOKEN_BYTES = 32;
 const TOKEN_VALIDITY_DAYS = 30;
@@ -28,6 +28,11 @@ export function getStoredPassword(): string | undefined {
 
 export function setPassword(password: string): void {
   saveSetting('auth_password', hashPassword(password));
+}
+
+export function deletePassword(): void {
+  deleteSetting('auth_password');
+  clearAllTokens();
 }
 
 export function isPasswordSet(): boolean {

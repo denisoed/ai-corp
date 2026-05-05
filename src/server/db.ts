@@ -128,6 +128,16 @@ export function deleteToken(token: string): void {
   d.prepare('DELETE FROM auth_tokens WHERE token = ?').run(token);
 }
 
+export function deleteSetting(key: string): void {
+  const d = getDb();
+  d.prepare('DELETE FROM settings WHERE key = ?').run(key);
+}
+
+export function clearAllTokens(): void {
+  const d = getDb();
+  d.prepare('DELETE FROM auth_tokens').run();
+}
+
 export function cleanupExpiredTokens(): void {
   const d = getDb();
   d.prepare('DELETE FROM auth_tokens WHERE expires_at < ?').run(new Date().toISOString());

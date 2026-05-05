@@ -184,6 +184,11 @@ export function Settings() {
   const [changingPw, setChangingPw] = useState(false);
   const [passwordRequired, setPasswordRequired] = useState(false);
 
+  const [deletePasswordInput, setDeletePasswordInput] = useState('');
+  const [deletePwStatus, setDeletePwStatus] = useState<'idle' | 'saved' | 'error'>('idle');
+  const [deletePwError, setDeletePwError] = useState('');
+  const [deletingPw, setDeletingPw] = useState(false);
+
   const handleChangePassword = async () => {
     setChangingPw(true);
     setChangePwError('');
@@ -225,6 +230,42 @@ export function Settings() {
       setChangePwError(e.message || 'Failed to change password');
     } finally {
       setChangingPw(false);
+    }
+  };
+
+  const handleDeletePassword = async () => {
+    setDeletingPw(true);
+    setDeletePwError('');
+    setDeletePwStatus('idle');
+
+    try {
+      const token = localStorage.getItem('aicorp_token');
+      const res = await fetch('/api/auth/password', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ password: deletePasswordInput }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Password deletion failed');
+      }
+
+      localStorage.removeItem('aicorp_token');
+      setDeletePasswordInput('');
+      setPasswordRequired(false);
+      setCurrentPassword('');
+      setNewPassword('');
+      setDeletePwStatus('saved');
+      setTimeout(() => location.reload(), 800);
+    } catch (e: any) {
+      setDeletePwStatus('error');
+      setDeletePwError(e.message || 'Failed to delete password');
+    } finally {
+      setDeletingPw(false);
     }
   };
 
@@ -678,6 +719,58 @@ export function Settings() {
             )}
           </Button>
         </div>
+
+        {passwordRequired && (
+          <div className="mt-8 pt-6 border-t border-zinc-800">
+            <div className="flex items-center gap-2 mb-4">
+              <Trash2 className="h-5 w-5 text-red-400" />
+              <h3 className="text-sm font-semibold text-white">Delete Password</h3>
+            </div>
+            <p className="text-xs text-zinc-500 mb-4">
+              Remove the password entirely. Authentication will be disabled and all existing sessions will be terminated.
+            </p>
+            <div className="space-y-3 max-w-sm">
+              <div>
+                <label className="block text-sm text-zinc-400 mb-1">Current Password</label>
+                <input
+                  type="password"
+                  value={deletePasswordInput}
+                  onChange={e => setDeletePasswordInput(e.target.value)}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  placeholder="Enter your password to confirm"
+                />
+              </div>
+
+              {deletePwError && (
+                <div className="p-2.5 bg-red-900/30 border border-red-800 rounded-lg text-red-400 text-xs">
+                  {deletePwError}
+                </div>
+              )}
+
+              <Button
+                onClick={handleDeletePassword}
+                disabled={deletingPw || !deletePasswordInput}
+                size="sm"
+                variant="outline"
+                className="border-red-800 text-red-400 hover:bg-red-900/30 hover:text-red-300"
+              >
+                {deletingPw ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Deleting...
+                  </>
+                ) : deletePwStatus === 'saved' ? (
+                  <>
+                    <Check className="h-4 w-4 mr-2" />
+                    Password Removed
+                  </>
+                ) : (
+                  'Delete Password'
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
       </section>
       </TabPanel>
 
