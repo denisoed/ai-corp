@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Globe, Key, Plus, Trash2, Eye, EyeOff, Check, Loader2, Play, Circle, X, Sparkles, Lock } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Search, Globe, Key, Plus, Trash2, Eye, EyeOff, Check, Loader2, Play, Circle, X, Sparkles, Lock, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { MultiSelect } from '../ui/MultiSelect';
 import { Tabs, TabPanel } from '../ui/Tabs';
 import { SearchableSelect } from '../ui/SearchableSelect';
-import type { AppSettings, LLMProvider } from '../../types';
+import { useStore } from '../../store';
+import type { AppSettings, LLMProvider, HttpDomainConfig } from '../../types';
 
 const API_BASE = '/api';
 
@@ -156,6 +157,121 @@ const SEARCH_ENGINE_OPTIONS = [
   { value: 'searxng', label: 'SearXNG' },
 ];
 
+function DomainRow({ config, envVarKeys, onRemove, onHeaderChange }: {
+  config: HttpDomainConfig;
+  envVarKeys: string[];
+  onRemove: () => void;
+  onHeaderChange: (key: string, value: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const [newHeaderKey, setNewHeaderKey] = useState('');
+  const [newHeaderValue, setNewHeaderValue] = useState('');
+  const headers = config.headers || {};
+  const headerEntries = Object.entries(headers);
+
+  const addHeader = () => {
+    const key = newHeaderKey.trim();
+    if (!key || headers[key] !== undefined) return;
+    onHeaderChange(key, newHeaderValue);
+    setNewHeaderKey('');
+    setNewHeaderValue('');
+  };
+
+  const insertVar = (varName: string) => {
+    setNewHeaderValue(v => v + '$' + varName);
+  };
+
+  return (
+    <div className="max-w-sm rounded-lg border border-zinc-800 bg-zinc-900/60">
+      <div className="flex items-center justify-between px-3 py-2 cursor-pointer" onClick={() => setExpanded(!expanded)}>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-zinc-500 shrink-0">
+            {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </span>
+          <span className="text-sm text-zinc-200 truncate flex-1">{config.domain || '(unnamed)'}</span>
+          {headerEntries.length > 0 && (
+            <span className="text-[10px] text-zinc-500 shrink-0">({headerEntries.length})</span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={e => { e.stopPropagation(); onRemove(); }}
+          className="text-zinc-500 hover:text-red-400 transition-colors shrink-0 ml-2"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="px-3 pb-3 space-y-2 border-t border-zinc-800 pt-3">
+          {/* Existing headers */}
+          {headerEntries.map(([key, value]) => (
+            <div key={key} className="flex gap-2 items-start">
+              <input
+                type="text"
+                value={key}
+                disabled
+                className="w-1/3 px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-500 cursor-not-allowed"
+              />
+              <input
+                type="text"
+                value={value}
+                onChange={e => onHeaderChange(key, e.target.value)}
+                className="flex-1 px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+              <button
+                onClick={() => onHeaderChange(key, '')}
+                className="text-zinc-500 hover:text-red-400 transition-colors pt-0.5"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+
+          {/* Add new header */}
+          <div className="flex gap-2 items-start">
+            <input
+              type="text"
+              value={newHeaderKey}
+              onChange={e => setNewHeaderKey(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addHeader(); } }}
+              placeholder="Header"
+              className="w-1/3 px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+            <div className="flex-1 relative">
+              <input
+                type="text"
+                value={newHeaderValue}
+                onChange={e => setNewHeaderValue(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addHeader(); } }}
+                placeholder="Value (use $VAR_NAME)"
+                className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+              {envVarKeys.length > 0 && newHeaderKey && (
+                <div className="absolute right-1 top-1/2 -translate-y-1/2">
+                  <select
+                    value=""
+                    onChange={e => { if (e.target.value) insertVar(e.target.value); }}
+                    className="bg-zinc-700 border-0 rounded text-[10px] text-zinc-400 py-0.5 px-1 focus:outline-none"
+                  >
+                    <option value="">$VAR</option>
+                    {envVarKeys.map(k => (
+                      <option key={k} value={k}>{k}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+            <Button type="button" onClick={addHeader} disabled={!newHeaderKey.trim()} size="sm">
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Settings() {
   const [settings, setSettings] = useState<AppSettings>({});
   const [loaded, setLoaded] = useState(false);
@@ -188,6 +304,29 @@ export function Settings() {
   const [deletePwStatus, setDeletePwStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [deletePwError, setDeletePwError] = useState('');
   const [deletingPw, setDeletingPw] = useState(false);
+
+  // HTTP Integrations state
+  const storeWorkspaces = useStore(s => s.workspaces);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('');
+  const [newDomain, setNewDomain] = useState('');
+  const [domains, setDomains] = useState<HttpDomainConfig[]>([]);
+  const [integrationSaving, setIntegrationSaving] = useState(false);
+  const [integrationStatus, setIntegrationStatus] = useState<'idle' | 'saved' | 'error'>('idle');
+
+  // Sync domains only when workspace selection changes (ignore polling updates)
+  const prevWorkspaceId = useRef(selectedWorkspaceId);
+  useEffect(() => {
+    if (prevWorkspaceId.current === selectedWorkspaceId) {
+      console.log('[Integrations] Sync skipped — same workspace:', selectedWorkspaceId);
+      return;
+    }
+    prevWorkspaceId.current = selectedWorkspaceId;
+    const ws = storeWorkspaces.find(w => w.id === selectedWorkspaceId);
+    const fromStore = ws?.settings?.allowedHttpDomains || [];
+    console.log('[Integrations] Syncing domains from store:', { wsId: selectedWorkspaceId, fromStore: fromStore.map(d => d.domain) });
+    setDomains(fromStore);
+    setIntegrationStatus('idle');
+  }, [selectedWorkspaceId, storeWorkspaces]);
 
   const handleChangePassword = async () => {
     setChangingPw(true);
@@ -514,6 +653,70 @@ export function Settings() {
     }
   };
 
+  // Integration helpers
+  const selectedWorkspace = storeWorkspaces.find(w => w.id === selectedWorkspaceId);
+  const envVarKeys = [
+    ...Object.keys(settings.envVars || {}),
+    ...Object.keys(selectedWorkspace?.settings?.envVars || {}),
+  ];
+
+  const handleAddDomain = () => {
+    const domain = newDomain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    console.log('[Integrations] Adding domain:', { input: newDomain, cleaned: domain, currentDomains: domains.map(d => d.domain) });
+    if (!domain || domain.includes(' ') || domains.some(d => d.domain === domain)) return;
+    const next = [...domains, { domain }];
+    console.log('[Integrations] New domains:', next);
+    setDomains(next);
+    setNewDomain('');
+  };
+
+  const handleRemoveDomain = (domain: string) => {
+    setDomains(domains.filter(d => d.domain !== domain));
+  };
+
+  const handleUpdateDomainHeader = (domain: string, headerKey: string, headerValue: string) => {
+    setDomains(domains.map(d => {
+      if (d.domain !== domain) return d;
+      const headers = { ...(d.headers || {}) };
+      if (headerValue) {
+        headers[headerKey] = headerValue;
+      } else {
+        delete headers[headerKey];
+      }
+      return { ...d, headers };
+    }));
+  };
+
+  const handleSaveIntegrations = async () => {
+    if (!selectedWorkspaceId) return;
+    setIntegrationSaving(true);
+    setIntegrationStatus('idle');
+
+    try {
+      const token = localStorage.getItem('aicorp_token');
+      const res = await fetch(`/api/workspaces/${selectedWorkspaceId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          settings: {
+            ...selectedWorkspace?.settings,
+            allowedHttpDomains: domains,
+          },
+        }),
+      });
+
+      if (!res.ok) throw new Error('Failed to save');
+      setIntegrationStatus('saved');
+    } catch (e: any) {
+      setIntegrationStatus('error');
+    } finally {
+      setIntegrationSaving(false);
+    }
+  };
+
   if (!loaded) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -556,6 +759,7 @@ export function Settings() {
           { id: 'providers', label: 'AI Providers', icon: <Sparkles className="h-4 w-4" /> },
           { id: 'search', label: 'Search', icon: <Search className="h-4 w-4" /> },
           { id: 'security', label: 'Security', icon: <Lock className="h-4 w-4" /> },
+          { id: 'integrations', label: 'Integrations', icon: <Globe className="h-4 w-4" /> },
           { id: 'env', label: 'Environment', icon: <Key className="h-4 w-4" /> },
         ]}
         activeTab={activeTab}
@@ -769,6 +973,97 @@ export function Settings() {
                 )}
               </Button>
             </div>
+          </div>
+        )}
+      </section>
+      </TabPanel>
+
+      <TabPanel id="integrations" activeTab={activeTab}>
+      <section className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <Globe className="h-5 w-5 text-indigo-400" />
+          <h3 className="text-sm font-semibold text-white">HTTP API Access</h3>
+        </div>
+        <p className="text-xs text-zinc-500 mb-4">
+          Configure which external domains agents can access via the <code className="text-zinc-400 bg-zinc-800 px-1 rounded">http_request</code> tool. When a whitelist is set, agents can only call APIs on listed domains.
+        </p>
+
+        <div className="mb-4 max-w-sm">
+          <label className="block text-sm text-zinc-400 mb-1.5">Workspace</label>
+          <SearchableSelect
+            value={storeWorkspaces.find(w => w.id === selectedWorkspaceId)?.name || ''}
+            options={storeWorkspaces.map(ws => ws.name)}
+            placeholder="Select a workspace..."
+            searchPlaceholder="Search workspaces..."
+            onValueChange={(name) => {
+              const ws = storeWorkspaces.find(w => w.name === name);
+              setSelectedWorkspaceId(ws?.id || '');
+            }}
+          />
+        </div>
+
+        {selectedWorkspaceId && (
+          <div className="space-y-4">
+            <div className="flex gap-2 max-w-sm">
+              <input
+                type="text"
+                value={newDomain}
+                onChange={e => setNewDomain(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddDomain(); } }}
+                className="flex-1 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                placeholder="api.github.com"
+              />
+              <Button
+                type="button"
+                onClick={handleAddDomain}
+                disabled={!newDomain.trim()}
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Add
+              </Button>
+            </div>
+
+            {domains.length > 0 ? (
+              <div className="space-y-2">
+                {domains.map((dc) => (
+                  <DomainRow
+                    key={dc.domain}
+                    config={dc}
+                    envVarKeys={envVarKeys}
+                    onRemove={() => handleRemoveDomain(dc.domain)}
+                    onHeaderChange={(key, value) => handleUpdateDomainHeader(dc.domain, key, value)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-zinc-600">No domains configured. All external domains are allowed.</p>
+            )}
+
+            {integrationStatus === 'error' && (
+              <div className="p-2.5 bg-red-900/30 border border-red-800 rounded-lg text-red-400 text-xs max-w-sm">
+                Failed to save domains. Please try again.
+              </div>
+            )}
+
+            <Button
+              onClick={handleSaveIntegrations}
+              disabled={integrationSaving}
+              size="sm"
+            >
+              {integrationSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : integrationStatus === 'saved' ? (
+                <>
+                  <Check className="h-4 w-4 mr-2" />
+                  Saved
+                </>
+              ) : (
+                'Save Domains'
+              )}
+            </Button>
           </div>
         )}
       </section>

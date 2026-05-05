@@ -99,6 +99,7 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     // Web tools
     case 'web_search': return (await import('./web')).handleWebSearch(args, executingAgentId);
     case 'fetch_url': return (await import('./web')).handleFetchUrl(args, executingAgentId);
+    case 'http_request': return (await import('./web')).handleHttpRequest(args, executingAgentId);
 
     // Cron tools
     case 'create_cron': return (await import('./cron')).handleCreateCron(args, executingAgentId);

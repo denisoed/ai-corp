@@ -472,6 +472,7 @@ export function ensureDefaultRoles(workspaceId: string): void {
         { type: 'system:broadcast', scope: 'all' },
         { type: 'system:web_search', scope: 'all' },
         { type: 'system:fetch_url', scope: 'all' },
+        { type: 'system:http_request', scope: 'all' },
       ],
       createdAt: now,
       updatedAt: now,

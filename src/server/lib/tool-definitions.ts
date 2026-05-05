@@ -918,7 +918,7 @@ export const companyTools = [
         type: 'object' as const,
         properties: {
           agentName: { type: 'string' as const, description: 'Name of the agent to grant the permission to.' },
-          permissionType: { type: 'string' as const, description: 'Permission type to grant: file:read, file:write, file:delete, file:list, system:manage_agents, system:manage_permissions, system:manage_roles, system:manage_crons, system:broadcast, system:web_search, system:fetch_url' },
+           permissionType: { type: 'string' as const, description: 'Permission type to grant: file:read, file:write, file:delete, file:list, system:manage_agents, system:manage_permissions, system:manage_roles, system:manage_crons, system:broadcast, system:web_search, system:fetch_url, system:http_request' },
           scope: { type: 'array' as const, items: { type: 'string' as const }, description: 'Optional. Array of path globs to limit scope. Omit for full access ("all"). Only meaningful for file:* permissions.' }
         },
         required: ['agentName', 'permissionType']
@@ -967,6 +967,24 @@ export const companyTools = [
           skillId: { type: 'string' as const, description: 'The skill ID to remove (e.g. "vercel-labs/react-best-practices")' }
         },
         required: ['skillId']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'http_request',
+      description: 'Make an arbitrary HTTP request to any external API. Supports GET, POST, PUT, DELETE, and PATCH methods. Use this to interact with external services (GitHub, Slack, Jira, Stripe, etc.). Private/internal hosts are blocked for security. Maximum response size is 500KB. Requires system:http_request permission.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          method: { type: 'string' as const, description: 'HTTP method: GET, POST, PUT, DELETE, or PATCH.' },
+          url: { type: 'string' as const, description: 'Full URL (must start with http:// or https://).' },
+          headers: { type: 'object' as const, description: 'Optional. Request headers as key-value pairs.' },
+          body: { type: 'string' as const, description: 'Optional. Request body as a string (use JSON.stringify() for JSON APIs).' },
+          timeout: { type: 'number' as const, description: 'Optional. Timeout in milliseconds (default 15000, max 60000).' }
+        },
+        required: ['method', 'url']
       }
     }
   }

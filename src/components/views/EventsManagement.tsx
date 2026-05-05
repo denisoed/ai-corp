@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, Bell, BellOff, Trash2, Settings2, Users } from 'lucide-react';
+import { Plus, Bell, BellOff, Trash2, Settings2, Users, HelpCircle } from 'lucide-react';
 import { useStore } from '../../store';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
@@ -65,7 +65,7 @@ export function EventsManagement() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => setShowHelp(true)}>
-            <Settings2 className="mr-1.5 h-4 w-4" />
+            <HelpCircle className="mr-1.5 h-4 w-4" />
             Help
           </Button>
           <Button onClick={() => setShowCreate(true)}>

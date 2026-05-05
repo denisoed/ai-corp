@@ -22,6 +22,7 @@ const ALL_PERMISSION_TYPES: { type: PermissionType; label: string; icon: string;
   { type: 'system:broadcast',       label: 'Broadcast messages', icon: '📢',  desc: 'Can send broadcasts to all Telegram-connected agents.' },
   { type: 'system:web_search',      label: 'Web search',        icon: '🔍',   desc: 'Can search the internet for current information, news, and data.' },
   { type: 'system:fetch_url',       label: 'Fetch URLs',        icon: '🌐',   desc: 'Can fetch and read content from web pages.' },
+  { type: 'system:http_request',    label: 'HTTP Requests',     icon: '🔌',   desc: 'Can make arbitrary HTTP requests to external APIs (respecting workspace domain whitelist).' },
 ];
 
 const PERM_COLORS: Record<string, string> = {
@@ -38,6 +39,7 @@ const PERM_COLORS: Record<string, string> = {
   'system:broadcast':       'bg-orange-500/15 text-orange-300 border-orange-500/20',
   'system:web_search':      'bg-green-500/15 text-green-300 border-green-500/20',
   'system:fetch_url':       'bg-teal-500/15 text-teal-300 border-teal-500/20',
+  'system:http_request':   'bg-violet-500/15 text-violet-300 border-violet-500/20',
 };
 
 function PermissionCheckboxGrid({
@@ -532,7 +534,7 @@ export function RolesManagement() {
                 <div className="pt-1 border-t border-zinc-800/50">
                   <span className="text-[10px] text-zinc-500 mb-1.5 block">Extra permissions (direct):</span>
                   <div className="flex flex-wrap gap-1">
-                    {(['file:read', 'file:write', 'file:delete', 'file:list', 'system:run_commands', 'system:approve_commands', 'system:web_search', 'system:fetch_url', 'system:manage_agents', 'system:manage_crons', 'system:broadcast'] as PermissionType[])
+                    {(['file:read', 'file:write', 'file:delete', 'file:list', 'system:run_commands', 'system:approve_commands', 'system:web_search', 'system:fetch_url', 'system:http_request', 'system:manage_agents', 'system:manage_crons', 'system:broadcast'] as PermissionType[])
                       .filter(pt => !uniquePerms.has(pt) || (agent.permissions || []).some(p => p.type === pt))
                       .map(pt => {
                       const hasDirect = (agent.permissions || []).some(p => p.type === pt);

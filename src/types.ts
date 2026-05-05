@@ -16,7 +16,8 @@ export type PermissionType =
   | 'system:manage_skills'
   | 'system:broadcast'
   | 'system:web_search'
-  | 'system:fetch_url';
+  | 'system:fetch_url'
+  | 'system:http_request';
 
 export interface PermissionEntry {
   type: PermissionType;
@@ -43,12 +44,18 @@ export interface Role {
   updatedAt: string;
 }
 
+export interface HttpDomainConfig {
+  domain: string;
+  headers?: Record<string, string>;
+}
+
 export interface WorkspaceSettings {
   autoApproveCheapTasks?: boolean;
   maxParallelTasks?: number;
   allowedRepos?: string[];
   envVars?: Record<string, string>;
   commandExecution?: WorkspaceCommandExecutionSettings;
+  allowedHttpDomains?: HttpDomainConfig[];
 }
 
 export interface WorkspaceCommandExecutionSettings {

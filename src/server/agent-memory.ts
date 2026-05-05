@@ -6,6 +6,7 @@ import { getStore } from './store';
 import { EVENT_DEFINITIONS } from './event-registry';
 import { getSettings } from './lib/settings';
 import { getProviderClient, getProviderDef } from './llm';
+import { vectorStorePath, buildVectorIndex, searchSimilar } from './lib/vector-retrieval';
 
 const AICORP_HOME = process.env.AICORP_HOME || os.homedir();
 const AICORP_DIR = path.join(AICORP_HOME, '.aicorp');
@@ -535,19 +536,14 @@ export function buildSystemPrompt(agent: Agent): string {
 }
 
 export function buildRetrievedMemoryContext(agentId: string, focusText: string): string {
-  const queryTerms = extractQueryTerms(focusText);
-  if (queryTerms.length === 0) return '';
-
-  const memoryTerms = extractQueryTerms(focusText);
-  const snippets = retrieveMemorySnippets(agentId, queryTerms, memoryTerms);
+  if (!focusText.trim()) return '';
+  const snippets = retrieveMemorySnippets(agentId, focusText);
   return formatRetrievedSnippets(snippets);
 }
 
 export function buildRetrievedMemoryContextFromFiles(sessionFiles: string[], focusText: string): string {
-  const queryTerms = extractQueryTerms(focusText);
-  if (queryTerms.length === 0) return '';
-
-  const snippets = retrieveMemorySnippetsFromFiles(sessionFiles, queryTerms);
+  if (!focusText.trim()) return '';
+  const snippets = retrieveMemorySnippetsFromFiles(sessionFiles, focusText);
   return formatRetrievedSnippets(snippets);
 }
 
@@ -559,39 +555,72 @@ function formatRetrievedSnippets(snippets: string[]): string {
     .join('\n');
 }
 
-export function retrieveMemorySnippets(agentId: string, queryTerms: string[], boostTerms: string[] = []): string[] {
+export function retrieveMemorySnippets(agentId: string, focusText: string): string[] {
+  const agentDir = getAgentDir(agentId);
+  const storePath = vectorStorePath(agentDir);
   const sessionFiles = listSessionFiles(agentId).slice(-MEMORY_RETRIEVAL_SCAN_FILES);
-  return retrieveMemorySnippetsFromFiles(sessionFiles, queryTerms, agentId, boostTerms);
-}
 
-export function retrieveMemorySnippetsFromFiles(sessionFiles: string[], queryTerms: string[], agentId = 'unknown', boostTerms: string[] = []): string[] {
-  const matches: { snippet: string; score: number; order: number }[] = [];
-  let order = 0;
+  if (sessionFiles.length === 0) return [];
 
-  for (let i = sessionFiles.length - 1; i >= 0; i--) {
-    const file = sessionFiles[i];
-    try {
-      const raw = fs.readFileSync(file, 'utf8').trim();
-      if (!raw) continue;
-      const lines = raw.split('\n').filter(Boolean);
-      for (let j = lines.length - 1; j >= 0; j--) {
-        const line = lines[j];
-        const score = scoreMemoryLine(line, queryTerms, boostTerms);
-        if (score <= 0) continue;
-        const snippet = truncateText(cleanSessionLine(line), MEMORY_RETRIEVAL_MAX_CHARS);
-        if (snippet && !matches.some(m => m.snippet === snippet)) {
-          matches.push({ snippet, score, order: order++ });
-        }
-      }
-    } catch (e) {
-      console.error(`[Memory] Failed to scan session file for agent ${agentId}:`, e);
+  let store = loadVectorStore(storePath);
+  const newestFileMatch = sessionFiles.length > 0
+    ? path.basename(sessionFiles[sessionFiles.length - 1])
+    : '';
+
+  // Rebuild vector index if out of date or missing
+  if (!store || store.docCount === 0 ||
+      !store.updatedAt ||
+      newestFileMatch > (store.updatedAt.slice(0, 10) || '')) {
+    const result = rebuildVectorIndexFromSessionFiles(sessionFiles);
+    if (result.success) {
+      store = result.store;
+      saveVectorStoreFile(storePath, store);
     }
   }
 
-  return matches
-    .sort((a, b) => b.score - a.score || a.order - b.order)
-    .slice(0, MEMORY_RETRIEVAL_MAX_SNIPPETS)
-    .map(match => match.snippet);
+  if (!store || Object.keys(store.vectors).length === 0) {
+    return fallbackKeywordSearch(sessionFiles, focusText, agentId);
+  }
+
+  const results = searchSimilar(store, focusText, MEMORY_RETRIEVAL_MAX_SNIPPETS);
+
+  if (results.length === 0) {
+    return fallbackKeywordSearch(sessionFiles, focusText, agentId);
+  }
+
+  // Map doc IDs back to snippet text
+  const lineMap = loadSessionLineMap(sessionFiles);
+  return results
+    .map(r => lineMap.get(r.docId))
+    .filter(Boolean)
+    .slice(0, MEMORY_RETRIEVAL_MAX_SNIPPETS) as string[];
+}
+
+export function retrieveMemorySnippetsFromFiles(sessionFiles: string[], focusText: string): string[] {
+  const storePath = ''; // No store for external files
+  let store = loadVectorStore(storePath);
+
+  if (!store || store.docCount === 0) {
+    const result = rebuildVectorIndexFromSessionFiles(sessionFiles);
+    if (result.success) {
+      store = result.store;
+    }
+  }
+
+  if (!store || Object.keys(store.vectors).length === 0) {
+    return fallbackKeywordSearch(sessionFiles, focusText);
+  }
+
+  const results = searchSimilar(store, focusText, MEMORY_RETRIEVAL_MAX_SNIPPETS);
+  if (results.length === 0) {
+    return fallbackKeywordSearch(sessionFiles, focusText);
+  }
+
+  const lineMap = loadSessionLineMap(sessionFiles);
+  return results
+    .map(r => lineMap.get(r.docId))
+    .filter(Boolean)
+    .slice(0, MEMORY_RETRIEVAL_MAX_SNIPPETS) as string[];
 }
 
 function listSessionFiles(agentId: string): string[] {
@@ -607,6 +636,103 @@ function listSessionFiles(agentId: string): string[] {
     console.error(`[Memory] Failed to list session files for agent ${agentId}:`, e);
     return [];
   }
+}
+
+function loadVectorStore(filePath: string) {
+  if (!filePath || !fs.existsSync(filePath)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (parsed?.version === 1 && parsed?.vectors && parsed?.idf) return parsed;
+  } catch {}
+  return null;
+}
+
+function saveVectorStoreFile(filePath: string, store: any): void {
+  if (!filePath) return;
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(store, null, 2));
+  } catch {}
+}
+
+function rebuildVectorIndexFromSessionFiles(
+  sessionFiles: string[]
+): { success: boolean; store: { version: number; updatedAt: string; docCount: number; idf: Record<string, number>; vectors: Record<string, Record<string, number>> } } {
+  const docIds: string[] = [];
+  const docTexts: string[] = [];
+
+  for (const file of sessionFiles) {
+    try {
+      const raw = fs.readFileSync(file, 'utf8').trim();
+      if (!raw) continue;
+      const lines = raw.split('\n').filter(Boolean);
+      for (const line of lines) {
+        const cleaned = cleanSessionLine(line);
+        if (cleaned) {
+          docIds.push(cleaned);
+          docTexts.push(cleaned);
+        }
+      }
+    } catch {}
+  }
+
+  if (docIds.length === 0) {
+    return {
+      success: false,
+      store: { version: 1, updatedAt: '', docCount: 0, idf: {}, vectors: {} }
+    };
+  }
+
+  const result = buildVectorIndex('', docIds, docTexts);
+  return { success: result.success, store: result.store };
+}
+
+function loadSessionLineMap(sessionFiles: string[]): Map<string, string> {
+  const map = new Map<string, string>();
+
+  for (const file of sessionFiles) {
+    try {
+      const raw = fs.readFileSync(file, 'utf8').trim();
+      if (!raw) continue;
+      const lines = raw.split('\n').filter(Boolean);
+      for (const line of lines) {
+        const cleaned = cleanSessionLine(line);
+        if (cleaned) {
+          map.set(cleaned, truncateText(cleaned, MEMORY_RETRIEVAL_MAX_CHARS));
+        }
+      }
+    } catch {}
+  }
+
+  return map;
+}
+
+function fallbackKeywordSearch(sessionFiles: string[], focusText: string, agentId = 'unknown'): string[] {
+  const queryTerms = extractQueryTerms(focusText);
+  if (queryTerms.length === 0) return [];
+
+  const matches: { snippet: string; score: number }[] = [];
+
+  for (const file of sessionFiles) {
+    try {
+      const raw = fs.readFileSync(file, 'utf8').trim();
+      if (!raw) continue;
+      const lines = raw.split('\n').filter(Boolean);
+      for (const line of lines) {
+        const score = scoreMemoryLine(line, queryTerms, []);
+        if (score <= 0) continue;
+        const snippet = truncateText(cleanSessionLine(line), MEMORY_RETRIEVAL_MAX_CHARS);
+        if (snippet && !matches.some(m => m.snippet === snippet)) {
+          matches.push({ snippet, score });
+        }
+      }
+    } catch {}
+  }
+
+  return matches
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MEMORY_RETRIEVAL_MAX_SNIPPETS)
+    .map(m => m.snippet);
 }
 
 function extractQueryTerms(text: string): string[] {
