@@ -81,8 +81,12 @@ function renderTokensAsBlock(renderer: Renderer, tokens?: Tokens.Generic[] | nul
   return renderer.parser.parse(tokens);
 }
 
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>/g, '');
+}
+
 function renderTableCell(renderer: Renderer, tokens?: Tokens.Generic[] | null): string {
-  const content = renderTokensAsInline(renderer, tokens).replace(/\s+/g, ' ').trim();
+  const content = stripHtml(renderTokensAsInline(renderer, tokens)).replace(/\s+/g, ' ').trim();
   return content || ' ';
 }
 

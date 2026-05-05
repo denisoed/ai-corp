@@ -73,6 +73,9 @@ export function createChatSession(agent: Agent, systemPrompt: string, options: C
         },
       });
       if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
+      if (typeof usage?.cost === 'number') {
+        s.totalCost += usage.cost;
+      }
     });
   });
 
