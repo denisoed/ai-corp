@@ -6,15 +6,18 @@ import type { Agent, DomainEvent, EventSubscription, Task } from '../types';
 
 const SUPPORTED_EVENTS = getSupportedEventTypes();
 
-function logEvent(action: string, details: string, type: 'info' | 'success' | 'warning' | 'error' = 'info', agentId = 'system'): void {
+function logEvent(action: string, details: string, type: 'info' | 'success' | 'warning' | 'error' = 'info', agentId = 'system', metadata?: Record<string, unknown>): void {
   mutateStore(s => {
     s.logs.unshift({
       id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
       agentId,
       action,
-      details: `[Events] ${details}`,
+      details,
       type,
+      source: 'events',
+      category: 'event',
+      metadata,
     });
     if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
   });
@@ -172,30 +175,40 @@ export function createTaskAssigneeChangedEvent(task: Task, previousAssigneeId: s
 export async function publishEvent(event: DomainEvent): Promise<void> {
   const state = getStore();
   const def = getEventDefinition(event.type);
+  const task = event.taskId ? state.tasks.find(t => t.id === event.taskId) : undefined;
+  const eventMeta = {
+    eventType: event.type,
+    eventLabel: def?.label,
+    taskId: task?.id,
+    taskTitle: task?.title,
+  };
   logEvent(
     'Event Published',
     `${def?.label || event.type} [${event.id.slice(0, 8)}] -> ${summarizeEvent(event)}`,
-    'info'
+    'info',
+    'system',
+    eventMeta
   );
 
   const subscriptions = state.subscriptions.filter(sub => matchesSubscription(sub, event));
   logEvent(
     'Event Routed',
     `${def?.label || event.type} matched ${subscriptions.length} subscription(s).`,
-    subscriptions.length > 0 ? 'success' : 'warning'
+    subscriptions.length > 0 ? 'success' : 'warning',
+    'system',
+    { ...eventMeta, subscriberCount: subscriptions.length }
   );
   if (subscriptions.length === 0) return;
 
-  const task = event.taskId ? state.tasks.find(t => t.id === event.taskId) : undefined;
   if (!task) {
-    logEvent('Event Dropped', `${def?.label || event.type} had no task context and was skipped.`, 'warning');
+    logEvent('Event Dropped', `${def?.label || event.type} had no task context and was skipped.`, 'warning', 'system', eventMeta);
     return;
   }
 
   for (const subscription of subscriptions) {
     const agent = state.agents.find(a => a.id === subscription.agentId);
     if (!agent) {
-      logEvent('Event Delivery Skipped', `Subscription ${subscription.id.slice(0, 8)} skipped: agent not found.`, 'warning');
+      logEvent('Event Delivery Skipped', `Subscription ${subscription.id.slice(0, 8)} skipped: agent not found.`, 'warning', 'system', eventMeta);
       continue;
     }
     if (!agentsAreConnected(subscription.agentId, task.assigneeId || subscription.agentId, state.agents)) {
@@ -203,17 +216,20 @@ export async function publishEvent(event: DomainEvent): Promise<void> {
         'Event Delivery Skipped',
         `Subscription ${subscription.id.slice(0, 8)} for ${agent.name} skipped: agent is not connected to task context.`,
         'warning',
-        agent.id
+        agent.id,
+        { ...eventMeta, agentName: agent.name }
       );
       continue;
     }
 
+    const deliveryMeta = { ...eventMeta, agentName: agent.name, deliveryChannel: subscription.channel };
     try {
       logEvent(
         'Event Delivery Started',
         `Delivering ${def?.label || event.type} to ${agent.name}. ${summarizeSubscription(subscription)}`,
         'info',
-        agent.id
+        agent.id,
+        deliveryMeta
       );
       const chatSession = createChatSession(agent, buildNotificationPrompt(agent, event, task, subscription));
       const response = await chatSession.sendMessage(
@@ -221,7 +237,7 @@ export async function publishEvent(event: DomainEvent): Promise<void> {
       );
       const text = response.text.trim();
       if (!text) {
-        logEvent('Event Delivery Failed', `LLM returned empty text for ${agent.name} on ${def?.label || event.type}.`, 'error', agent.id);
+        logEvent('Event Delivery Failed', `LLM returned empty text for ${agent.name} on ${def?.label || event.type}.`, 'error', agent.id, deliveryMeta);
         continue;
       }
 
@@ -239,14 +255,16 @@ export async function publishEvent(event: DomainEvent): Promise<void> {
         'Event Delivery Completed',
         `Delivered ${def?.label || event.type} to ${agent.name} via ${subscription.channel}. Message: ${text.slice(0, 220)}`,
         'success',
-        agent.id
+        agent.id,
+        { ...deliveryMeta, deliveryStatus: 'success' }
       );
     } catch (error: any) {
       logEvent(
         'Event Delivery Failed',
         `Failed to deliver ${def?.label || event.type} to ${agent?.name || subscription.agentId}: ${error.message}`,
         'error',
-        subscription.agentId
+        subscription.agentId,
+        deliveryMeta
       );
     }
   }
@@ -336,7 +354,8 @@ export async function handleSubscribeToEvent(args: { eventType?: DomainEvent['ty
     'Subscription Created',
     `${agent.name} subscribed to ${task.title}. ${summarizeSubscription(subscription)}`,
     'success',
-    agentId
+    agentId,
+    { eventType, taskId: task.id, taskTitle: task.title, agentName: agent.name, channel: subscription.channel }
   );
   return { success: true, subscription };
 }
@@ -359,7 +378,7 @@ export function updateSubscription(agentId: string, subscriptionId: string, patc
     updated = sub;
   });
   if (!updated) return { success: false, error: 'Subscription not found.' };
-  logEvent('Subscription Updated', `${agentId} updated subscription ${subscriptionId.slice(0, 8)}. ${summarizeSubscription(updated)}`, 'success', agentId);
+  logEvent('Subscription Updated', `${agentId} updated subscription ${subscriptionId.slice(0, 8)}. ${summarizeSubscription(updated)}`, 'success', agentId, { eventType: updated.eventType, channel: updated.channel });
   return { success: true, subscription: updated };
 }
 
@@ -371,7 +390,7 @@ export function deleteSubscription(agentId: string, subscriptionId: string): { s
     removed = s.subscriptions.length !== before;
   });
   if (removed) {
-    logEvent('Subscription Deleted', `${agentId} deleted subscription ${subscriptionId.slice(0, 8)}.`, 'success', agentId);
+    logEvent('Subscription Deleted', `${agentId} deleted subscription ${subscriptionId.slice(0, 8)}.`, 'success', agentId, { subscriptionId });
   }
   return removed ? { success: true } : { success: false, error: 'Subscription not found.' };
 }

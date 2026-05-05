@@ -112,7 +112,11 @@ export function createCronJob(data: Omit<CronJobType, 'id' | 'createdAt'>): Cron
       agentId: job.agentId,
       action: 'Cron Job Created',
       details: `Cron "${job.name}" created with schedule "${job.schedule}"`,
-      type: 'info'
+      type: 'info',
+      source: 'cron',
+      category: 'cron',
+      workspaceId: job.workspaceId,
+      metadata: { cronId: job.id, cronName: job.name, schedule: job.schedule, prompt: job.prompt },
     });
     if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
   });
@@ -144,7 +148,11 @@ export function updateCronJob(id: string, updates: Partial<Pick<CronJobType, 'sc
       agentId: job.agentId,
       action: 'Cron Job Updated',
       details: `Cron "${job.name}" updated`,
-      type: 'info'
+      type: 'info',
+      source: 'cron',
+      category: 'cron',
+      workspaceId: job.workspaceId,
+      metadata: { cronId: job.id, cronName: job.name },
     });
     if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
   });
@@ -172,7 +180,11 @@ export function deleteCronJob(id: string): boolean {
       agentId: job.agentId,
       action: 'Cron Job Deleted',
       details: `Cron "${job.name}" deleted`,
-      type: 'warning'
+      type: 'warning',
+      source: 'cron',
+      category: 'cron',
+      workspaceId: job.workspaceId,
+      metadata: { cronId: job.id, cronName: job.name },
     });
     if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
   });
@@ -285,7 +297,11 @@ async function executeCronJob(jobId: string): Promise<void> {
         agentId: agent.id,
         action: 'Cron Job Executed',
         details: `Cron "${job.name}" completed: ${finalReply.slice(0, 200)}`,
-        type: 'success'
+        type: 'success',
+        source: 'cron',
+        category: 'cron',
+        workspaceId: job.workspaceId,
+        metadata: { cronId: job.id, cronName: job.name, schedule: job.schedule, prompt: job.prompt, result: finalReply.slice(0, 1000) },
       });
       if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
     });
@@ -301,7 +317,11 @@ async function executeCronJob(jobId: string): Promise<void> {
         agentId: agent.id,
         action: 'Cron Job Failed',
         details: `Cron "${job.name}" failed: ${e.message}`,
-        type: 'error'
+        type: 'error',
+        source: 'cron',
+        category: 'cron',
+        workspaceId: job.workspaceId,
+        metadata: { cronId: job.id, cronName: job.name, schedule: job.schedule, prompt: job.prompt, result: e.message },
       });
       if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
     });

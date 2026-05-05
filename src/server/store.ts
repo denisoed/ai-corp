@@ -67,7 +67,9 @@ let store: StoreData = {
       agentId: 'system',
       action: 'System Initialized',
       details: 'Welcome to AI Company Dashboard. Please select a template to start.',
-      type: 'info'
+      type: 'info',
+      source: 'system',
+      category: 'system',
     }
   ],
   approvals: [],

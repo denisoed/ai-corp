@@ -7,7 +7,16 @@ export function findAgent(name: string): Agent | undefined {
   return state.agents.find(a => a.name.toLowerCase().includes(name.toLowerCase()));
 }
 
-export function logAction(action: string, details: string, type: 'info' | 'success' | 'warning' | 'error', agentId: string) {
+export function logAction(
+  action: string,
+  details: string,
+  type: 'info' | 'success' | 'warning' | 'error',
+  agentId: string,
+  source?: import('../../types').LogSource,
+  category?: import('../../types').LogCategory,
+  workspaceId?: string,
+  metadata?: import('../../types').LogMetadata
+) {
   mutateStore(s => {
     s.logs.unshift({
       id: crypto.randomUUID(),
@@ -15,7 +24,11 @@ export function logAction(action: string, details: string, type: 'info' | 'succe
       agentId,
       action,
       details,
-      type
+      type,
+      source,
+      category,
+      workspaceId,
+      metadata,
     });
     if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
   });
@@ -73,7 +86,7 @@ export async function handleCreateAgent(args: any, executingAgentId: string): Pr
   if (args.identity) writePersonalityFile(newAgentId, 'IDENTITY.md', args.identity);
   if (args.roleDoc) writePersonalityFile(newAgentId, 'ROLE.md', args.roleDoc);
 
-  logAction('Hired Agent via Telegram', `Hired ${args.name} (${args.role}) into workspace.`, 'success', executingAgentId);
+  logAction('Hired Agent via Telegram', `Hired ${args.name} (${args.role}) into workspace.`, 'success', executingAgentId, 'tool', 'agent', workspaceId, { targetAgentName: args.name, role: args.role });
   return { success: true, message: `Agent ${args.name} created successfully in your workspace.` };
 }
 
@@ -90,7 +103,7 @@ export async function handleUpdateAgent(args: any, executingAgentId: string): Pr
     if (args.description) a.description = args.description;
     if (args.skills) a.skills = args.skills;
   });
-  logAction('Agent Updated', `Updated ${agent.name}.`, 'info', executingAgentId);
+  logAction('Agent Updated', `Updated ${agent.name}.`, 'info', executingAgentId, 'tool', 'agent', undefined, { targetAgentId: agent.id, targetAgentName: agent.name });
   return { success: true, message: `Agent "${agent.name}" updated.` };
 }
 
@@ -106,7 +119,7 @@ export async function handleDeleteAgent(args: any, executingAgentId: string): Pr
   mutateStore(s => {
     s.agents = s.agents.filter(a => a.id !== agent.id);
   });
-  logAction('Agent Removed', `Removed ${agent.name}.`, 'warning', executingAgentId);
+  logAction('Agent Removed', `Removed ${agent.name}.`, 'warning', executingAgentId, 'tool', 'agent', undefined, { targetAgentId: agent.id, targetAgentName: agent.name });
   return { success: true, message: `Agent "${agent.name}" removed.` };
 }
 
@@ -118,7 +131,7 @@ export async function handleSetAgentStatus(args: any, executingAgentId: string):
     const a = s.agents.find(x => x.id === agent.id);
     if (a) a.status = args.status as AgentStatus;
   });
-  logAction('Status Changed', `Set ${agent.name} to ${args.status}.`, 'info', executingAgentId);
+  logAction('Status Changed', `Set ${agent.name} to ${args.status}.`, 'info', executingAgentId, 'tool', 'agent', undefined, { targetAgentName: agent.name, agentStatus: args.status });
   return { success: true, message: `Agent "${agent.name}" status set to ${args.status}.` };
 }
 
@@ -196,6 +209,6 @@ export async function handleSetAgentPersonality(args: any, executingAgentId: str
     return { success: false, error: 'At least one of soul, identity, or role must be provided.' };
   }
 
-  logAction('Personality Updated', `Updated ${updated.join(', ')} for ${agent.name}.`, 'success', executingAgentId);
+  logAction('Personality Updated', `Updated ${updated.join(', ')} for ${agent.name}.`, 'success', executingAgentId, 'tool', 'agent', undefined, { targetAgentName: agent.name });
   return { success: true, message: `Updated ${updated.join(', ')} for ${agent.name}.` };
 }

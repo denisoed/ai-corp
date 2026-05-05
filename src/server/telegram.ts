@@ -4,6 +4,7 @@ import { createChatSession } from './llm';
 import { loadMemory, createMemory, appendMessage, buildSystemPrompt } from './agent-memory';
 import { TELEGRAM_FORMATTING_RULES, markdownToTelegramHtml } from './lib/telegram-formatter';
 import { executeTool } from './tools/index';
+import { logAction } from './tools/agent';
 
 const TELEGRAM_API = 'https://api.telegram.org/bot';
 
@@ -106,7 +107,7 @@ export async function processPendingMessage(agent: Agent): Promise<void> {
       source: 'system'
     });
 
-    logAction('Queued Request Processed', `Processed queued request from ${senderName}.`, 'info', agent.id);
+    logAction('Queued Request Processed', `Processed queued request from ${senderName}.`, 'info', agent.id, 'telegram', 'message', freshAgent.workspaceId, { senderName, messageId: pending.id });
     logTaskWorkflow(agent.id, 'Queued Request Finished', `Completed queued request from ${senderName} (${senderRole}).`, 'success');
   } catch (e: any) {
     logTaskWorkflow(agent.id, 'Queued Request Failed', `Error while processing message ${pending.id}: ${e.message}`, 'error');
@@ -137,22 +138,10 @@ function chainProcessNext(agent: Agent): void {
   }
 }
 
-function logAction(action: string, details: string, type: 'info' | 'success' | 'warning' | 'error', agentId: string) {
-  mutateStore(s => {
-    s.logs.unshift({
-      id: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-      agentId,
-      action,
-      details,
-      type
-    });
-    if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
-  });
-}
-
-function logTaskWorkflow(agentId: string, action: string, details: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') {
-  logAction(action, `[TaskWorkflow] ${details}`, type, agentId);
+function logTaskWorkflow(agentId: string, action: string, details: string, type: 'info' | 'success' | 'warning' | 'error' = 'info', metadata?: Record<string, unknown>) {
+  const store = getStore();
+  const agent = store.agents.find(a => a.id === agentId);
+  logAction(action, details, type, agentId, 'telegram', 'message', agent?.workspaceId, metadata);
 }
 
 export function startTelegramManager() {
@@ -293,10 +282,14 @@ async function handleIncomingMessage(agentId: string, token: string, message: an
     s.logs.unshift({
       id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
-      agentId: 'system',
+      agentId,
       action: 'Telegram Message Received',
-      details: `${agentInfo.name} received a message: "${text}"`,
-      type: 'info'
+      details: `${agentInfo.name} received a message: "${text.slice(0, 200)}"`,
+      type: 'info',
+      source: 'telegram',
+      category: 'telegram',
+      workspaceId: agentInfo.workspaceId,
+      metadata: { chatId, messageText: text, agentName: agentInfo.name, botName: agentInfo.name, direction: 'in' },
     });
     if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
   });
@@ -511,7 +504,7 @@ export async function handleAskAgent(args: any, executingAgentId: string, token?
       source: 'telegram'
     });
 
-    logAction('Agent Asked', `Asked ${targetAgent.name} and got reply.`, 'info', executingAgentId);
+    logAction('Agent Asked', `Asked ${targetAgent.name} and got reply.`, 'info', executingAgentId, 'telegram', 'message', executingAgent?.workspaceId, { senderName: executingAgent?.name, targetAgentName: targetAgent.name, messageId });
     logTaskWorkflow(targetAgent.id, 'Ask Agent Finished', `Completed request ${messageId} from ${senderName}.`, 'success');
     return { success: true, from: targetAgent.name, role: targetAgent.role, reply: stored?.reply || replyText };
   } catch (e: any) {

@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatSession, LLMUsage, ToolCall } from './types';
+import type { ChatMessage, ChatSession, ChatSessionOptions, LLMUsage, LLMResponse, ToolCall } from './types';
 import { companyTools } from '../lib/tool-definitions';
 
 export class ChatSessionWrapper implements ChatSession {
@@ -11,7 +11,8 @@ export class ChatSessionWrapper implements ChatSession {
     client: any,
     systemPrompt: string,
     model: string,
-    private onUsage?: (usage: LLMUsage) => void
+    private onUsage?: (usage: LLMUsage) => void,
+    private onResponse?: (messages: ChatMessage[], response: LLMResponse, model: string) => void
   ) {
     this.client = client;
     this.systemPrompt = systemPrompt;
@@ -55,6 +56,10 @@ export class ChatSessionWrapper implements ChatSession {
 
     if (response.usage && this.onUsage) {
       this.onUsage(response.usage);
+    }
+
+    if (this.onResponse) {
+      this.onResponse(messagesWithSystem, response, this.model);
     }
 
     return { text: response.content, toolCalls: response.toolCalls, usage: response.usage };

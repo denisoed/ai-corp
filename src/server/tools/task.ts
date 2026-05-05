@@ -40,7 +40,7 @@ export async function handleCreateTask(args: any, executingAgentId: string): Pro
       subtasks: []
     });
   });
-  logAction('Created Task via Telegram', `Added task "${args.title}" to board.`, 'success', executingAgentId);
+  logAction('Created Task via Telegram', `Added task "${args.title}" to board.`, 'success', executingAgentId, 'tool', 'task', getStore().agents.find(a => a.id === executingAgentId)?.workspaceId, { taskTitle: args.title });
   return { success: true, message: `Task "${args.title}" created successfully.` };
 }
 
@@ -58,7 +58,7 @@ export async function handleMoveTask(args: any, executingAgentId: string): Promi
       t.updatedAt = now;
     }
   });
-  logAction('Task Moved', `Moved "${task.title}" to ${args.newStatus}.`, 'info', executingAgentId);
+  logAction('Task Moved', `Moved "${task.title}" to ${args.newStatus}.`, 'info', executingAgentId, 'tool', 'task', getStore().agents.find(a => a.id === executingAgentId)?.workspaceId, { taskId: task.id, taskTitle: task.title, fromStatus: previousStatus, toStatus: nextStatus });
   if (previousStatus !== nextStatus) {
     void publishEvent(createTaskStatusChangedEvent({ ...task, status: nextStatus, updatedAt: now }, previousStatus, nextStatus, executingAgentId));
     if (nextStatus === 'Done') {
@@ -87,7 +87,7 @@ export async function handleAssignTask(args: any, executingAgentId: string): Pro
       t.updatedAt = now;
     }
   });
-  logAction('Task Assigned', `Assigned "${task.title}" to ${agent.name}.`, 'info', executingAgentId);
+  logAction('Task Assigned', `Assigned "${task.title}" to ${agent.name}.`, 'info', executingAgentId, 'tool', 'task', getStore().agents.find(a => a.id === executingAgentId)?.workspaceId, { taskId: task.id, taskTitle: task.title, targetAgentId: agent.id, targetAgentName: agent.name });
   if (previousAssigneeId !== agent.id) {
     void publishEvent(createTaskAssigneeChangedEvent({ ...task, assigneeId: agent.id, updatedAt: now }, previousAssigneeId, agent.id, executingAgentId));
   }
@@ -108,7 +108,7 @@ export async function handleUpdateTask(args: any, executingAgentId: string): Pro
     if (args.tags) t.tags = args.tags;
     t.updatedAt = now;
   });
-  logAction('Task Updated', `Updated "${task.title}".`, 'info', executingAgentId);
+  logAction('Task Updated', `Updated "${task.title}".`, 'info', executingAgentId, 'tool', 'task', getStore().agents.find(a => a.id === executingAgentId)?.workspaceId, { taskId: task.id, taskTitle: task.title });
   return { success: true, message: `Task "${task.title}" updated.` };
 }
 
@@ -119,7 +119,7 @@ export async function handleDeleteTask(args: any, executingAgentId: string): Pro
   mutateStore(s => {
     s.tasks = s.tasks.filter(t => t.id !== task.id);
   });
-  logAction('Task Deleted', `Deleted "${task.title}".`, 'warning', executingAgentId);
+  logAction('Task Deleted', `Deleted "${task.title}".`, 'warning', executingAgentId, 'tool', 'task', getStore().agents.find(a => a.id === executingAgentId)?.workspaceId, { taskId: task.id, taskTitle: task.title });
   return { success: true, message: `Task "${task.title}" deleted.` };
 }
 
@@ -156,7 +156,7 @@ export async function handleAddTaskComment(args: any, executingAgentId: string):
       void publishEvent(createTaskCommentAddedEvent(updated, latestComment, executingAgentId));
     }
   }
-  logAction('Comment Added', `Added comment to "${task.title}".`, 'info', executingAgentId);
+  logAction('Comment Added', `Added comment to "${task.title}".`, 'info', executingAgentId, 'tool', 'task', getStore().agents.find(a => a.id === executingAgentId)?.workspaceId, { taskId: task.id, taskTitle: task.title, authorName: agent?.name });
   return { success: true, message: `Comment added to "${task.title}".` };
 }
 
@@ -172,7 +172,7 @@ export async function handleCreateSubtask(args: any, executingAgentId: string): 
       t.updatedAt = now;
     }
   });
-  logAction('Subtask Created', `Added subtask "${args.subtaskTitle}" to "${task.title}".`, 'info', executingAgentId);
+  logAction('Subtask Created', `Added subtask "${args.subtaskTitle}" to "${task.title}".`, 'info', executingAgentId, 'tool', 'task', getStore().agents.find(a => a.id === executingAgentId)?.workspaceId, { taskId: task.id, taskTitle: task.title });
   return { success: true, message: `Subtask "${args.subtaskTitle}" created.` };
 }
 
@@ -191,7 +191,7 @@ export async function handleCompleteSubtask(args: any, executingAgentId: string)
       t.updatedAt = now;
     }
   });
-  logAction('Subtask Completed', `Completed "${args.subtaskTitle}" in "${task.title}".`, 'success', executingAgentId);
+  logAction('Subtask Completed', `Completed "${args.subtaskTitle}" in "${task.title}".`, 'success', executingAgentId, 'tool', 'task', getStore().agents.find(a => a.id === executingAgentId)?.workspaceId, { taskId: task.id, taskTitle: task.title });
   return { success: true, message: `Subtask "${args.subtaskTitle}" completed.` };
 }
 

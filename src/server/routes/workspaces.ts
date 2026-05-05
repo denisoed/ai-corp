@@ -202,7 +202,10 @@ router.post('/workspaces/init', (req, res) => {
       agentId: 'system',
       action: 'Workspace Initialized from .aicorp.yml',
       details: `Initialized "${def.workspace.slug}" with ${def.agents?.length || 0} agents from ${resolvedFolderPath}`,
-      type: 'success'
+      type: 'success',
+      source: 'system',
+      category: 'system',
+      metadata: { ymlPath: resolvedFolderPath, agentCount: def.agents?.length || 0, templateName: def.workspace.slug },
     });
     if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
   });
@@ -307,7 +310,10 @@ router.post('/templates/apply', (req, res) => {
       agentId: 'system',
       action: 'Template Applied',
       details: `Deployed template "${template.name}" to workspace "${targetWorkspace.name}"`,
-      type: 'success'
+      type: 'success',
+      source: 'system',
+      category: 'system',
+      metadata: { templateName: template.name, agentCount: newAgentIds.length },
     });
   });
 

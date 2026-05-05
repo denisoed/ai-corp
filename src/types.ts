@@ -239,6 +239,95 @@ export interface AgentMemory {
   };
 }
 
+export type LogSource = 'system' | 'agent' | 'cron' | 'telegram' | 'task-autopilot' | 'events' | 'tool' | 'llm';
+
+export type LogCategory = 'llm' | 'tool' | 'task' | 'agent' | 'cron' | 'telegram' | 'file' | 'event' | 'approval' | 'message' | 'role' | 'web' | 'connection' | 'system';
+
+export interface LogMetadata {
+  // LLM
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cachedTokens?: number;
+  reasoningTokens?: number;
+  cost?: number;
+  promptMessages?: unknown[];
+  responseContent?: string;
+  functionCalls?: string[];
+  durationMs?: number;
+  // Tool
+  toolName?: string;
+  toolArgs?: unknown;
+  toolResult?: unknown;
+  executingAgentName?: string;
+  // Task
+  taskId?: string;
+  taskTitle?: string;
+  fromStatus?: string;
+  toStatus?: string;
+  assigneeName?: string;
+  authorName?: string;
+  // Agent
+  targetAgentId?: string;
+  targetAgentName?: string;
+  role?: string;
+  agentStatus?: string;
+  // Cron
+  cronId?: string;
+  cronName?: string;
+  schedule?: string;
+  prompt?: string;
+  result?: string;
+  // Telegram
+  chatId?: string | number;
+  messageText?: string;
+  agentName?: string;
+  botName?: string;
+  direction?: 'in' | 'out';
+  // File
+  filePath?: string;
+  fileSize?: number;
+  operation?: string;
+  workspacePath?: string;
+  // Event
+  eventType?: string;
+  eventLabel?: string;
+  subscriberCount?: number;
+  deliveryChannel?: string;
+  deliveryStatus?: string;
+  subscriptionId?: string;
+  // Approval
+  approvalId?: string;
+  action?: string;
+  risk?: string;
+  estimatedCost?: number;
+  resolvedBy?: string;
+  // Message
+  messageId?: string;
+  senderName?: string;
+  receiverName?: string;
+  channel?: string;
+  isBroadcast?: boolean;
+  // Role
+  roleId?: string;
+  roleName?: string;
+  permission?: string;
+  // Web
+  url?: string;
+  query?: string;
+  resultCount?: number;
+  fetchedSize?: number;
+  // Connection
+  connectionType?: string;
+  agentAName?: string;
+  agentBName?: string;
+  // System
+  templateName?: string;
+  ymlPath?: string;
+  agentCount?: number;
+}
+
 export interface Log {
   id: string;
   timestamp: string;
@@ -246,6 +335,10 @@ export interface Log {
   action: string;
   details: string;
   type: 'info' | 'success' | 'warning' | 'error';
+  source?: LogSource;
+  category?: LogCategory;
+  workspaceId?: string;
+  metadata?: LogMetadata;
 }
 
 export type CommandRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'needs_approval' | 'denied' | 'error';

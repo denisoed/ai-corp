@@ -70,4 +70,5 @@ export interface ChatSession {
 
 export interface ChatSessionOptions {
   onUsage?: (usage: LLMUsage) => void;
+  onResponse?: (messages: ChatMessage[], response: LLMResponse, model: string) => void;
 }

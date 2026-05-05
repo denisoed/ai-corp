@@ -23,7 +23,7 @@ export async function handleCreateCron(args: any, executingAgentId: string): Pro
     enabled: true,
   });
 
-  logAction('Cron Created', `Created cron "${args.name}" for ${agent.name} (${args.schedule}).`, 'success', executingAgentId);
+  logAction('Cron Created', `Created cron "${args.name}" for ${agent.name} (${args.schedule}).`, 'success', executingAgentId, 'tool', 'cron', executingAgent?.workspaceId, { cronName: args.name, targetAgentName: agent.name, schedule: args.schedule, prompt: args.prompt });
   return { success: true, message: `Cron job "${args.name}" created for ${agent.name} with schedule "${args.schedule}".`, job };
 }
 
@@ -60,7 +60,7 @@ export async function handleDeleteCron(args: any, executingAgentId: string): Pro
   if (!job) return { success: false, error: `Cron "${args.cronName}" not found in your workspace.` };
 
   cronModule.deleteCronJob(job.id);
-  logAction('Cron Deleted', `Deleted cron "${job.name}".`, 'warning', executingAgentId);
+  logAction('Cron Deleted', `Deleted cron "${job.name}".`, 'warning', executingAgentId, 'tool', 'cron', executingAgent?.workspaceId, { cronName: job.name });
   return { success: true, message: `Cron job "${job.name}" deleted.` };
 }
 
@@ -83,7 +83,7 @@ export async function handleUpdateCron(args: any, executingAgentId: string): Pro
   if (args.description !== undefined) updates.description = args.description;
 
   const updated = cronModule.updateCronJob(job.id, updates);
-  logAction('Cron Updated', `Updated cron "${job.name}".`, 'info', executingAgentId);
+  logAction('Cron Updated', `Updated cron "${job.name}".`, 'info', executingAgentId, 'tool', 'cron', executingAgent?.workspaceId, { cronName: job.name });
   return { success: true, message: `Cron job "${job.name}" updated.`, job: updated };
 }
 
@@ -101,7 +101,7 @@ export async function handleRunCronNow(args: any, executingAgentId: string): Pro
 
   const result = await cronModule.runCronNow(job.id);
   if (result.success) {
-    logAction('Cron Run Manually', `Manually triggered cron "${job.name}".`, 'info', executingAgentId);
+    logAction('Cron Run Manually', `Manually triggered cron "${job.name}".`, 'info', executingAgentId, 'tool', 'cron', executingAgent?.workspaceId, { cronName: job.name });
     return { success: true, message: `Cron "${job.name}" executed successfully.` };
   }
   return { success: false, error: result.error };

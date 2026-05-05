@@ -43,7 +43,7 @@ export async function handleSendMessage(args: any, executingAgentId: string): Pr
     source: 'telegram'
   });
 
-  logAction('Message Sent', `Sent message to ${targetAgent.name} (id: ${message.id}).`, 'info', executingAgentId);
+  logAction('Message Sent', `Sent message to ${targetAgent.name} (id: ${message.id}).`, 'info', executingAgentId, 'tool', 'message', state.agents.find(a => a.id === executingAgentId)?.workspaceId, { messageId: message.id, senderName: executingAgent?.name, receiverName: targetAgent.name, channel: 'internal' });
 
   // Process the recipient immediately so the reply is generated in the same flow.
   try {
@@ -97,7 +97,7 @@ export async function handleReplyToMessage(args: any, executingAgentId: string):
     });
   }
 
-  logAction('Message Replied', `Replied to message from ${sender?.name || msg.fromAgentId}.`, 'info', executingAgentId);
+  logAction('Message Replied', `Replied to message from ${sender?.name || msg.fromAgentId}.`, 'info', executingAgentId, 'tool', 'message', state.agents.find(a => a.id === executingAgentId)?.workspaceId, { messageId: args.messageId, senderName: sender?.name, receiverName: replier, channel: 'internal' });
   return { success: true, message: 'Reply sent.' };
 }
 
@@ -171,7 +171,7 @@ export async function handleSendBroadcast(args: any, executingAgentId: string): 
     }
   }
 
-  logAction('Broadcast Sent', `Broadcast sent to ${sent} agent(s).`, 'info', executingAgentId);
+  logAction('Broadcast Sent', `Broadcast sent to ${sent} agent(s).`, 'info', executingAgentId, 'tool', 'message', state.agents.find(a => a.id === executingAgentId)?.workspaceId, { isBroadcast: true, receiverName: `${sent} agents` });
   return { success: true, message: `Broadcast sent to ${sent} agent(s).` };
 }
 
@@ -200,7 +200,7 @@ export async function handleSendTelegramMessage(args: any, executingAgentId: str
       return { success: false, error: `Telegram Send Error: ${errData.description}` };
     }
 
-    logAction('Telegram Message Sent', `Sent message to chat ${targetChatId}.`, 'info', executingAgentId);
+    logAction('Telegram Message Sent', `Sent message to chat ${targetChatId}.`, 'info', executingAgentId, 'tool', 'telegram', state.agents.find(a => a.id === executingAgentId)?.workspaceId, { chatId: targetChatId, agentName: agent.name, direction: 'out' });
     return { success: true, message: `Message sent to Telegram chat ${targetChatId}.` };
   } catch (e: any) {
     return { success: false, error: `Failed to send Telegram message: ${e.message}` };

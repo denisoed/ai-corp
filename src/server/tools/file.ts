@@ -32,7 +32,7 @@ export async function handleReadFile(args: any, executingAgentId: string): Promi
       ? content.slice(0, lines * 1000) + '\n... [truncated]'
       : content;
 
-    logAction('File Read', `Read "${args.path}" (${(content.length / 1024).toFixed(1)} KB).`, 'info', executingAgentId);
+    logAction('File Read', `Read "${args.path}" (${(content.length / 1024).toFixed(1)} KB).`, 'info', executingAgentId, 'tool', 'file', undefined, { filePath: args.path, fileSize: content.length, operation: 'read' });
     return { success: true, path: args.path, content: truncated, size: content.length };
   } catch (e: any) {
     if (e instanceof WorkspaceAccessDenied) return { success: false, error: e.message };
@@ -54,7 +54,7 @@ export async function handleWriteFile(args: any, executingAgentId: string): Prom
 
     fs.writeFileSync(targetPath, args.content, 'utf8');
 
-    logAction('File Written', `Wrote "${args.path}" (${args.content.length} chars).`, 'success', executingAgentId);
+    logAction('File Written', `Wrote "${args.path}" (${args.content.length} chars).`, 'success', executingAgentId, 'tool', 'file', undefined, { filePath: args.path, fileSize: args.content.length, operation: 'write' });
     return { success: true, message: `File "${args.path}" written (${args.content.length} chars).` };
   } catch (e: any) {
     if (e instanceof WorkspaceAccessDenied) return { success: false, error: e.message };
@@ -80,7 +80,7 @@ export async function handleDeleteFile(args: any, executingAgentId: string): Pro
 
     fs.unlinkSync(targetPath);
 
-    logAction('File Deleted', `Deleted "${args.path}".`, 'warning', executingAgentId);
+    logAction('File Deleted', `Deleted "${args.path}".`, 'warning', executingAgentId, 'tool', 'file', undefined, { filePath: args.path, operation: 'delete' });
     return { success: true, message: `File "${args.path}" deleted.` };
   } catch (e: any) {
     if (e instanceof WorkspaceAccessDenied) return { success: false, error: e.message };

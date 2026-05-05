@@ -16,7 +16,7 @@ export async function handleAddConnection(args: any, executingAgentId: string): 
   mutateStore(s => {
     addConnectionToStore(s, agent.id, target.id, cType);
   });
-  logAction('Connection Added', `${cType} connection: ${agent.name} ↔ ${target.name}`, 'info', executingAgentId);
+  logAction('Connection Added', `${cType} connection: ${agent.name} ↔ ${target.name}`, 'info', executingAgentId, 'tool', 'connection', undefined, { connectionType: cType, agentAName: agent.name, agentBName: target.name });
   return { success: true, message: `Created ${cType} connection between "${agent.name}" and "${target.name}".` };
 }
 
@@ -32,7 +32,7 @@ export async function handleRemoveConnection(args: any, executingAgentId: string
   });
 
   if (!removed) return { success: false, error: `No connection found between "${agent.name}" and "${target.name}".` };
-  logAction('Connection Removed', `Removed connection: ${agent.name} ↔ ${target.name}`, 'warning', executingAgentId);
+  logAction('Connection Removed', `Removed connection: ${agent.name} ↔ ${target.name}`, 'warning', executingAgentId, 'tool', 'connection', undefined, { agentAName: agent.name, agentBName: target.name });
   return { success: true, message: `All connections between "${agent.name}" and "${target.name}" removed.` };
 }
 
@@ -51,7 +51,7 @@ export async function handleUpdateConnection(args: any, executingAgentId: string
   mutateStore(s => {
     updateConnectionInStore(s, agent.id, target.id, cType);
   });
-  logAction('Connection Updated', `Changed to ${cType}: ${agent.name} ↔ ${target.name}`, 'info', executingAgentId);
+  logAction('Connection Updated', `Changed to ${cType}: ${agent.name} ↔ ${target.name}`, 'info', executingAgentId, 'tool', 'connection', undefined, { connectionType: cType, agentAName: agent.name, agentBName: target.name });
   return { success: true, message: `Connection between "${agent.name}" and "${target.name}" updated to ${cType}.` };
 }
 
@@ -99,7 +99,10 @@ export async function handleResolveApproval(args: any, executingAgentId: string)
       agentId: 'user',
       action: args.approved ? 'Approval Granted' : 'Approval Rejected',
       details: `User ${args.approved ? 'approved' : 'rejected'} action: ${approval.action}`,
-      type: args.approved ? 'success' : 'error'
+      type: args.approved ? 'success' : 'error',
+      source: 'tool' as const,
+      category: 'approval' as const,
+      metadata: { approvalId: approval.id, action: approval.action, risk: approval.risk, estimatedCost: approval.estimatedCost, resolvedBy: 'user' },
     });
     if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
 

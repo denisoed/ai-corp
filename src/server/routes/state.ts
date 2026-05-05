@@ -12,7 +12,15 @@ router.get('/state', (req, res) => {
 });
 
 router.post('/logs', (req, res) => {
-  const log = { ...req.body, id: crypto.randomUUID(), timestamp: new Date().toISOString() };
+  const log = {
+    ...req.body,
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    source: req.body.source,
+    category: req.body.category,
+    workspaceId: req.body.workspaceId,
+    metadata: req.body.metadata,
+  };
   mutateStore(s => {
     s.logs.unshift(log);
     if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);

@@ -39,7 +39,7 @@ export async function handleCreateRole(args: any, executingAgentId: string): Pro
     s.roles.push(newRole);
   });
 
-  logAction('Role Created', `Created role "${args.name}".`, 'success', executingAgentId);
+  logAction('Role Created', `Created role "${args.name}".`, 'success', executingAgentId, 'tool', 'role', workspaceId, { roleId: newRole.id, roleName: args.name });
   return { success: true, message: `Role "${args.name}" created.`, role: newRole };
 }
 
@@ -62,7 +62,7 @@ export async function handleDeleteRole(args: any, executingAgentId: string): Pro
     }
   });
 
-  logAction('Role Deleted', `Deleted role "${args.roleName}".`, 'warning', executingAgentId);
+  logAction('Role Deleted', `Deleted role "${args.roleName}".`, 'warning', executingAgentId, 'tool', 'role', executingAgent?.workspaceId, { roleName: args.roleName });
   return { success: true, message: `Role "${args.roleName}" deleted and revoked from all agents.` };
 }
 
@@ -87,7 +87,7 @@ export async function handleUpdateRole(args: any, executingAgentId: string): Pro
     }
   });
 
-  logAction('Role Updated', `Updated role "${args.roleName}".`, 'success', executingAgentId);
+  logAction('Role Updated', `Updated role "${args.roleName}".`, 'success', executingAgentId, 'tool', 'role', executingAgent?.workspaceId, { roleName: args.roleName });
   return { success: true, message: `Role "${args.roleName}" updated with ${permissions.length} permission(s).` };
 }
 
@@ -128,7 +128,7 @@ export async function handleGrantPermissionToRole(args: any, executingAgentId: s
     }
   });
 
-  logAction('Role Permission Granted', `Granted ${args.permissionType} to role "${args.roleName}".`, 'success', executingAgentId);
+  logAction('Role Permission Granted', `Granted ${args.permissionType} to role "${args.roleName}".`, 'success', executingAgentId, 'tool', 'role', executingAgent?.workspaceId, { roleName: args.roleName, permission: args.permissionType });
   return { success: true, message: `Permission "${args.permissionType}" added to role "${args.roleName}".` };
 }
 
@@ -155,7 +155,7 @@ export async function handleRevokePermissionFromRole(args: any, executingAgentId
 
   if (!removed) return { success: false, error: `Role "${args.roleName}" does not have permission "${args.permissionType}".` };
 
-  logAction('Role Permission Revoked', `Revoked ${args.permissionType} from role "${args.roleName}".`, 'warning', executingAgentId);
+  logAction('Role Permission Revoked', `Revoked ${args.permissionType} from role "${args.roleName}".`, 'warning', executingAgentId, 'tool', 'role', executingAgent?.workspaceId, { roleName: args.roleName, permission: args.permissionType });
   return { success: true, message: `Permission "${args.permissionType}" removed from role "${args.roleName}".` };
 }
 
@@ -219,7 +219,7 @@ export async function handleAssignRole(args: any, executingAgentId: string): Pro
     }
   });
 
-  logAction('Role Assigned', `Assigned role "${args.roleName}" to ${agent.name}.`, 'success', executingAgentId);
+  logAction('Role Assigned', `Assigned role "${args.roleName}" to ${agent.name}.`, 'success', executingAgentId, 'tool', 'role', executingAgent?.workspaceId, { roleName: args.roleName, targetAgentId: agent.id, targetAgentName: agent.name });
   return { success: true, message: `Role "${args.roleName}" assigned to ${agent.name}.` };
 }
 
@@ -243,7 +243,7 @@ export async function handleRevokeRole(args: any, executingAgentId: string): Pro
     }
   });
 
-  logAction('Role Revoked', `Revoked role "${args.roleName}" from ${agent.name}.`, 'warning', executingAgentId);
+  logAction('Role Revoked', `Revoked role "${args.roleName}" from ${agent.name}.`, 'warning', executingAgentId, 'tool', 'role', executingAgent?.workspaceId, { roleName: args.roleName, targetAgentId: agent.id, targetAgentName: agent.name });
   return { success: true, message: `Role "${args.roleName}" revoked from ${agent.name}.` };
 }
 
@@ -323,7 +323,7 @@ export async function handleGrantPermissionToAgent(args: any, executingAgentId: 
     }
   });
 
-  logAction('Permission Granted', `Granted "${args.permissionType}" to ${agent.name}.`, 'success', executingAgentId);
+  logAction('Permission Granted', `Granted "${args.permissionType}" to ${agent.name}.`, 'success', executingAgentId, 'tool', 'role', executingAgent?.workspaceId, { permission: args.permissionType, targetAgentName: agent.name });
   return { success: true, message: `Permission "${args.permissionType}" granted to ${agent.name}.` };
 }
 
@@ -343,6 +343,6 @@ export async function handleRevokePermissionFromAgent(args: any, executingAgentI
     }
   });
 
-  logAction('Permission Revoked', `Revoked "${args.permissionType}" from ${agent.name}.`, 'warning', executingAgentId);
+  logAction('Permission Revoked', `Revoked "${args.permissionType}" from ${agent.name}.`, 'warning', executingAgentId, 'tool', 'role', state.agents.find(a => a.id === executingAgentId)?.workspaceId, { permission: args.permissionType, targetAgentName: agent.name });
   return { success: true, message: `Permission "${args.permissionType}" revoked from ${agent.name}.` };
 }

@@ -6,15 +6,18 @@ import { executeTool } from './tools/index';
 
 const runningTaskRuns = new Set<string>();
 
-function logTask(agentId: string, action: string, details: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') {
+function logTask(agentId: string, action: string, details: string, type: 'info' | 'success' | 'warning' | 'error' = 'info', metadata?: Record<string, unknown>) {
   mutateStore(s => {
     s.logs.unshift({
       id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
       agentId,
       action,
-      details: `[TaskAutopilot] ${details}`,
-      type
+      details,
+      type,
+      source: 'task-autopilot',
+      category: 'task',
+      metadata,
     });
     if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
   });
@@ -70,12 +73,13 @@ async function runTaskAutopilot(task: Task): Promise<void> {
     }
   });
 
-  logTask(agent.id, 'Task Autopilot Started', `Starting autonomous work on "${task.title}".`, 'info');
+  const taskMeta = { taskId: task.id, taskTitle: task.title, assigneeName: agent.name, workspaceId: agent.workspaceId };
+  logTask(agent.id, 'Task Autopilot Started', `Starting autonomous work on "${task.title}".`, 'info', taskMeta);
 
   try {
     const memory = loadMemory(agent.id);
     if (!memory) {
-      logTask(agent.id, 'Task Autopilot Memory Missing', `No memory found for "${task.title}", using live context only.`, 'warning');
+      logTask(agent.id, 'Task Autopilot Memory Missing', `No memory found for "${task.title}", using live context only.`, 'warning', taskMeta);
     }
 
     const chatSession = createChatSession(agent, buildTaskPrompt(agent, task));
@@ -87,7 +91,7 @@ async function runTaskAutopilot(task: Task): Promise<void> {
     while (response.toolCalls && response.toolCalls.length > 0) {
       safetyCounter += 1;
       if (safetyCounter > 40) {
-        logTask(agent.id, 'Task Autopilot Safety Stop', `Stopping "${task.title}" after too many tool loops.`, 'warning');
+        logTask(agent.id, 'Task Autopilot Safety Stop', `Stopping "${task.title}" after too many tool loops.`, 'warning', taskMeta);
         break;
       }
 
@@ -101,12 +105,12 @@ async function runTaskAutopilot(task: Task): Promise<void> {
           continue;
         }
 
-        logTask(agent.id, 'Task Tool Call', `${call.function.name}(${JSON.stringify(args).slice(0, 400)})`, 'info');
+        logTask(agent.id, 'Task Tool Call', `${call.function.name}(${JSON.stringify(args).slice(0, 400)})`, 'info', { ...taskMeta, toolName: call.function.name, toolArgs: args });
         const result = await executeTool(call.function.name, args, agent.id);
         results.push(result);
 
         if (call.function.name === 'request_approval' || result?.status === 'pending_approval') {
-          logTask(agent.id, 'Task Autopilot Waiting For Approval', `Paused "${task.title}" until approval is resolved.`, 'warning');
+          logTask(agent.id, 'Task Autopilot Waiting For Approval', `Paused "${task.title}" until approval is resolved.`, 'warning', taskMeta);
           return;
         }
       }
@@ -130,9 +134,9 @@ async function runTaskAutopilot(task: Task): Promise<void> {
       finalTask.updatedAt = new Date().toISOString();
     }
 
-    logTask(agent.id, 'Task Autopilot Finished', `Finished autonomous pass for "${task.title}".`, 'success');
+    logTask(agent.id, 'Task Autopilot Finished', `Finished autonomous pass for "${task.title}".`, 'success', taskMeta);
   } catch (e: any) {
-    logTask(agent.id, 'Task Autopilot Failed', `Failed on "${task.title}": ${e.message}`, 'error');
+    logTask(agent.id, 'Task Autopilot Failed', `Failed on "${task.title}": ${e.message}`, 'error', taskMeta);
     throw e;
   } finally {
     mutateStore(s => {
@@ -159,7 +163,7 @@ export function startTaskAutopilotManager(): void {
       void runTaskAutopilot(task).catch(err => {
         const agent = getStore().agents.find(a => a.id === task.assigneeId);
         if (agent) {
-          logTask(agent.id, 'Task Autopilot Loop Error', `Unexpected error while running "${task.title}": ${err.message}`, 'error');
+          logTask(agent.id, 'Task Autopilot Loop Error', `Unexpected error while running "${task.title}": ${err.message}`, 'error', { taskId: task.id, taskTitle: task.title });
         }
       });
     }
@@ -216,6 +220,6 @@ export async function requestApproval(input: ApprovalRequestInput & { taskTitle?
     if (a) a.status = 'Blocked';
   });
 
-  logTask(agent.id, 'Approval Requested', `Requested approval for "${input.action}"${task ? ` on task ${task.title}` : ''}.`, 'warning');
+  logTask(agent.id, 'Approval Requested', `Requested approval for "${input.action}"${task ? ` on task ${task.title}` : ''}.`, 'warning', { ...(task ? { taskId: task.id, taskTitle: task.title } : {}), approvalId: approval.id, action: input.action, risk: input.risk, estimatedCost: input.estimatedCost });
   return { success: true, approvalId: approval.id };
 }

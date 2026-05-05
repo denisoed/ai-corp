@@ -38,7 +38,11 @@ export async function handleWebSearch(args: any, executingAgentId: string): Prom
       'Web Search',
       `Searched "${query.slice(0, 80)}" — ${results.length} results.`,
       'success',
-      executingAgentId
+      executingAgentId,
+      'tool',
+      'web',
+      undefined,
+      { query, resultCount: results.length }
     );
 
     return {
@@ -109,7 +113,11 @@ export async function handleFetchUrl(args: any, executingAgentId: string): Promi
         'URL Fetched',
         `Fetched "${rawUrl.slice(0, 80)}" — ${originalSize} bytes → ${text.length} chars.`,
         'success',
-        executingAgentId
+        executingAgentId,
+        'tool',
+        'web',
+        undefined,
+        { url: rawUrl, fetchedSize: originalSize }
       );
 
       return {

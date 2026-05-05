@@ -31,6 +31,7 @@ export function createChatSession(agent: Agent, systemPrompt: string, options: C
   const model = agent.model || provider.defaultModel || def.defaultModel;
 
   const client = createClient(providerId, provider.apiKey, baseUrl);
+
   const onUsage = options.onUsage || ((usage) => {
     const usageDetails = formatLlmUsage(usage);
     if (!usageDetails) return;
@@ -43,12 +44,57 @@ export function createChatSession(agent: Agent, systemPrompt: string, options: C
         action: 'LLM Usage',
         details: usageDetails,
         type: 'info',
+        source: 'llm',
+        category: 'llm',
+        workspaceId: agent.workspaceId,
+        metadata: {
+          model,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          totalTokens: usage.totalTokens,
+          cachedTokens: usage.cachedTokens,
+          reasoningTokens: usage.reasoningTokens,
+          cost: usage.cost,
+        },
       });
       if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
     });
   });
 
-  return new ChatSessionWrapper(client, systemPrompt, model, onUsage);
+  const onResponse = options.onResponse || ((messages, response, llmModel) => {
+    const funcNames = response.toolCalls?.map(c => c.function.name) || [];
+    const usage = response.usage;
+    const usageStr = usage ? formatLlmUsage(usage) : '';
+
+    mutateStore(s => {
+      s.logs.unshift({
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        agentId: agent.id,
+        action: 'LLM Response',
+        details: `Model: ${llmModel}${funcNames.length > 0 ? ` | Tools: ${funcNames.join(', ')}` : ''}${usageStr ? ` | ${usageStr}` : ''}`,
+        type: 'info',
+        source: 'llm',
+        category: 'llm',
+        workspaceId: agent.workspaceId,
+        metadata: {
+          model: llmModel,
+          inputTokens: usage?.inputTokens,
+          outputTokens: usage?.outputTokens,
+          totalTokens: usage?.totalTokens,
+          cachedTokens: usage?.cachedTokens,
+          reasoningTokens: usage?.reasoningTokens,
+          cost: usage?.cost,
+          promptMessages: messages.map(m => ({ role: m.role, content: m.content, tool_calls: m.tool_calls })),
+          responseContent: response.content,
+          functionCalls: funcNames.length > 0 ? funcNames : undefined,
+        },
+      });
+      if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
+    });
+  });
+
+  return new ChatSessionWrapper(client, systemPrompt, model, onUsage, onResponse);
 }
 
 export function createClient(

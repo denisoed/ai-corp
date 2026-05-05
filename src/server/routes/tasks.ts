@@ -5,15 +5,18 @@ import { resumeApprovedCommand } from '../command-runner';
 
 const router = Router();
 
-function logTaskRoute(agentId: string, action: string, details: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') {
+function logTaskRoute(agentId: string, action: string, details: string, type: 'info' | 'success' | 'warning' | 'error' = 'info', metadata?: Record<string, unknown>) {
   mutateStore(s => {
     s.logs.unshift({
       id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
       agentId,
       action,
-      details: `[TaskRoute] ${details}`,
-      type
+      details,
+      type,
+      source: 'system',
+      category: 'task',
+      metadata,
     });
     if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
   });
@@ -32,7 +35,7 @@ router.post('/tasks', (req, res) => {
   mutateStore(s => {
     s.tasks.push(task);
   });
-  logTaskRoute(req.headers['x-agent-id'] as string | undefined || 'system', 'Task Created', `Created task "${task.title}" with status ${task.status}.`, 'success');
+  logTaskRoute(req.headers['x-agent-id'] as string | undefined || 'system', 'Task Created', `Created task "${task.title}" with status ${task.status}.`, 'success', { taskId: task.id, taskTitle: task.title, toStatus: task.status });
   res.json(task);
 });
 
@@ -65,7 +68,7 @@ router.patch('/tasks/:id', (req, res) => {
       void publishEvent(createTaskCompletedEvent(updated, agentId));
     }
   }
-  logTaskRoute(agentId || 'system', 'Task Updated', `Updated task ${req.params.id} with fields: ${Object.keys(req.body || {}).join(', ') || 'none'}.`, 'info');
+  logTaskRoute(agentId || 'system', 'Task Updated', `Updated task ${req.params.id} with fields: ${Object.keys(req.body || {}).join(', ') || 'none'}.`, 'info', { taskId: req.params.id, toStatus: updated?.status, fromStatus: previousStatus });
   res.json(updated);
 });
 
@@ -93,7 +96,7 @@ router.post('/tasks/:taskId/comments', (req, res) => {
   if (updated) {
     void publishEvent(createTaskCommentAddedEvent(updated, comment, agentId));
   }
-  logTaskRoute(agentId || 'system', 'Task Comment Added', `Added comment to task ${req.params.taskId}.`, 'info');
+  logTaskRoute(agentId || 'system', 'Task Comment Added', `Added comment to task ${req.params.taskId}.`, 'info', { taskId: req.params.taskId, authorName: comment.authorName });
   res.json(updated);
 });
 
@@ -162,7 +165,10 @@ router.post('/approvals/:id/resolve', (req, res) => {
       agentId: 'user',
       action: approved ? 'Approval Granted' : 'Approval Rejected',
       details: `User ${approved ? 'approved' : 'rejected'} action: ${approval.action}`,
-      type: approved ? 'success' : 'error'
+      type: approved ? 'success' : 'error',
+      source: 'system' as const,
+      category: 'approval' as const,
+      metadata: { approvalId: approval.id, action: approval.action, risk: approval.risk, estimatedCost: approval.estimatedCost, resolvedBy: 'user' },
     });
     if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
 
@@ -173,7 +179,7 @@ router.post('/approvals/:id/resolve', (req, res) => {
     };
   });
 
-  logTaskRoute('user', 'Approval Resolved', `Approval ${req.params.id} resolved as ${approved ? 'approved' : 'rejected'}.`, approved ? 'success' : 'warning');
+  logTaskRoute('user', 'Approval Resolved', `Approval ${req.params.id} resolved as ${approved ? 'approved' : 'rejected'}.`, approved ? 'success' : 'warning', { approvalId: req.params.id });
 
   res.json(result);
 });
