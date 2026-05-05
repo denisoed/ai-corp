@@ -8,6 +8,7 @@ import cronRoutes from './routes/crons';
 import settingsRoutes from './routes/settings';
 import messageRoutes from './routes/messages';
 import subscriptionRoutes from './routes/subscriptions';
+import skillRoutes from './routes/skills';
 
 const router = Router();
 
@@ -20,5 +21,6 @@ router.use(cronRoutes);
 router.use(settingsRoutes);
 router.use(messageRoutes);
 router.use(subscriptionRoutes);
+router.use(skillRoutes);
 
 export default router;

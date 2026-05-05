@@ -13,6 +13,7 @@ export type PermissionType =
   | 'system:manage_permissions'
   | 'system:manage_roles'
   | 'system:manage_crons'
+  | 'system:manage_skills'
   | 'system:broadcast'
   | 'system:web_search'
   | 'system:fetch_url';
@@ -20,6 +21,16 @@ export type PermissionType =
 export interface PermissionEntry {
   type: PermissionType;
   scope: 'all' | string[];
+}
+
+export interface SkillDefinition {
+  id: string;
+  org: string;
+  name: string;
+  url: string;
+  description: string;
+  category: string;
+  skillMdUrl: string;
 }
 
 export interface Role {
@@ -326,6 +337,8 @@ export interface LogMetadata {
   templateName?: string;
   ymlPath?: string;
   agentCount?: number;
+  // Skills
+  skillId?: string;
 }
 
 export interface Log {

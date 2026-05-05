@@ -939,5 +939,35 @@ export const companyTools = [
         required: ['agentName', 'permissionType']
       }
     }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'install_skill',
+      description: 'Install a skill from the skills catalog onto an agent (yourself by default). Skills provide specialized knowledge for frameworks, tools, and platforms. Requires system:manage_skills permission to install on other agents.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          agentName: { type: 'string' as const, description: 'Optional. Name of the agent to install skill on. Defaults to yourself if omitted.' },
+          skillId: { type: 'string' as const, description: 'The skill ID in "org/name" format (e.g. "vercel-labs/react-best-practices", "stripe/stripe-best-practices")' }
+        },
+        required: ['skillId']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'uninstall_skill',
+      description: 'Remove an installed skill from an agent (yourself by default). Requires system:manage_skills permission to uninstall from other agents.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          agentName: { type: 'string' as const, description: 'Optional. Name of the agent to uninstall skill from. Defaults to yourself if omitted.' },
+          skillId: { type: 'string' as const, description: 'The skill ID to remove (e.g. "vercel-labs/react-best-practices")' }
+        },
+        required: ['skillId']
+      }
+    }
   }
 ];

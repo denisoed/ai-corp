@@ -473,6 +473,7 @@ export function ensureDefaultRoles(workspaceId: string): void {
         { type: 'system:manage_permissions', scope: 'all' },
         { type: 'system:manage_roles', scope: 'all' },
         { type: 'system:manage_crons', scope: 'all' },
+        { type: 'system:manage_skills', scope: 'all' },
         { type: 'system:broadcast', scope: 'all' },
         { type: 'system:web_search', scope: 'all' },
         { type: 'system:fetch_url', scope: 'all' },

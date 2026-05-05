@@ -1,13 +1,13 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useStore } from '../../store';
-import type { PermissionType, PermissionEntry, LLMProvider } from '../../types';
+import type { PermissionType, PermissionEntry, LLMProvider, SkillDefinition } from '../../types';
 import * as d3 from 'd3';
 import { Card, CardContent } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Input } from '../ui/Input';
 import { FolderPicker } from '../ui/FolderPicker';
-import { Plus, Briefcase, Users as UsersIcon, Trash2, X, User, Link2, MessageCircle, AlertTriangle, FolderKanban, FileText, Pencil, Check, Clock, Play, RotateCw, Shield, ShieldCheck, Eye, Edit3, List, Trash, Sparkles } from 'lucide-react';
+import { Plus, Briefcase, Users as UsersIcon, Trash2, X, User, Link2, MessageCircle, AlertTriangle, FolderKanban, FileText, Pencil, Check, Clock, Play, RotateCw, Shield, ShieldCheck, Eye, Edit3, List, Trash, Sparkles, Puzzle, ExternalLink, Search } from 'lucide-react';
 import { COMPANY_TEMPLATES } from '../../lib/templates';
 import { ReactFlow, Background, Controls, Node, Edge, useNodesState, useEdgesState } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -17,6 +17,7 @@ import { CustomSelect, SelectItem } from '../ui/CustomSelect';
 import { SearchableSelect } from '../ui/SearchableSelect';
 import { MultiSelect } from '../ui/MultiSelect';
 import { Tabs, TabPanel } from '../ui/Tabs';
+import { renderMarkdown } from '../../lib/markdown';
 import { cn } from '../../lib/utils';
 
 const WORKSPACE_COLORS = [
@@ -111,7 +112,7 @@ function computeTree(wsAgents: any[], rootId: string) {
 }
 
 export function WorkspacesList() {
-  const { agents, workspaces, crons, roles, addAgent, removeAgent, updateAgent, addWorkspace, updateWorkspace, removeWorkspace, assignAgentToWorkspace, applyTemplate, initWorkspaceFromYml, addLog, runCron, removeCron, updateCron, fetchCrons, assignRole, revokeRole, grantPermissionToAgent, revokePermissionFromAgent } = useStore();
+  const { agents, workspaces, crons, roles, addAgent, removeAgent, updateAgent, addWorkspace, updateWorkspace, removeWorkspace, assignAgentToWorkspace, applyTemplate, initWorkspaceFromYml, addLog, runCron, removeCron, updateCron, fetchCrons, assignRole, revokeRole, grantPermissionToAgent, revokePermissionFromAgent, fetchSkillsCatalog, installSkill, uninstallSkill, createCustomSkill, deleteCustomSkill, skillsCatalog, skillsCatalogLoading } = useStore();
   const [showAddAgent, setShowAddAgent] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
@@ -128,7 +129,8 @@ export function WorkspacesList() {
   const [newAgentSoul, setNewAgentSoul] = useState('');
   const [newAgentIdentity, setNewAgentIdentity] = useState('');
   const [newAgentRoleDoc, setNewAgentRoleDoc] = useState('');
-  const [formTab, setFormTab] = useState<'basic' | 'personality' | 'permissions'>('basic');
+  const [newAgentSkills, setNewAgentSkills] = useState<string[]>([]);
+  const [formTab, setFormTab] = useState<'basic' | 'personality' | 'skills' | 'permissions'>('basic');
   const [newAgentRoles, setNewAgentRoles] = useState<string[]>([]);
   const [personalityFiles, setPersonalityFiles] = useState<Record<string, string> | null>(null);
   const [editingFile, setEditingFile] = useState<string | null>(null);
@@ -138,6 +140,14 @@ export function WorkspacesList() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [activeAgentTab, setActiveAgentTab] = useState('info');
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('settings');
+  const [skillSearch, setSkillSearch] = useState('');
+  const [selectedSkill, setSelectedSkill] = useState<SkillDefinition | null>(null);
+  const [skillMdContent, setSkillMdContent] = useState('');
+  const [skillMdLoading, setSkillMdLoading] = useState(false);
+  const [showCreateSkill, setShowCreateSkill] = useState(false);
+  const [newSkillName, setNewSkillName] = useState('');
+  const [newSkillDescription, setNewSkillDescription] = useState('');
+  const [creatingSkill, setCreatingSkill] = useState(false);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [settingsData, setSettingsData] = useState<{ providers: Record<string, LLMProvider>; defaultProviderId: string } | null>(null);
   const [agentModels, setAgentModels] = useState<Record<string, string[]>>({});
@@ -173,6 +183,36 @@ export function WorkspacesList() {
       .then(data => setSettingsData({ providers: data.providers || {}, defaultProviderId: data.defaultProviderId || '' }))
       .catch(() => setSettingsData(null));
   }, []);
+
+  useEffect(() => {
+    if (activeAgentTab === 'skills' || formTab === 'skills') {
+      if (skillsCatalog.length === 0 && !skillsCatalogLoading) {
+        fetchSkillsCatalog();
+      }
+    }
+  }, [activeAgentTab, formTab]);
+
+  useEffect(() => {
+    if (!selectedSkill) {
+      setSkillMdContent('');
+      return;
+    }
+    if (!selectedSkill.skillMdUrl) {
+      setSkillMdContent('');
+      setSkillMdLoading(false);
+      return;
+    }
+    setSkillMdContent('');
+    setSkillMdLoading(true);
+    fetch(selectedSkill.skillMdUrl)
+      .then(r => {
+        if (!r.ok) throw new Error('Not found');
+        return r.text();
+      })
+      .then(text => setSkillMdContent(text))
+      .catch(() => setSkillMdContent(''))
+      .finally(() => setSkillMdLoading(false));
+  }, [selectedSkill]);
 
   const loadAgentModels = useCallback(async (providerId: string) => {
     if (agentModels[providerId] || loadingAgentModels[providerId]) return;
@@ -845,7 +885,7 @@ export function WorkspacesList() {
       slug: (formData.get('slug') as string) || (formData.get('name') as string).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
       parentId: newAgentParent || undefined,
       status: 'Idle',
-      skills: (formData.get('skills') as string).split(',').map(s => s.trim()).filter(Boolean),
+      skills: newAgentSkills,
       collaborators: newAgentCollabs,
       workspaceId: newAgentWorkspace || undefined,
       soul: newAgentSoul || undefined,
@@ -863,6 +903,7 @@ export function WorkspacesList() {
     setNewAgentIdentity('');
     setNewAgentRoleDoc('');
     setNewAgentRoles([]);
+    setNewAgentSkills([]);
     setNewAgentSlug('');
     setShowAddAgent(false);
   };
@@ -952,9 +993,145 @@ export function WorkspacesList() {
                 <Controls className="!bg-zinc-900 border !border-zinc-800 !fill-white opacity-0 group-hover:opacity-100 transition-opacity" showInteractive={false} />
               </ReactFlow>
             </>
-          )}
-        </div>
+      )}
 
+      {selectedSkill && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="absolute inset-0" onClick={() => setSelectedSkill(null)} />
+          <div className="relative w-full max-w-lg bg-zinc-950 border border-zinc-800 xl:rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+            <div className="p-5 border-b border-zinc-800 flex justify-between items-start shrink-0">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono">
+                    {selectedSkill.category}
+                  </span>
+                  {selectedSkill.url && selectedSkill.org !== 'custom' && (
+                    <a
+                      href={selectedSkill.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                      title="Open skill URL"
+                    >
+                      <ExternalLink size={14} />
+                    </a>
+                  )}
+                </div>
+                <h3 className="text-base font-semibold text-zinc-100">
+                  {selectedSkill.org}/<span className="text-indigo-400">{selectedSkill.name}</span>
+                </h3>
+              </div>
+              <button
+                onClick={() => setSelectedSkill(null)}
+                className="text-zinc-500 hover:text-white shrink-0 ml-3"
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto flex-1">
+              {skillMdLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <RotateCw size={20} className="animate-spin text-zinc-600" />
+                  <span className="text-xs text-zinc-600 ml-2">Loading SKILL.md...</span>
+                </div>
+              ) : skillMdContent ? (
+                <div
+                  className="markdown-body text-sm text-zinc-300"
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(skillMdContent) }}
+                />
+              ) : (
+                <>
+                  <p className="text-sm text-zinc-300 leading-relaxed">
+                    {selectedSkill.description}
+                  </p>
+                  {selectedSkill.org !== 'custom' && (
+                    <p className="text-xs text-zinc-600 mt-3 italic">
+                      SKILL.md not available from repository. Showing catalog description.
+                    </p>
+                  )}
+                </>
+              )}
+              {selectedSkill.url && selectedSkill.org !== 'custom' && (
+                <div className="mt-4 pt-4 border-t border-zinc-800">
+                  <a
+                    href={selectedSkill.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors inline-flex items-center gap-1"
+                  >
+                    <ExternalLink size={12} />
+                    Open skill page
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCreateSkill && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="absolute inset-0" onClick={() => setShowCreateSkill(false)} />
+          <div className="relative w-full max-w-md bg-zinc-950 border border-zinc-800 xl:rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="p-5 border-b border-zinc-800 flex justify-between items-start shrink-0">
+              <div>
+                <h3 className="text-lg font-semibold text-zinc-100">Create Custom Skill</h3>
+                <p className="text-xs text-zinc-500 mt-1">Custom skills persist locally and can be installed on any agent.</p>
+              </div>
+              <button onClick={() => setShowCreateSkill(false)} className="text-zinc-500 hover:text-white shrink-0 ml-3">×</button>
+            </div>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!newSkillName.trim() || !newSkillDescription.trim()) return;
+                setCreatingSkill(true);
+                try {
+                  await createCustomSkill(newSkillName.trim(), newSkillDescription.trim());
+                  setShowCreateSkill(false);
+                  setNewSkillName('');
+                  setNewSkillDescription('');
+                } catch (err) {
+                  console.error('Failed to create skill:', err);
+                } finally {
+                  setCreatingSkill(false);
+                }
+              }}
+            >
+              <div className="p-5 space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Name</label>
+                  <Input
+                    value={newSkillName}
+                    onChange={(e) => setNewSkillName(e.target.value)}
+                    placeholder="e.g. My Custom Workflow"
+                    className="bg-zinc-900"
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Description</label>
+                  <textarea
+                    value={newSkillDescription}
+                    onChange={(e) => setNewSkillDescription(e.target.value)}
+                    rows={4}
+                    placeholder="What this skill does, when to use it..."
+                    className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 font-mono focus-visible:outline-none shadow-inner focus-visible:ring-1 focus-visible:ring-indigo-500 focus-visible:border-indigo-500 w-full resize-none"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="p-5 border-t border-zinc-800 flex justify-end gap-3 shrink-0">
+                <Button variant="ghost" type="button" onClick={() => setShowCreateSkill(false)} className="text-zinc-400">Cancel</Button>
+                <Button type="submit" disabled={creatingSkill} className="bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25">
+                  {creatingSkill ? 'Creating...' : 'Create Skill'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      </div>
         {selectedAgent && (
           <div className="w-80 border border-zinc-800 rounded-xl bg-zinc-900 flex flex-col shrink-0 overflow-y-auto animate-in slide-in-from-right-4 duration-300">
             <div className="p-4 border-b border-zinc-800 flex justify-between items-start sticky top-0 bg-zinc-900/90 backdrop-blur-sm z-10">
@@ -974,6 +1151,7 @@ export function WorkspacesList() {
                 { id: 'personality', label: 'Personality', icon: <FileText size={14} /> },
                 { id: 'relationships', label: 'Team', icon: <Link2 size={14} /> },
                 { id: 'telegram', label: 'Telegram', icon: <MessageCircle size={14} /> },
+                { id: 'skills', label: 'Skills', icon: <Puzzle size={14} /> },
                 { id: 'permissions', label: 'Permissions', icon: <Shield size={14} /> },
               ]}
               activeTab={activeAgentTab}
@@ -1217,6 +1395,126 @@ export function WorkspacesList() {
                     </div>
                   )}
                 </div>
+              </TabPanel>
+
+              <TabPanel id="skills" activeTab={activeAgentTab} className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Input
+                    placeholder="Search skills..."
+                    value={skillSearch}
+                    onChange={(e) => setSkillSearch(e.target.value)}
+                    className="bg-zinc-950 flex-1 text-xs h-8"
+                  />
+                  <a
+                    href="https://github.com/VoltAgent/awesome-agent-skills"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+                    title="Skills source on GitHub"
+                  >
+                    <ExternalLink size={16} />
+                  </a>
+                  <button
+                    onClick={() => fetchSkillsCatalog(true)}
+                    disabled={skillsCatalogLoading}
+                    className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0 disabled:opacity-30"
+                    title="Refresh catalog from GitHub"
+                  >
+                    <RotateCw size={14} className={skillsCatalogLoading ? 'animate-spin' : ''} />
+                  </button>
+                  <button
+                    onClick={() => { setNewSkillName(''); setNewSkillDescription(''); setShowCreateSkill(true); }}
+                    className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+                    title="Create custom skill"
+                  >
+                    <Plus size={16} />
+                  </button>
+                </div>
+
+                {skillsCatalogLoading && skillsCatalog.length === 0 ? (
+                  <div className="flex items-center justify-center py-8">
+                    <RotateCw size={20} className="animate-spin text-zinc-600" />
+                    <span className="text-xs text-zinc-600 ml-2">Loading catalog...</span>
+                  </div>
+                ) : skillsCatalog.length === 0 ? (
+                  <p className="text-xs text-zinc-600 py-4 text-center">Skills catalog is empty. Try refreshing.</p>
+                ) : (
+                  <div className="space-y-2 max-h-[calc(100vh-460px)] overflow-y-auto pr-0.5">
+                    {skillsCatalog
+                      .sort((a, b) => {
+                        const aInstalled = (selectedAgent.skills || []).includes(a.id);
+                        const bInstalled = (selectedAgent.skills || []).includes(b.id);
+                        if (aInstalled && !bInstalled) return -1;
+                        if (!aInstalled && bInstalled) return 1;
+                        return a.id.localeCompare(b.id);
+                      })
+                      .filter(s => {
+                        if (!skillSearch.trim()) return true;
+                        const q = skillSearch.toLowerCase();
+                        return s.id.toLowerCase().includes(q) ||
+                          s.description.toLowerCase().includes(q) ||
+                          s.category.toLowerCase().includes(q) ||
+                          s.org.toLowerCase().includes(q);
+                      })
+                      .map(skill => {
+                        const isInstalled = (selectedAgent.skills || []).includes(skill.id);
+                        return (
+                          <div
+                            key={skill.id}
+                            className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 hover:border-zinc-700 transition-colors cursor-pointer"
+                            onClick={() => setSelectedSkill(skill)}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5 mb-0.5">
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono">
+                                    {skill.category}
+                                  </span>
+                                </div>
+                                <div className="text-xs font-medium text-zinc-200 mb-0.5">
+                                  {skill.org}/<span className="text-indigo-400">{skill.name}</span>
+                                </div>
+                                <p className="text-[11px] text-zinc-500 leading-tight line-clamp-2">
+                                  {skill.description}
+                                </p>
+                              </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (isInstalled) {
+                                    uninstallSkill(selectedAgent.id, skill.id);
+                                  } else {
+                                    installSkill(selectedAgent.id, skill.id);
+                                  }
+                                }}
+                                className={cn(
+                                  "shrink-0 px-2.5 py-1 rounded text-[10px] font-medium transition-all border",
+                                  isInstalled
+                                    ? "bg-indigo-500/15 text-indigo-300 border-indigo-500/30 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/20"
+                                    : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700 hover:text-zinc-200"
+                                )}
+                              >
+                                {isInstalled ? 'Unuse' : 'Use'}
+                              </button>
+                              {skill.org === 'custom' && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    deleteCustomSkill(skill.id);
+                                    if (isInstalled) uninstallSkill(selectedAgent.id, skill.id);
+                                  }}
+                                  className="shrink-0 px-1.5 py-1 rounded text-[10px] text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                                  title="Delete custom skill"
+                                >
+                                  <Trash2 size={11} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
               </TabPanel>
 
               <TabPanel id="permissions" activeTab={activeAgentTab} className="space-y-3">
@@ -1597,7 +1895,7 @@ export function WorkspacesList() {
 
       {showAddAgent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="absolute inset-0" onClick={() => { setShowAddAgent(false); setNewAgentSoul(''); setNewAgentIdentity(''); setNewAgentRoleDoc(''); setNewAgentRoles([]); setNewAgentSlug(''); }} />
+          <div className="absolute inset-0" onClick={() => { setShowAddAgent(false); setNewAgentSoul(''); setNewAgentIdentity(''); setNewAgentRoleDoc(''); setNewAgentRoles([]); setNewAgentSkills([]); setNewAgentSlug(''); }} />
           <div className="relative w-full max-w-2xl bg-zinc-950 border border-zinc-800 xl:rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-6 border-b border-zinc-800 flex justify-between items-start bg-zinc-900/40 shrink-0">
               <div>
@@ -1610,6 +1908,7 @@ export function WorkspacesList() {
             <div className="flex border-b border-zinc-800 bg-zinc-950/50 shrink-0">
               <button type="button" onClick={() => setFormTab('basic')} className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${formTab === 'basic' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}>Basic Info</button>
               <button type="button" onClick={() => setFormTab('personality')} className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${formTab === 'personality' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}>Personality</button>
+              <button type="button" onClick={() => setFormTab('skills')} className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${formTab === 'skills' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}>Skills</button>
               <button type="button" onClick={() => setFormTab('permissions')} className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${formTab === 'permissions' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}>Permissions</button>
             </div>
 
@@ -1652,11 +1951,7 @@ export function WorkspacesList() {
                       placeholder="Select collaborators"
                     />
                   </div>
-                  <div className="space-y-2 sm:col-span-2">
-                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Skills (comma separated)</label>
-                    <Input name="skills" required placeholder="React, Node.js, Planning" className="bg-zinc-900 shadow-inner border-zinc-800" />
                   </div>
-                </div>
                 )}
 
                 {formTab === 'personality' && (
@@ -1674,6 +1969,132 @@ export function WorkspacesList() {
                       <label className="text-xs font-bold text-zinc-400 uppercase tracking-widest">SOUL — Core principles and boundaries</label>
                       <textarea value={newAgentSoul} onChange={e => setNewAgentSoul(e.target.value)} rows={5} className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 font-mono focus-visible:outline-none shadow-inner focus-visible:ring-1 focus-visible:ring-indigo-500 focus-visible:border-indigo-500" placeholder="# Core Principles&#10;&#10;## Values&#10;...&#10;&#10;## Boundaries — NEVER&#10;- ...&#10;&#10;## Priority Framework&#10;1. ..." />
                     </div>
+                  </div>
+                )}
+
+                {formTab === 'skills' && (
+                  <div className="space-y-3 pt-2">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        placeholder="Search skills..."
+                        value={skillSearch}
+                        onChange={(e) => setSkillSearch(e.target.value)}
+                        className="bg-zinc-900 flex-1 text-xs h-8"
+                      />
+                      <a
+                        href="https://github.com/VoltAgent/awesome-agent-skills"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+                        title="Skills source on GitHub"
+                      >
+                        <ExternalLink size={16} />
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => fetchSkillsCatalog(true)}
+                        disabled={skillsCatalogLoading}
+                        className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0 disabled:opacity-30"
+                        title="Refresh catalog from GitHub"
+                      >
+                        <RotateCw size={14} className={skillsCatalogLoading ? 'animate-spin' : ''} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setNewSkillName(''); setNewSkillDescription(''); setShowCreateSkill(true); }}
+                        className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+                        title="Create custom skill"
+                      >
+                        <Plus size={16} />
+                      </button>
+                    </div>
+                    <p className="text-xs text-zinc-500 leading-tight">Select skills from the catalog to install on this agent.</p>
+                    {skillsCatalogLoading && skillsCatalog.length === 0 ? (
+                      <div className="flex items-center justify-center py-8">
+                        <RotateCw size={20} className="animate-spin text-zinc-600" />
+                        <span className="text-xs text-zinc-600 ml-2">Loading catalog...</span>
+                      </div>
+                    ) : skillsCatalog.length === 0 ? (
+                      <p className="text-xs text-zinc-600 py-4 text-center">Skills catalog is empty. Try refreshing.</p>
+                    ) : (
+                      <div className="space-y-2 max-h-64 overflow-y-auto">
+                        {skillsCatalog
+                          .sort((a, b) => {
+                            const aInstalled = newAgentSkills.includes(a.id);
+                            const bInstalled = newAgentSkills.includes(b.id);
+                            if (aInstalled && !bInstalled) return -1;
+                            if (!aInstalled && bInstalled) return 1;
+                            return a.id.localeCompare(b.id);
+                          })
+                          .filter(s => {
+                            if (!skillSearch.trim()) return true;
+                            const q = skillSearch.toLowerCase();
+                            return s.id.toLowerCase().includes(q) ||
+                              s.description.toLowerCase().includes(q) ||
+                              s.category.toLowerCase().includes(q) ||
+                              s.org.toLowerCase().includes(q);
+                          })
+                          .map(skill => {
+                            const isInstalled = newAgentSkills.includes(skill.id);
+                            return (
+                              <div
+                                key={skill.id}
+                                className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 hover:border-zinc-700 transition-colors cursor-pointer"
+                                onClick={() => setSelectedSkill(skill)}
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-1.5 mb-0.5">
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono">
+                                        {skill.category}
+                                      </span>
+                                    </div>
+                                    <div className="text-xs font-medium text-zinc-200 mb-0.5">
+                                      {skill.org}/<span className="text-indigo-400">{skill.name}</span>
+                                    </div>
+                                    <p className="text-[11px] text-zinc-500 leading-tight line-clamp-2">
+                                      {skill.description}
+                                    </p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (isInstalled) {
+                                        setNewAgentSkills(newAgentSkills.filter(id => id !== skill.id));
+                                      } else {
+                                        setNewAgentSkills([...newAgentSkills, skill.id]);
+                                      }
+                                    }}
+                                    className={cn(
+                                      "shrink-0 px-2.5 py-1 rounded text-[10px] font-medium transition-all border",
+                                      isInstalled
+                                        ? "bg-indigo-500/15 text-indigo-300 border-indigo-500/30 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/20"
+                                        : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700 hover:text-zinc-200"
+                                    )}
+                                  >
+                                    {isInstalled ? 'Unuse' : 'Use'}
+                                  </button>
+                                  {skill.org === 'custom' && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteCustomSkill(skill.id);
+                                        setNewAgentSkills(newAgentSkills.filter(id => id !== skill.id));
+                                      }}
+                                      className="shrink-0 px-1.5 py-1 rounded text-[10px] text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                                      title="Delete custom skill"
+                                    >
+                                      <Trash2 size={11} />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1732,7 +2153,7 @@ export function WorkspacesList() {
             </div>
 
             <div className="p-6 border-t border-zinc-800 bg-zinc-950 flex justify-end gap-3 shrink-0">
-              <Button variant="ghost" type="button" onClick={() => { setShowAddAgent(false); setNewAgentSoul(''); setNewAgentIdentity(''); setNewAgentRoleDoc(''); setNewAgentRoles([]); setNewAgentSlug(''); }}>Cancel</Button>
+              <Button variant="ghost" type="button" onClick={() => { setShowAddAgent(false); setNewAgentSoul(''); setNewAgentIdentity(''); setNewAgentRoleDoc(''); setNewAgentRoles([]); setNewAgentSkills([]); setNewAgentSlug(''); }}>Cancel</Button>
               <Button type="submit" form="add-agent-form" className="bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25">Hire Agent</Button>
             </div>
           </div>

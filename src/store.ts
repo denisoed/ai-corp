@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Agent, Task, Log, Comment, TaskStatus, CompanyTemplate, ApprovalRequest, Workspace, CronJob, AgentMessage, Role, PermissionEntry, PermissionType, EventSubscription, DomainEventType, EventDefinition, CommandRun } from './types';
+import { Agent, Task, Log, Comment, TaskStatus, CompanyTemplate, ApprovalRequest, Workspace, CronJob, AgentMessage, Role, PermissionEntry, PermissionType, EventSubscription, DomainEventType, EventDefinition, CommandRun, SkillDefinition } from './types';
 
 const API_BASE = '/api';
 
@@ -50,6 +50,9 @@ interface AppState {
   totalCost: number;
   loading: boolean;
 
+  skillsCatalog: SkillDefinition[];
+  skillsCatalogLoading: boolean;
+
   fetchState: () => Promise<void>;
   addAgent: (agent: Omit<Agent, 'id'> & { soul?: string; identity?: string; roleDoc?: string }) => Promise<void>;
   updateAgent: (id: string, agent: Partial<Agent>) => Promise<void>;
@@ -90,6 +93,12 @@ interface AppState {
   createSubscription: (subscription: Omit<EventSubscription, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
   updateSubscription: (id: string, updates: Partial<Pick<EventSubscription, 'enabled' | 'channel' | 'instructions'>> & { filters?: Partial<EventSubscription['filters']> }) => Promise<void>;
   deleteSubscription: (id: string) => Promise<void>;
+
+  fetchSkillsCatalog: (forceRefresh?: boolean) => Promise<void>;
+  installSkill: (agentId: string, skillId: string) => Promise<void>;
+  uninstallSkill: (agentId: string, skillId: string) => Promise<void>;
+  createCustomSkill: (name: string, description: string) => Promise<SkillDefinition>;
+  deleteCustomSkill: (skillId: string) => Promise<void>;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -106,6 +115,9 @@ export const useStore = create<AppState>((set, get) => ({
   eventDefinitions: [],
   totalCost: 0,
   loading: true,
+
+  skillsCatalog: [],
+  skillsCatalogLoading: false,
 
   fetchState: async () => {
     try {
@@ -330,6 +342,45 @@ export const useStore = create<AppState>((set, get) => ({
   deleteSubscription: async (id) => {
     await apiDelete(`/subscriptions/${id}`);
     set({ subscriptions: get().subscriptions.filter(s => s.id !== id) });
+  },
+
+  fetchSkillsCatalog: async (forceRefresh?) => {
+    set({ skillsCatalogLoading: true });
+    try {
+      const qs = forceRefresh ? '?refresh=true' : '';
+      const data = await apiGet(`/skills/catalog${qs}`);
+      set({ skillsCatalog: data.skills, skillsCatalogLoading: false });
+    } catch (e) {
+      console.error('Failed to fetch skills catalog:', e);
+      set({ skillsCatalogLoading: false });
+    }
+  },
+
+  installSkill: async (agentId, skillId) => {
+    const agent = get().agents.find(a => a.id === agentId);
+    if (!agent) return;
+    const newSkills = [...(agent.skills || []), skillId];
+    await apiPatch(`/agents/${agentId}`, { skills: newSkills });
+    set({ agents: get().agents.map(a => a.id === agentId ? { ...a, skills: newSkills } : a) });
+  },
+
+  uninstallSkill: async (agentId, skillId) => {
+    const agent = get().agents.find(a => a.id === agentId);
+    if (!agent) return;
+    const newSkills = (agent.skills || []).filter(s => s !== skillId);
+    await apiPatch(`/agents/${agentId}`, { skills: newSkills });
+    set({ agents: get().agents.map(a => a.id === agentId ? { ...a, skills: newSkills } : a) });
+  },
+
+  createCustomSkill: async (name, description) => {
+    const skill = await apiPost('/skills/custom', { name, description });
+    await get().fetchSkillsCatalog(true);
+    return skill;
+  },
+
+  deleteCustomSkill: async (skillId) => {
+    await apiDelete(`/skills/custom/${encodeURIComponent(skillId)}`);
+    await get().fetchSkillsCatalog(true);
   }
 }));
 

@@ -212,3 +212,70 @@ export async function handleSetAgentPersonality(args: any, executingAgentId: str
   logAction('Personality Updated', `Updated ${updated.join(', ')} for ${agent.name}.`, 'success', executingAgentId, 'tool', 'agent', undefined, { targetAgentName: agent.name });
   return { success: true, message: `Updated ${updated.join(', ')} for ${agent.name}.` };
 }
+
+export async function handleInstallSkill(args: any, executingAgentId: string): Promise<any> {
+  const { hasPermission } = await import('../store');
+  const targetName = args.agentName;
+  let agent: Agent | undefined;
+
+  if (targetName) {
+    agent = findAgent(targetName);
+    if (!agent) return { success: false, error: `Agent "${targetName}" not found.` };
+    if (agent.id !== executingAgentId && !hasPermission(executingAgentId, 'system:manage_skills')) {
+      return { success: false, error: 'You can only install skills on yourself unless you have system:manage_skills permission.' };
+    }
+  } else {
+    const state = getStore();
+    agent = state.agents.find(a => a.id === executingAgentId);
+    if (!agent) return { success: false, error: 'Executing agent not found.' };
+  }
+
+  if (!args.skillId || typeof args.skillId !== 'string') {
+    return { success: false, error: 'skillId is required.' };
+  }
+
+  mutateStore(s => {
+    const a = s.agents.find(x => x.id === agent!.id);
+    if (a) {
+      if (!a.skills) a.skills = [];
+      if (!a.skills.includes(args.skillId)) {
+        a.skills.push(args.skillId);
+      }
+    }
+  });
+
+  logAction('Skill Installed', `Installed skill "${args.skillId}" on ${agent!.name}.`, 'success', executingAgentId, 'tool', 'agent', undefined, { targetAgentName: agent!.name, skillId: args.skillId });
+  return { success: true, message: `Skill "${args.skillId}" installed on ${agent!.name}.` };
+}
+
+export async function handleUninstallSkill(args: any, executingAgentId: string): Promise<any> {
+  const { hasPermission } = await import('../store');
+  const targetName = args.agentName;
+  let agent: Agent | undefined;
+
+  if (targetName) {
+    agent = findAgent(targetName);
+    if (!agent) return { success: false, error: `Agent "${targetName}" not found.` };
+    if (agent.id !== executingAgentId && !hasPermission(executingAgentId, 'system:manage_skills')) {
+      return { success: false, error: 'You can only uninstall skills from yourself unless you have system:manage_skills permission.' };
+    }
+  } else {
+    const state = getStore();
+    agent = state.agents.find(a => a.id === executingAgentId);
+    if (!agent) return { success: false, error: 'Executing agent not found.' };
+  }
+
+  if (!args.skillId || typeof args.skillId !== 'string') {
+    return { success: false, error: 'skillId is required.' };
+  }
+
+  mutateStore(s => {
+    const a = s.agents.find(x => x.id === agent!.id);
+    if (a && a.skills) {
+      a.skills = a.skills.filter(sid => sid !== args.skillId);
+    }
+  });
+
+  logAction('Skill Uninstalled', `Uninstalled skill "${args.skillId}" from ${agent!.name}.`, 'info', executingAgentId, 'tool', 'agent', undefined, { targetAgentName: agent!.name, skillId: args.skillId });
+  return { success: true, message: `Skill "${args.skillId}" uninstalled from ${agent!.name}.` };
+}

@@ -24,6 +24,8 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     case 'get_agent_details': return (await import('./agent')).handleGetAgentDetails(args, executingAgentId);
     case 'get_my_connections': return (await import('./agent')).handleGetMyConnections(args, executingAgentId);
     case 'set_agent_personality': return (await import('./agent')).handleSetAgentPersonality(args, executingAgentId);
+    case 'install_skill': return (await import('./agent')).handleInstallSkill(args, executingAgentId);
+    case 'uninstall_skill': return (await import('./agent')).handleUninstallSkill(args, executingAgentId);
 
     // Task tools
     case 'create_task': return (await import('./task')).handleCreateTask(args, executingAgentId);

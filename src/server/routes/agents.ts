@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getStore, mutateStore, agentsAreConnected, removeConnectionFromStore, addConnectionToStore, ensureDefaultRoles, assignDefaultRole } from '../store';
+import { getStore, mutateStore, agentsAreConnected, removeConnectionFromStore, addConnectionToStore, ensureDefaultRoles, assignDefaultRole, hasPermission } from '../store';
 import { createMemory, clearMemory, loadMemory, getMemoryContext, readPersonalityFile, writePersonalityFile, getAllPersonalityFiles } from '../agent-memory';
 import type { PermissionEntry } from '../../types';
 
@@ -298,6 +298,54 @@ router.delete('/agents/:id/permissions/:type', (req, res) => {
 
   const updated = getStore().agents.find(a => a.id === req.params.id);
   res.json({ permissions: updated?.permissions || [] });
+});
+
+router.post('/agents/:id/skills', (req, res) => {
+  const agent = getStore().agents.find(a => a.id === req.params.id);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  const executingAgentId = req.headers['x-agent-id'] as string | undefined;
+  if (executingAgentId && !hasPermission(executingAgentId, 'system:manage_skills')) {
+    return res.status(403).json({ error: 'Agent does not have permission to manage skills' });
+  }
+
+  const { skillId } = req.body;
+  if (!skillId || typeof skillId !== 'string') {
+    return res.status(400).json({ error: 'skillId is required' });
+  }
+
+  mutateStore(s => {
+    const a = s.agents.find(x => x.id === req.params.id);
+    if (a) {
+      if (!a.skills) a.skills = [];
+      if (!a.skills.includes(skillId)) {
+        a.skills.push(skillId);
+      }
+    }
+  });
+
+  const updated = getStore().agents.find(a => a.id === req.params.id);
+  res.json({ skills: updated?.skills || [] });
+});
+
+router.delete('/agents/:id/skills/:skillId', (req, res) => {
+  const agent = getStore().agents.find(a => a.id === req.params.id);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  const executingAgentId = req.headers['x-agent-id'] as string | undefined;
+  if (executingAgentId && !hasPermission(executingAgentId, 'system:manage_skills')) {
+    return res.status(403).json({ error: 'Agent does not have permission to manage skills' });
+  }
+
+  mutateStore(s => {
+    const a = s.agents.find(x => x.id === req.params.id);
+    if (a && a.skills) {
+      a.skills = a.skills.filter(sid => sid !== req.params.skillId);
+    }
+  });
+
+  const updated = getStore().agents.find(a => a.id === req.params.id);
+  res.json({ skills: updated?.skills || [] });
 });
 
 export default router;
