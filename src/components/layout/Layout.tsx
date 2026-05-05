@@ -65,7 +65,12 @@ export function Layout({ children }: LayoutProps) {
         mobileOpen ? "translate-x-0 !flex" : "-translate-x-full"
       )}>
         <div className="flex h-16 items-center border-b border-zinc-800 px-6 gap-3">
-          <div className="w-8 h-8 flex-shrink-0 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-xs">AC</div>
+          <svg viewBox="0 0 64 64" fill="none" className="w-8 h-8 flex-shrink-0" aria-label="AI Corp">
+            <polyline points="32,14 47.59,41 16.41,41 32,14" stroke="#6366F1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <circle cx="32" cy="14" r="4.5" fill="#6366F1"/>
+            <circle cx="47.59" cy="41" r="4.5" fill="#6366F1"/>
+            <circle cx="16.41" cy="41" r="4.5" fill="#6366F1"/>
+          </svg>
           <span className="font-semibold tracking-tight text-white">AI Corp</span>
         </div>
         <div className="p-4 space-y-2 flex-col flex-1">

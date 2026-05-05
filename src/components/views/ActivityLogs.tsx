@@ -565,7 +565,7 @@ export function ActivityLogs() {
           <CardHeader>
             <CardTitle>System Activity</CardTitle>
             <CardDescription>
-              All logs, approvals, and command runs across the system.
+              System-level logs, approvals, and commands not tied to any workspace.
               {filteredItems.length > visibleItems.length && ` Showing ${visibleItems.length} of ${filteredItems.length}.`}
             </CardDescription>
           </CardHeader>
