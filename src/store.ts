@@ -2,9 +2,32 @@ import { create } from 'zustand';
 import { Agent, Task, Log, Comment, TaskStatus, CompanyTemplate, ApprovalRequest, Workspace, CronJob, AgentMessage, Role, PermissionEntry, PermissionType, EventSubscription, DomainEventType, EventDefinition, CommandRun, SkillDefinition } from './types';
 
 const API_BASE = '/api';
+const FETCH_TIMEOUT = 5000;
+
+function fetchWithTimeout(url: string, options?: RequestInit, timeoutMs = FETCH_TIMEOUT): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
+function getAuthHeaders(): Record<string, string> {
+  const token = localStorage.getItem('aicorp_token');
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
 
 async function apiGet(path: string) {
-  const res = await fetch(`${API_BASE}${path}`);
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: getAuthHeaders(),
+  });
+  if (res.status === 401) {
+    localStorage.removeItem('aicorp_token');
+    window.dispatchEvent(new CustomEvent('aicorp:auth-required'));
+    throw new Error('Authentication required');
+  }
   if (!res.ok) throw new Error(`API GET ${path} failed: ${res.status}`);
   return res.json();
 }
@@ -12,9 +35,14 @@ async function apiGet(path: string) {
 async function apiPost(path: string, body: any) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(body)
   });
+  if (res.status === 401) {
+    localStorage.removeItem('aicorp_token');
+    window.dispatchEvent(new CustomEvent('aicorp:auth-required'));
+    throw new Error('Authentication required');
+  }
   if (!res.ok) throw new Error(`API POST ${path} failed: ${res.status}`);
   return res.json();
 }
@@ -22,15 +50,28 @@ async function apiPost(path: string, body: any) {
 async function apiPatch(path: string, body: any) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(body)
   });
+  if (res.status === 401) {
+    localStorage.removeItem('aicorp_token');
+    window.dispatchEvent(new CustomEvent('aicorp:auth-required'));
+    throw new Error('Authentication required');
+  }
   if (!res.ok) throw new Error(`API PATCH ${path} failed: ${res.status}`);
   return res.json();
 }
 
 async function apiDelete(path: string) {
-  const res = await fetch(`${API_BASE}${path}`, { method: 'DELETE' });
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  if (res.status === 401) {
+    localStorage.removeItem('aicorp_token');
+    window.dispatchEvent(new CustomEvent('aicorp:auth-required'));
+    throw new Error('Authentication required');
+  }
   if (!res.ok) throw new Error(`API DELETE ${path} failed: ${res.status}`);
   return res.json();
 }
@@ -50,10 +91,21 @@ interface AppState {
   totalCost: number;
   loading: boolean;
 
+  // Auth
+  authRequired: boolean;
+  authChecking: boolean;
+  authConfigured: boolean;
+
   skillsCatalog: SkillDefinition[];
   skillsCatalogLoading: boolean;
 
   fetchState: () => Promise<void>;
+  checkAuth: () => Promise<void>;
+  login: (password: string) => Promise<string>;
+  setupPassword: (password: string) => Promise<string>;
+  logout: () => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+
   addAgent: (agent: Omit<Agent, 'id'> & { soul?: string; identity?: string; roleDoc?: string }) => Promise<void>;
   updateAgent: (id: string, agent: Partial<Agent>) => Promise<void>;
   removeAgent: (id: string) => Promise<void>;
@@ -101,6 +153,8 @@ interface AppState {
   deleteCustomSkill: (skillId: string) => Promise<void>;
 }
 
+let authCheckRunning = false;
+
 export const useStore = create<AppState>((set, get) => ({
   agents: [],
   workspaces: [],
@@ -116,15 +170,160 @@ export const useStore = create<AppState>((set, get) => ({
   totalCost: 0,
   loading: true,
 
+  authRequired: true,
+  authChecking: true,
+  authConfigured: false,
+
   skillsCatalog: [],
   skillsCatalogLoading: false,
+
+  checkAuth: async () => {
+    if (authCheckRunning) {
+      return;
+    }
+    authCheckRunning = true;
+
+    try {
+      // Fast path: sessionStorage logout flag survives reload but clears on tab close
+      if (sessionStorage.getItem('aicorp_logged_out') === '1') {
+        sessionStorage.removeItem('aicorp_logged_out');
+        localStorage.removeItem('aicorp_token');
+
+        // Double-check: does the server actually require auth?
+        const statusRes = await fetchWithTimeout(`${API_BASE}/auth/status`, { cache: 'no-store' });
+        const { requiresAuth: svrRequiresAuth } = await statusRes.json();
+
+        if (!svrRequiresAuth) {
+          set({ authRequired: false, authChecking: false, authConfigured: false });
+        } else {
+          set({ authRequired: true, authChecking: false, authConfigured: true });
+        }
+        authCheckRunning = false;
+        return;
+      }
+
+      const res = await fetchWithTimeout(`${API_BASE}/auth/status`, { cache: 'no-store' });
+      const { requiresAuth } = await res.json();
+
+      if (!requiresAuth) {
+        set({ authRequired: false, authChecking: false, authConfigured: false });
+        authCheckRunning = false;
+        return;
+      }
+
+      const token = localStorage.getItem('aicorp_token');
+
+      if (!token) {
+        set({ authRequired: true, authChecking: false, authConfigured: true });
+        authCheckRunning = false;
+        return;
+      }
+
+      const testRes = await fetchWithTimeout(`${API_BASE}/state`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (testRes.status === 401) {
+        localStorage.removeItem('aicorp_token');
+        set({ authRequired: true, authChecking: false, authConfigured: true });
+      } else {
+        set({ authRequired: false, authChecking: false, authConfigured: true });
+      }
+    } catch {
+      // Server unreachable — retry in 2s
+      authCheckRunning = false;
+      setTimeout(() => useStore.getState().checkAuth(), 2000);
+    }
+  },
+
+  login: async (password) => {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Login failed');
+    }
+
+    const { token } = await res.json();
+    sessionStorage.removeItem('aicorp_logged_out');
+    localStorage.setItem('aicorp_token', token);
+    set({ authRequired: false, authConfigured: true });
+    return token;
+  },
+
+  setupPassword: async (password) => {
+    const res = await fetch(`${API_BASE}/auth/setup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Setup failed');
+    }
+
+    const { token } = await res.json();
+    sessionStorage.removeItem('aicorp_logged_out');
+    localStorage.setItem('aicorp_token', token);
+    set({ authRequired: false, authConfigured: true });
+    return token;
+  },
+
+  logout: async () => {
+    // Check if auth is actually configured before forcing login screen
+    let requiresAuth = true;
+    try {
+      const statusRes = await fetchWithTimeout(`${API_BASE}/auth/status`, { cache: 'no-store' });
+      const data = await statusRes.json();
+      requiresAuth = data.requiresAuth;
+    } catch {
+      // Assume auth is required if we can't check
+    }
+
+    if (requiresAuth) {
+      sessionStorage.setItem('aicorp_logged_out', '1');
+    }
+    try {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+    } catch {
+      // Server unreachable — still clear local state
+    }
+    localStorage.removeItem('aicorp_token');
+    set({ authRequired: requiresAuth, authChecking: false });
+  },
+
+  changePassword: async (currentPassword, newPassword) => {
+    const res = await fetch(`${API_BASE}/auth/change-password`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ currentPassword, newPassword })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Password change failed');
+    }
+
+    const { token } = await res.json();
+    localStorage.setItem('aicorp_token', token);
+  },
 
   fetchState: async () => {
     try {
       const state = await apiGet('/state');
       set({ ...state, loading: false });
     } catch (e) {
-      console.error('Failed to fetch state:', e);
+      if ((e as Error).message !== 'Authentication required') {
+        console.error('Failed to fetch state:', e);
+      }
       set({ loading: false });
     }
   },

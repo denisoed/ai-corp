@@ -9,6 +9,7 @@ import { initMemorySystem } from './agent-memory';
 import { initCronManager } from './cron';
 import { getSettings, loadSettings } from './lib/settings';
 import { launchSearXng } from './lib/searxng';
+import { closeDb } from './db';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -55,6 +56,8 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  res.header('Pragma', 'no-cache');
   if (req.method === 'OPTIONS') {
     res.sendStatus(200);
   } else {
@@ -80,8 +83,25 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   res.status(500).json({ error: err.message || 'Internal Server Error' });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`[Server] Running on port ${PORT}`);
   console.log(`[Server] API: http://localhost:${PORT}/api`);
   console.log(`[Server] App:  http://localhost:${PORT}/`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('[Server] SIGTERM received, shutting down...');
+  server.close(() => {
+    closeDb();
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('[Server] SIGINT received, shutting down...');
+  server.close(() => {
+    closeDb();
+    process.exit(0);
+  });
 });

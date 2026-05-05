@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FolderKanban, KanbanSquare, Activity, Clock, Shield, Settings, Menu, Bell, MessageSquare } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, KanbanSquare, Activity, Clock, Shield, Settings, Menu, Bell, MessageSquare, LogOut } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/Button';
 import { Logo } from '../ui/Logo';
+import { useStore } from '../../store';
 
 interface SidebarItemProps {
   key?: React.Key;
@@ -40,6 +41,12 @@ interface LayoutProps {
 export function Layout({ children }: LayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+  const logout = useStore(s => s.logout);
+  const authConfigured = useStore(s => s.authConfigured);
+
+  const handleLogout = async () => {
+    await logout();
+  };
 
   useEffect(() => {
     setMobileOpen(false);
@@ -80,12 +87,21 @@ export function Layout({ children }: LayoutProps) {
           ))}
         </div>
 
-        <div className="mt-auto mb-4 px-4">
+        <div className="mt-auto mb-4 px-4 space-y-2">
           <SidebarItem
             icon={Settings}
             label="Settings"
             to="/settings"
           />
+          {authConfigured && (
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+            >
+              <LogOut className="h-5 w-5" />
+              <span>Logout</span>
+            </button>
+          )}
         </div>
       </aside>
 

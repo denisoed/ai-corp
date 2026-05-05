@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Globe, Key, Plus, Trash2, Eye, EyeOff, Check, Loader2, Play, Circle, X, Sparkles } from 'lucide-react';
+import { Search, Globe, Key, Plus, Trash2, Eye, EyeOff, Check, Loader2, Play, Circle, X, Sparkles, Lock } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { MultiSelect } from '../ui/MultiSelect';
@@ -176,6 +176,64 @@ export function Settings() {
   const [providerTestResults, setProviderTestResults] = useState<Record<string, boolean>>({});
   const [showAddProvider, setShowAddProvider] = useState(false);
   const [newProviderId, setNewProviderId] = useState('');
+
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [changePwStatus, setChangePwStatus] = useState<'idle' | 'saved' | 'error'>('idle');
+  const [changePwError, setChangePwError] = useState('');
+  const [changingPw, setChangingPw] = useState(false);
+  const [passwordRequired, setPasswordRequired] = useState(false);
+
+  const handleChangePassword = async () => {
+    setChangingPw(true);
+    setChangePwError('');
+    setChangePwStatus('idle');
+
+    try {
+      const token = localStorage.getItem('aicorp_token');
+
+      // Use setup endpoint if no password exists yet
+      const endpoint = passwordRequired ? '/api/auth/change-password' : '/api/auth/setup';
+      const body = passwordRequired
+        ? { currentPassword, newPassword }
+        : { password: newPassword };
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Password change failed');
+      }
+
+      const data = await res.json();
+      if (data.token) {
+        localStorage.setItem('aicorp_token', data.token);
+      }
+      setCurrentPassword('');
+      setNewPassword('');
+      setPasswordRequired(true);
+      setChangePwStatus('saved');
+    } catch (e: any) {
+      setChangePwStatus('error');
+      setChangePwError(e.message || 'Failed to change password');
+    } finally {
+      setChangingPw(false);
+    }
+  };
+
+  useEffect(() => {
+    fetch('/api/auth/status')
+      .then(r => r.json())
+      .then(d => setPasswordRequired(d.requiresAuth))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetchSettings()
@@ -427,7 +485,7 @@ export function Settings() {
   const searxngEnabled = selectedEngines.includes('searxng');
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-white">Settings</h2>
@@ -456,6 +514,7 @@ export function Settings() {
         tabs={[
           { id: 'providers', label: 'AI Providers', icon: <Sparkles className="h-4 w-4" /> },
           { id: 'search', label: 'Search', icon: <Search className="h-4 w-4" /> },
+          { id: 'security', label: 'Security', icon: <Lock className="h-4 w-4" /> },
           { id: 'env', label: 'Environment', icon: <Key className="h-4 w-4" /> },
         ]}
         activeTab={activeTab}
@@ -551,6 +610,73 @@ export function Settings() {
               </div>
             </div>
           )}
+        </div>
+      </section>
+      </TabPanel>
+
+      <TabPanel id="security" activeTab={activeTab}>
+      <section className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <Lock className="h-5 w-5 text-indigo-400" />
+          <h3 className="text-sm font-semibold text-white">Change Password</h3>
+        </div>
+        <p className="text-xs text-zinc-500 mb-4">
+          {passwordRequired
+            ? 'Change your administrator password. You will need to re-login on all devices after changing.'
+            : 'Set a password to protect access to the dashboard and API.'}
+        </p>
+        <div className="space-y-3 max-w-sm">
+          {passwordRequired && (
+            <div>
+              <label className="block text-sm text-zinc-400 mb-1">Current Password</label>
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={e => setCurrentPassword(e.target.value)}
+                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                placeholder="Enter current password"
+              />
+            </div>
+          )}
+          <div>
+            <label className="block text-sm text-zinc-400 mb-1">
+              {passwordRequired ? 'New Password' : 'Password'}
+            </label>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
+              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              placeholder={passwordRequired ? 'Enter new password (min 4 chars)' : 'Choose a password (min 4 chars)'}
+              minLength={4}
+            />
+          </div>
+
+          {changePwError && (
+            <div className="p-2.5 bg-red-900/30 border border-red-800 rounded-lg text-red-400 text-xs">
+              {changePwError}
+            </div>
+          )}
+
+          <Button
+            onClick={handleChangePassword}
+            disabled={changingPw || newPassword.length < 4 || (passwordRequired && !currentPassword)}
+            size="sm"
+          >
+            {changingPw ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                {passwordRequired ? 'Changing...' : 'Setting...'}
+              </>
+            ) : changePwStatus === 'saved' ? (
+              <>
+                <Check className="h-4 w-4 mr-2" />
+                {passwordRequired ? 'Changed' : 'Password Set'}
+              </>
+            ) : (
+              passwordRequired ? 'Change Password' : 'Set Password'
+            )}
+          </Button>
         </div>
       </section>
       </TabPanel>

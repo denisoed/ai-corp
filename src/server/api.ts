@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { authMiddleware } from './auth';
+import authRoutes from './routes/auth';
 import stateRoutes from './routes/state';
 import agentRoutes from './routes/agents';
 import workspaceRoutes from './routes/workspaces';
@@ -11,6 +13,12 @@ import subscriptionRoutes from './routes/subscriptions';
 import skillRoutes from './routes/skills';
 
 const router = Router();
+
+// Auth routes are NOT protected (login/setup/logout must be accessible)
+router.use(authRoutes);
+
+// Apply auth middleware to all other API routes
+router.use(authMiddleware);
 
 router.use(stateRoutes);
 router.use(agentRoutes);

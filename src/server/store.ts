@@ -3,10 +3,13 @@ import path from 'path';
 import os from 'os';
 import { Agent, Task, Log, ApprovalRequest, Workspace, AgentMessage, Role, PermissionEntry, PermissionType, EventSubscription, CommandRun } from '../types';
 import { matchesGlob } from './lib/glob';
+import {
+  getDb, loadCollection, saveCollection,
+  loadSetting, saveSetting, loadAllSettings
+} from './db';
 
 const DATA_DIR = path.join(os.homedir(), '.aicorp');
 const WORKSPACES_DIR = path.join(DATA_DIR, 'workspaces');
-
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const WORKSPACES_LIST_FILE = path.join(DATA_DIR, 'workspaces.json');
 const GLOBAL_DIR = path.join(DATA_DIR, 'workspace');
@@ -88,6 +91,85 @@ function wsFile(slug: string, name: string): string {
   return path.join(wsDir(slug), name);
 }
 
+function loadFromJsonFiles(): StoreData {
+  try {
+    const settings = readJson<{ totalCost: number }>(SETTINGS_FILE, { totalCost: 0 });
+    let workspaces = readJson<Workspace[]>(WORKSPACES_LIST_FILE, []);
+
+    const allAgents: Agent[] = readJson(path.join(GLOBAL_DIR, 'agents.json'), []);
+    const allTasks: Task[] = readJson(path.join(GLOBAL_DIR, 'tasks.json'), []);
+    const allLogs: Log[] = readJson(path.join(GLOBAL_DIR, 'logs.json'), []);
+    const allApprovals: ApprovalRequest[] = readJson(path.join(GLOBAL_DIR, 'approvals.json'), []);
+    const allMessages: AgentMessage[] = readJson(path.join(GLOBAL_DIR, 'messages.json'), []);
+    const allRoles: Role[] = readJson(path.join(GLOBAL_DIR, 'roles.json'), []);
+    const allSubscriptions: EventSubscription[] = readJson(path.join(GLOBAL_DIR, 'subscriptions.json'), []);
+    const allCommandRuns: CommandRun[] = readJson(path.join(GLOBAL_DIR, 'command-runs.json'), []);
+
+    for (const ws of workspaces) {
+      allAgents.push(...readJson<Agent[]>(wsFile(ws.slug, 'agents.json'), []));
+      allTasks.push(...readJson<Task[]>(wsFile(ws.slug, 'tasks.json'), []));
+      allLogs.push(...readJson<Log[]>(wsFile(ws.slug, 'logs.json'), []));
+      allApprovals.push(...readJson<ApprovalRequest[]>(wsFile(ws.slug, 'approvals.json'), []));
+      allMessages.push(...readJson<AgentMessage[]>(wsFile(ws.slug, 'messages.json'), []));
+      allRoles.push(...readJson<Role[]>(wsFile(ws.slug, 'roles.json'), []));
+      allSubscriptions.push(...readJson<EventSubscription[]>(wsFile(ws.slug, 'subscriptions.json'), []));
+    }
+
+    return {
+      agents: allAgents,
+      workspaces,
+      tasks: allTasks,
+      logs: allLogs,
+      approvals: allApprovals,
+      messages: allMessages,
+      roles: allRoles,
+      subscriptions: allSubscriptions,
+      commandRuns: allCommandRuns,
+      totalCost: settings.totalCost
+    };
+  } catch (e) {
+    console.error('[Store] Failed to load from JSON files:', e);
+    return {
+      agents: [], workspaces: [], tasks: [], logs: [], approvals: [],
+      messages: [], roles: [], subscriptions: [], commandRuns: [], totalCost: 0
+    };
+  }
+}
+
+function loadFromSqlite(): StoreData {
+  const costStr = loadSetting('totalCost');
+  return {
+    agents: loadCollection<Agent>('agents'),
+    workspaces: loadCollection<Workspace>('workspaces'),
+    tasks: loadCollection<Task>('tasks'),
+    logs: loadCollection<Log>('logs'),
+    approvals: loadCollection<ApprovalRequest>('approvals'),
+    messages: loadCollection<AgentMessage>('messages'),
+    roles: loadCollection<Role>('roles'),
+    subscriptions: loadCollection<EventSubscription>('subscriptions'),
+    commandRuns: loadCollection<CommandRun>('command_runs'),
+    totalCost: costStr ? parseFloat(costStr) : 0,
+  };
+}
+
+function migrateJsonToSqlite(data: StoreData): void {
+  console.log('[Store] Migrating JSON data to SQLite...');
+
+  saveSetting('totalCost', String(data.totalCost));
+
+  saveCollection('workspaces', data.workspaces, (w) => w.id);
+  saveCollection('agents', data.agents, (a) => a.workspaceId || '');
+  saveCollection('tasks', data.tasks, (t) => '');
+  saveCollection('logs', data.logs, (l) => l.workspaceId || '');
+  saveCollection('approvals', data.approvals, (a) => '');
+  saveCollection('messages', data.messages, (m) => '');
+  saveCollection('roles', data.roles, (r) => r.workspaceId || '');
+  saveCollection('subscriptions', data.subscriptions, (s) => '');
+  saveCollection('command_runs', data.commandRuns, (c) => c.workspaceId || '');
+
+  console.log('[Store] Migration to SQLite complete');
+}
+
 function applyOrphanMigration() {
   const orphanAgents = store.agents.filter(a => !a.workspaceId);
   if (orphanAgents.length > 0) {
@@ -110,198 +192,111 @@ function applyOrphanMigration() {
   }
 }
 
-function partitionStore(): Map<string, WorkspaceData> {
-  const buckets = new Map<string, WorkspaceData>();
-  const emptyData = (): WorkspaceData => ({ agents: [], tasks: [], logs: [], approvals: [], messages: [], roles: [], subscriptions: [], commandRuns: [] });
-
-  for (const ws of store.workspaces) {
-    buckets.set(ws.id, emptyData());
-  }
-  buckets.set('_global', emptyData());
-
-  const agentWorkspace = new Map<string, string>();
-  for (const a of store.agents) {
-    agentWorkspace.set(a.id, a.workspaceId || '_global');
-  }
-
-  for (const agent of store.agents) {
-    const wsId = agent.workspaceId || '_global';
-    const bucket = buckets.get(wsId) || buckets.get('_global')!;
-    bucket.agents.push(agent);
-  }
-
-  for (const task of store.tasks) {
-    const wsId = task.assigneeId ? (agentWorkspace.get(task.assigneeId) || '_global') : '_global';
-    const bucket = buckets.get(wsId) || buckets.get('_global')!;
-    bucket.tasks.push(task);
-  }
-
-  for (const log of store.logs) {
-    const wsId = (log.agentId && log.agentId !== 'system')
-      ? (agentWorkspace.get(log.agentId) || '_global')
-      : '_global';
-    const bucket = buckets.get(wsId) || buckets.get('_global')!;
-    bucket.logs.push(log);
-  }
-
-  for (const approval of store.approvals) {
-    const wsId = agentWorkspace.get(approval.agentId) || '_global';
-    const bucket = buckets.get(wsId) || buckets.get('_global')!;
-    bucket.approvals.push(approval);
-  }
-
-  for (const msg of store.messages) {
-    const wsId = agentWorkspace.get(msg.fromAgentId) || '_global';
-    const bucket = buckets.get(wsId) || buckets.get('_global')!;
-    bucket.messages.push(msg);
-  }
-
-  for (const role of store.roles) {
-    const wsId = role.workspaceId || '_global';
-    const bucket = buckets.get(wsId) || buckets.get('_global')!;
-    bucket.roles.push(role);
-  }
-
-  for (const sub of store.subscriptions) {
-    const agentWorkspaceId = agentWorkspace.get(sub.agentId) || '_global';
-    const bucket = buckets.get(agentWorkspaceId) || buckets.get('_global')!;
-    bucket.subscriptions.push(sub);
-  }
-
-  // Command runs are scoped to the executing agent's workspace.
-  if (store.commandRuns.length > 0) {
-    for (const commandRun of store.commandRuns) {
-      const wsId = commandRun.workspaceId || '_global';
-      const bucket = buckets.get(wsId) || buckets.get('_global')!;
-      bucket.commandRuns.push(commandRun);
-    }
-  }
-
-  return buckets;
-}
-
 export function loadStore() {
   try {
-    if (fs.existsSync(SETTINGS_FILE)) {
-      const settings = readJson<{ totalCost: number }>(
-        SETTINGS_FILE, { totalCost: 0 }
-      );
-      let workspaces = readJson<Workspace[]>(WORKSPACES_LIST_FILE, []);
+    // Initialize SQLite database
+    getDb();
 
-      const allAgents: Agent[] = readJson(path.join(GLOBAL_DIR, 'agents.json'), []);
-      const allTasks: Task[] = readJson(path.join(GLOBAL_DIR, 'tasks.json'), []);
-      const allLogs: Log[] = readJson(path.join(GLOBAL_DIR, 'logs.json'), []);
-      const allApprovals: ApprovalRequest[] = readJson(path.join(GLOBAL_DIR, 'approvals.json'), []);
-      const allMessages: AgentMessage[] = readJson(path.join(GLOBAL_DIR, 'messages.json'), []);
-      const allRoles: Role[] = readJson(path.join(GLOBAL_DIR, 'roles.json'), []);
-      const allSubscriptions: EventSubscription[] = readJson(path.join(GLOBAL_DIR, 'subscriptions.json'), []);
-      const allCommandRuns: CommandRun[] = readJson(path.join(GLOBAL_DIR, 'command-runs.json'), []);
+    // Check if SQLite has data
+    const existingWorkspaces = loadCollection<Workspace>('workspaces');
+    if (existingWorkspaces.length > 0) {
+      store = loadFromSqlite();
 
-      for (const ws of workspaces) {
-        allAgents.push(...readJson<Agent[]>(wsFile(ws.slug, 'agents.json'), []));
-        allTasks.push(...readJson<Task[]>(wsFile(ws.slug, 'tasks.json'), []));
-        allLogs.push(...readJson<Log[]>(wsFile(ws.slug, 'logs.json'), []));
-        allApprovals.push(...readJson<ApprovalRequest[]>(wsFile(ws.slug, 'approvals.json'), []));
-        allMessages.push(...readJson<AgentMessage[]>(wsFile(ws.slug, 'messages.json'), []));
-        allRoles.push(...readJson<Role[]>(wsFile(ws.slug, 'roles.json'), []));
-        allSubscriptions.push(...readJson<EventSubscription[]>(wsFile(ws.slug, 'subscriptions.json'), []));
+      // Apply orphan migration (in-memory only)
+      const orphanAgents = store.agents.filter(a => !a.workspaceId);
+      if (orphanAgents.length > 0) {
+        applyOrphanMigration();
       }
 
-      store = {
-        agents: allAgents,
-        workspaces,
-        tasks: allTasks,
-        logs: allLogs,
-        approvals: allApprovals,
-        messages: allMessages,
-        roles: allRoles,
-        subscriptions: allSubscriptions,
-        commandRuns: allCommandRuns,
-        totalCost: settings.totalCost
-      };
+      console.log('[Store] Loaded from SQLite');
+      return;
+    }
 
-      applyOrphanMigration();
+    // Check if JSON data exists (old format)
+    if (fs.existsSync(SETTINGS_FILE)) {
+      const jsonData = loadFromJsonFiles();
 
-      console.log('[Store] Loaded from split files');
-    } else if (fs.existsSync(OLD_STORE_FILE)) {
+      if (jsonData.workspaces.length > 0 || jsonData.agents.length > 0) {
+        migrateJsonToSqlite(jsonData);
+        store = jsonData;
+        applyOrphanMigration();
+        console.log('[Store] Loaded from JSON files and migrated to SQLite');
+        return;
+      }
+    }
+
+    // Try legacy store.json
+    if (fs.existsSync(OLD_STORE_FILE)) {
       const old = readJson<StoreData>(OLD_STORE_FILE, store);
-      store = {
-        agents: old.agents || [],
-        workspaces: old.workspaces || [],
-        tasks: old.tasks || [],
-        logs: old.logs || [],
-        approvals: old.approvals || [],
-        messages: old.messages || [],
-        roles: (old as any).roles || [],
-        subscriptions: (old as any).subscriptions || [],
-        commandRuns: (old as any).commandRuns || [],
-        totalCost: old.totalCost ?? 0
-      };
 
-      applyOrphanMigration();
-      saveStore();
+      if (fs.existsSync(WORKSPACES_LIST_FILE) || fs.existsSync(path.join(GLOBAL_DIR, 'agents.json'))) {
+        const merged = loadFromJsonFiles();
+        migrateJsonToSqlite(merged);
+        store = merged;
+        applyOrphanMigration();
+      } else {
+        store = {
+          agents: old.agents || [],
+          workspaces: old.workspaces || [],
+          tasks: old.tasks || [],
+          logs: old.logs || [],
+          approvals: old.approvals || [],
+          messages: old.messages || [],
+          roles: (old as any).roles || [],
+          subscriptions: (old as any).subscriptions || [],
+          commandRuns: (old as any).commandRuns || [],
+          totalCost: old.totalCost ?? 0,
+        };
+        applyOrphanMigration();
+        migrateJsonToSqlite(store);
+      }
 
       try {
         const bakFile = OLD_STORE_FILE + '.bak';
         if (fs.existsSync(bakFile)) fs.unlinkSync(bakFile);
         fs.renameSync(OLD_STORE_FILE, bakFile);
-        console.log('[Store] Migrated from store.json → settings.json + workspaces/*/');
-      } catch (e) {
-        console.warn('[Store] Could not rename old store.json:', e);
-      }
-    } else {
-      console.log('[Store] No data files found, using defaults');
-      saveStore();
+      } catch (_) {}
+
+      console.log('[Store] Loaded from legacy store.json and migrated to SQLite');
+      return;
     }
+
+    // No data files exist at all — start fresh
+    saveStore();
+    console.log('[Store] No existing data found, starting fresh with SQLite');
   } catch (e) {
     console.error('[Store] Failed to load:', e);
+    // Fall back to JSON loading if SQLite fails
+    try {
+      store = loadFromJsonFiles();
+    } catch (e2) {
+      console.error('[Store] JSON fallback also failed:', e2);
+    }
   }
 }
 
 export function saveStore() {
-  writeJson(SETTINGS_FILE, { totalCost: store.totalCost });
-  writeJson(WORKSPACES_LIST_FILE, store.workspaces);
-
-  const buckets = partitionStore();
-
-  const global = buckets.get('_global')!;
-  writeJson(path.join(GLOBAL_DIR, 'agents.json'), global.agents);
-  writeJson(path.join(GLOBAL_DIR, 'tasks.json'), global.tasks);
-  writeJson(path.join(GLOBAL_DIR, 'logs.json'), global.logs);
-  writeJson(path.join(GLOBAL_DIR, 'approvals.json'), global.approvals);
-  writeJson(path.join(GLOBAL_DIR, 'messages.json'), global.messages);
-  writeJson(path.join(GLOBAL_DIR, 'roles.json'), global.roles);
-  writeJson(path.join(GLOBAL_DIR, 'subscriptions.json'), global.subscriptions);
-  writeJson(path.join(GLOBAL_DIR, 'command-runs.json'), global.commandRuns);
-
-  for (const ws of store.workspaces) {
-    const data = buckets.get(ws.id);
-    if (data) {
-      writeJson(wsFile(ws.slug, 'agents.json'), data.agents);
-      writeJson(wsFile(ws.slug, 'tasks.json'), data.tasks);
-      writeJson(wsFile(ws.slug, 'logs.json'), data.logs);
-      writeJson(wsFile(ws.slug, 'approvals.json'), data.approvals);
-      writeJson(wsFile(ws.slug, 'messages.json'), data.messages);
-      writeJson(wsFile(ws.slug, 'roles.json'), data.roles);
-      writeJson(wsFile(ws.slug, 'subscriptions.json'), data.subscriptions);
-      writeJson(wsFile(ws.slug, 'command-runs.json'), data.commandRuns);
-    }
-  }
-
-  const knownSlugs = new Set(store.workspaces.map(w => w.slug));
-  const files = ['agents.json', 'tasks.json', 'logs.json', 'approvals.json', 'messages.json', 'roles.json', 'subscriptions.json', 'command-runs.json'];
   try {
-    if (fs.existsSync(WORKSPACES_DIR)) {
-      for (const entry of fs.readdirSync(WORKSPACES_DIR, { withFileTypes: true })) {
-        if (entry.isDirectory() && !knownSlugs.has(entry.name)) {
-          for (const f of files) {
-            const fp = path.join(WORKSPACES_DIR, entry.name, f);
-            if (fs.existsSync(fp)) fs.unlinkSync(fp);
-          }
-        }
-      }
-    }
-  } catch (_) { /* ignore cleanup errors */ }
+    const d = getDb();
+
+    const transaction = d.transaction(() => {
+      saveSetting('totalCost', String(store.totalCost));
+
+      saveCollection('workspaces', store.workspaces, (w) => w.id || '');
+      saveCollection('agents', store.agents, (a) => a.workspaceId || '');
+      saveCollection('tasks', store.tasks, () => '');
+      saveCollection('logs', store.logs, (l) => l.workspaceId || '');
+      saveCollection('approvals', store.approvals, () => '');
+      saveCollection('messages', store.messages, () => '');
+      saveCollection('roles', store.roles, (r) => r.workspaceId || '');
+      saveCollection('subscriptions', store.subscriptions, () => '');
+      saveCollection('command_runs', store.commandRuns, (c) => c.workspaceId || '');
+    });
+
+    transaction();
+  } catch (e) {
+    console.error('[Store] Failed to save to SQLite:', e);
+  }
 }
 
 export function getStore(): Readonly<StoreData> {
