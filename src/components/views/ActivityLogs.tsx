@@ -163,6 +163,18 @@ export function ActivityLogs() {
     return map;
   }, [workspaces]);
 
+  const allWorkspaceAgentIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const ws of workspaces) {
+      for (const aid of ws.agentIds) ids.add(aid);
+    }
+    return ids;
+  }, [workspaces]);
+
+  const allWorkspaceIds = useMemo(() => {
+    return new Set(workspaces.map(ws => ws.id));
+  }, [workspaces]);
+
   const getItemSeverity = (item: UnifiedItem): LogFilter => {
     if (item.kind === 'log') return item.log?.type as LogFilter || 'info';
     if (item.kind === 'approval') {
@@ -181,44 +193,58 @@ export function ActivityLogs() {
   };
 
   const systemItems: UnifiedItem[] = useMemo(() => {
-    const logItems: UnifiedItem[] = logs.map(log => ({
-      id: `log-${log.id}`,
-      kind: 'log',
-      title: log.action,
-      details: log.details,
-      timestamp: log.timestamp,
-      source: log.agentId,
-      severity: log.type as LogFilter,
-      status: log.type,
-      log,
-    }));
+    const logItems: UnifiedItem[] = logs
+      .filter(log => {
+        if (log.workspaceId && allWorkspaceIds.has(log.workspaceId)) return false;
+        if (allWorkspaceAgentIds.has(log.agentId)) return false;
+        return true;
+      })
+      .map(log => ({
+        id: `log-${log.id}`,
+        kind: 'log',
+        title: log.action,
+        details: log.details,
+        timestamp: log.timestamp,
+        source: log.agentId,
+        severity: log.type as LogFilter,
+        status: log.type,
+        log,
+      }));
 
-    const approvalItems: UnifiedItem[] = approvals.map(approval => ({
-      id: `approval-${approval.id}`,
-      kind: 'approval',
-      title: approval.action,
-      details: approval.details || 'Approval request',
-      timestamp: approval.createdAt,
-      source: approval.agentId,
-      severity: getItemSeverity({ kind: 'approval', title: '', details: '', timestamp: '', source: '', severity: 'info', status: approval.status, approval, id: '' }),
-      status: approval.status,
-      approval,
-    }));
+    const approvalItems: UnifiedItem[] = approvals
+      .filter(approval => !allWorkspaceAgentIds.has(approval.agentId))
+      .map(approval => ({
+        id: `approval-${approval.id}`,
+        kind: 'approval',
+        title: approval.action,
+        details: approval.details || 'Approval request',
+        timestamp: approval.createdAt,
+        source: approval.agentId,
+        severity: getItemSeverity({ kind: 'approval', title: '', details: '', timestamp: '', source: '', severity: 'info', status: approval.status, approval, id: '' }),
+        status: approval.status,
+        approval,
+      }));
 
-    const commandItems: UnifiedItem[] = commandRuns.map(run => ({
-      id: `command-${run.id}`,
-      kind: 'command',
-      title: `${run.command} ${run.args.join(' ')}`.trim(),
-      details: run.cwd ? `cwd: ${run.cwd}` : 'workspace command',
-      timestamp: run.startedAt,
-      source: run.agentId,
-      severity: getItemSeverity({ kind: 'command', title: '', details: '', timestamp: '', source: '', severity: 'info', status: run.status, command: run, id: '' }),
-      status: run.status,
-      command: run,
-    }));
+    const commandItems: UnifiedItem[] = commandRuns
+      .filter(run => {
+        if (run.workspaceId && allWorkspaceIds.has(run.workspaceId)) return false;
+        if (allWorkspaceAgentIds.has(run.agentId)) return false;
+        return true;
+      })
+      .map(run => ({
+        id: `command-${run.id}`,
+        kind: 'command',
+        title: `${run.command} ${run.args.join(' ')}`.trim(),
+        details: run.cwd ? `cwd: ${run.cwd}` : 'workspace command',
+        timestamp: run.startedAt,
+        source: run.agentId,
+        severity: getItemSeverity({ kind: 'command', title: '', details: '', timestamp: '', source: '', severity: 'info', status: run.status, command: run, id: '' }),
+        status: run.status,
+        command: run,
+      }));
 
     return [...logItems, ...approvalItems, ...commandItems].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
-  }, [logs, approvals, commandRuns]);
+  }, [logs, approvals, commandRuns, allWorkspaceIds, allWorkspaceAgentIds]);
 
   const workspaceItems = (workspaceId: string): UnifiedItem[] => {
     const agentIds = workspaceAgents.get(workspaceId) || new Set<string>();
