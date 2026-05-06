@@ -567,11 +567,10 @@ export function retrieveMemorySnippets(agentId: string, focusText: string): stri
     ? path.basename(sessionFiles[sessionFiles.length - 1])
     : '';
 
-  // Rebuild vector index if out of date or missing
   if (!store || store.docCount === 0 ||
       !store.updatedAt ||
       newestFileMatch > (store.updatedAt.slice(0, 10) || '')) {
-    const result = rebuildVectorIndexFromSessionFiles(sessionFiles);
+    const result = rebuildVectorIndexFromSessionFiles(agentDir, sessionFiles);
     if (result.success) {
       store = result.store;
       saveVectorStoreFile(storePath, store);
@@ -601,7 +600,7 @@ export function retrieveMemorySnippetsFromFiles(sessionFiles: string[], focusTex
   let store = loadVectorStore(storePath);
 
   if (!store || store.docCount === 0) {
-    const result = rebuildVectorIndexFromSessionFiles(sessionFiles);
+    const result = rebuildVectorIndexFromSessionFiles('', sessionFiles);
     if (result.success) {
       store = result.store;
     }
@@ -656,6 +655,7 @@ function saveVectorStoreFile(filePath: string, store: any): void {
 }
 
 function rebuildVectorIndexFromSessionFiles(
+  agentDir: string,
   sessionFiles: string[]
 ): { success: boolean; store: { version: number; updatedAt: string; docCount: number; idf: Record<string, number>; vectors: Record<string, Record<string, number>> } } {
   const docIds: string[] = [];
@@ -683,7 +683,7 @@ function rebuildVectorIndexFromSessionFiles(
     };
   }
 
-  const result = buildVectorIndex('', docIds, docTexts);
+  const result = buildVectorIndex(agentDir, docIds, docTexts);
   return { success: result.success, store: result.store };
 }
 
