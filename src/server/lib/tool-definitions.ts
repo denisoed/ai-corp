@@ -208,7 +208,8 @@ export const companyTools = [
           taskTitle: { type: 'string' as const, description: 'Optional. Title or partial title of the task to watch when subscribing to task events' },
           taskId: { type: 'string' as const, description: 'Optional. Exact task id to watch when subscribing to task events' },
           channel: { type: 'string' as const, description: 'Optional. telegram or in_app (default: telegram)' },
-          instructions: { type: 'string' as const, description: 'Optional. Extra wording to include in the notification, like "give me a short summary".' }
+          instructions: { type: 'string' as const, description: 'Optional. Extra wording to include in the notification, like "give me a short summary".' },
+          oneshot: { type: 'boolean' as const, description: 'Optional. If true, the subscription is automatically deleted after the first notification is sent.' }
         },
         required: []
       }

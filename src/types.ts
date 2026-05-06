@@ -215,6 +215,7 @@ export interface EventSubscription {
     toStatus?: TaskStatus;
     assigneeId?: string;
   };
+  oneshot?: boolean;
 }
 
 export interface EventStateSummary {

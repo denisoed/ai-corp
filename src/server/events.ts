@@ -258,6 +258,13 @@ export async function publishEvent(event: DomainEvent): Promise<void> {
         agent.id,
         { ...deliveryMeta, deliveryStatus: 'success' }
       );
+
+      if (subscription.oneshot) {
+        mutateStore(s => {
+          s.subscriptions = s.subscriptions.filter(sub => sub.id !== subscription.id);
+        });
+        logEvent('OneShot Subscription Consumed', `Auto-deleted subscription ${subscription.id.slice(0, 8)} after first delivery.`, 'info', agent.id);
+      }
     } catch (error: any) {
       logEvent(
         'Event Delivery Failed',
@@ -292,7 +299,8 @@ export function createTaskEventSubscription(
   taskId: string,
   eventType: DomainEvent['type'],
   filters: Partial<EventSubscription['filters']> = {},
-  instructions?: string
+  instructions?: string,
+  oneshot = false
 ): EventSubscription {
   const now = new Date().toISOString();
   return {
@@ -304,6 +312,7 @@ export function createTaskEventSubscription(
     createdAt: now,
     updatedAt: now,
     instructions,
+    oneshot,
     filters: {
       taskId,
       ...filters,
@@ -323,7 +332,7 @@ export function findTaskByTitle(title: string): Task | undefined {
   return state.tasks.find(task => task.title.toLowerCase().includes(title.toLowerCase()));
 }
 
-export async function handleSubscribeToEvent(args: { eventType?: DomainEvent['type']; taskTitle?: string; taskId?: string; channel?: 'telegram' | 'in_app'; instructions?: string }, agentId: string): Promise<{ success: boolean; subscription?: EventSubscription; error?: string }> {
+export async function handleSubscribeToEvent(args: { eventType?: DomainEvent['type']; taskTitle?: string; taskId?: string; channel?: 'telegram' | 'in_app'; instructions?: string; oneshot?: boolean }, agentId: string): Promise<{ success: boolean; subscription?: EventSubscription; error?: string }> {
   const state = getStore();
   const agent = state.agents.find(a => a.id === agentId);
   if (!agent) return { success: false, error: 'Agent not found.' };
@@ -345,7 +354,8 @@ export async function handleSubscribeToEvent(args: { eventType?: DomainEvent['ty
     task.id,
     eventType,
     eventType === 'task.status.changed' ? { toStatus: 'Done' } : {},
-    args.instructions
+    args.instructions,
+    args.oneshot
   );
   if (args.channel) subscription.channel = args.channel;
 
