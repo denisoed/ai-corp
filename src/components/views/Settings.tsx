@@ -7,6 +7,7 @@ import { Tabs, TabPanel } from '../ui/Tabs';
 import { SearchableSelect } from '../ui/SearchableSelect';
 import { useStore } from '../../store';
 import type { AppSettings, LLMProvider, HttpDomainConfig } from '../../types';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 
 const API_BASE = '/api';
 
@@ -313,19 +314,21 @@ export function Settings() {
   const [integrationSaving, setIntegrationSaving] = useState(false);
   const [integrationStatus, setIntegrationStatus] = useState<'idle' | 'saved' | 'error'>('idle');
 
+  // Confirm dialog for domain deletion
+  const [confirmDeleteDomain, setConfirmDeleteDomain] = useState<string | null>(null);
+
   // Sync domains only when workspace selection changes (ignore polling updates)
   const prevWorkspaceId = useRef(selectedWorkspaceId);
   useEffect(() => {
-    if (prevWorkspaceId.current === selectedWorkspaceId) {
-      console.log('[Integrations] Sync skipped — same workspace:', selectedWorkspaceId);
-      return;
-    }
+    if (prevWorkspaceId.current === selectedWorkspaceId) return;
     prevWorkspaceId.current = selectedWorkspaceId;
     const ws = storeWorkspaces.find(w => w.id === selectedWorkspaceId);
-    const fromStore = ws?.settings?.allowedHttpDomains || [];
-    console.log('[Integrations] Syncing domains from store:', { wsId: selectedWorkspaceId, fromStore: fromStore.map(d => d.domain) });
+    const raw = ws?.settings?.allowedHttpDomains || [];
+    // Migrate old string[] format
+    const fromStore: HttpDomainConfig[] = raw.map((d: any) =>
+      typeof d === 'string' ? { domain: d } : d
+    );
     setDomains(fromStore);
-    setIntegrationStatus('idle');
   }, [selectedWorkspaceId, storeWorkspaces]);
 
   const handleChangePassword = async () => {
@@ -660,38 +663,10 @@ export function Settings() {
     ...Object.keys(selectedWorkspace?.settings?.envVars || {}),
   ];
 
-  const handleAddDomain = () => {
-    const domain = newDomain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-    console.log('[Integrations] Adding domain:', { input: newDomain, cleaned: domain, currentDomains: domains.map(d => d.domain) });
-    if (!domain || domain.includes(' ') || domains.some(d => d.domain === domain)) return;
-    const next = [...domains, { domain }];
-    console.log('[Integrations] New domains:', next);
-    setDomains(next);
-    setNewDomain('');
-  };
-
-  const handleRemoveDomain = (domain: string) => {
-    setDomains(domains.filter(d => d.domain !== domain));
-  };
-
-  const handleUpdateDomainHeader = (domain: string, headerKey: string, headerValue: string) => {
-    setDomains(domains.map(d => {
-      if (d.domain !== domain) return d;
-      const headers = { ...(d.headers || {}) };
-      if (headerValue) {
-        headers[headerKey] = headerValue;
-      } else {
-        delete headers[headerKey];
-      }
-      return { ...d, headers };
-    }));
-  };
-
-  const handleSaveIntegrations = async () => {
+  const saveDomainsToServer = async (newDomains: HttpDomainConfig[]) => {
     if (!selectedWorkspaceId) return;
     setIntegrationSaving(true);
     setIntegrationStatus('idle');
-
     try {
       const token = localStorage.getItem('aicorp_token');
       const res = await fetch(`/api/workspaces/${selectedWorkspaceId}`, {
@@ -701,21 +676,60 @@ export function Settings() {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          settings: {
-            ...selectedWorkspace?.settings,
-            allowedHttpDomains: domains,
-          },
+          settings: { ...selectedWorkspace?.settings, allowedHttpDomains: newDomains },
         }),
       });
-
-      if (!res.ok) throw new Error('Failed to save');
+      if (!res.ok) throw new Error('Save failed');
       setIntegrationStatus('saved');
-    } catch (e: any) {
+    } catch {
       setIntegrationStatus('error');
     } finally {
       setIntegrationSaving(false);
     }
   };
+
+  const handleAddDomain = () => {
+    const domain = newDomain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    if (!domain || domain.includes(' ') || domains.some(d => d.domain === domain)) return;
+    const next = [...domains, { domain }];
+    setDomains(next);
+    setNewDomain('');
+    saveDomainsToServer(next);
+  };
+
+  const handleRemoveDomain = (domain: string) => {
+    setConfirmDeleteDomain(domain);
+  };
+
+  const confirmRemoveDomain = () => {
+    if (!confirmDeleteDomain) return;
+    const next = domains.filter(d => d.domain !== confirmDeleteDomain);
+    setDomains(next);
+    setConfirmDeleteDomain(null);
+    saveDomainsToServer(next);
+  };
+
+  const handleUpdateDomainHeader = (domain: string, headerKey: string, headerValue: string) => {
+    const next = domains.map(d => {
+      if (d.domain !== domain) return d;
+      const headers = { ...(d.headers || {}) };
+      if (headerValue) {
+        headers[headerKey] = headerValue;
+      } else {
+        delete headers[headerKey];
+      }
+      return { ...d, headers };
+    });
+    setDomains(next);
+    saveDomainsToServer(next);
+  };
+
+  // Auto-dismiss "Saved" indicator
+  useEffect(() => {
+    if (integrationStatus !== 'saved') return;
+    const timer = setTimeout(() => setIntegrationStatus('idle'), 2500);
+    return () => clearTimeout(timer);
+  }, [integrationStatus]);
 
   if (!loaded) {
     return (
@@ -1041,32 +1055,37 @@ export function Settings() {
 
             {integrationStatus === 'error' && (
               <div className="p-2.5 bg-red-900/30 border border-red-800 rounded-lg text-red-400 text-xs max-w-sm">
-                Failed to save domains. Please try again.
+                Failed to save. Try again.
               </div>
             )}
 
-            <Button
-              onClick={handleSaveIntegrations}
-              disabled={integrationSaving}
-              size="sm"
-            >
-              {integrationSaving ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Saving...
-                </>
-              ) : integrationStatus === 'saved' ? (
-                <>
-                  <Check className="h-4 w-4 mr-2" />
-                  Saved
-                </>
-              ) : (
-                'Save Domains'
-              )}
-            </Button>
+            {integrationStatus === 'saved' && (
+              <div className="flex items-center gap-1 text-xs text-emerald-400">
+                <Check className="h-3.5 w-3.5" />
+                Saved
+              </div>
+            )}
+
+            {integrationSaving && (
+              <div className="flex items-center gap-1 text-xs text-zinc-500">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Saving...
+              </div>
+            )}
           </div>
         )}
       </section>
+
+      {/* Confirm delete dialog */}
+      {confirmDeleteDomain && (
+        <ConfirmDialog
+          title="Remove domain"
+          message={`Remove "${confirmDeleteDomain}" from the allowed HTTP domains list? Agents will no longer be able to call APIs on this domain.`}
+          confirmLabel="Remove"
+          onConfirm={confirmRemoveDomain}
+          onCancel={() => setConfirmDeleteDomain(null)}
+        />
+      )}
       </TabPanel>
 
       <TabPanel id="env" activeTab={activeTab}>

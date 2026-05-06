@@ -313,17 +313,21 @@ export async function handleHttpRequest(args: any, executingAgentId: string): Pr
   const state = getStore();
   const agent = state.agents.find(a => a.id === executingAgentId);
   const ws = agent?.workspaceId ? state.workspaces.find(w => w.id === agent.workspaceId) : undefined;
-  const allowedDomains = ws?.settings?.allowedHttpDomains;
+  const rawDomains = ws?.settings?.allowedHttpDomains;
+  // Normalize: support both old string[] and new HttpDomainConfig[]
+  const allowedDomains = rawDomains?.map((d: any) =>
+    typeof d === 'string' ? { domain: d } : d
+  ) || [];
   let domainHeaders: Record<string, string> | undefined;
 
-  if (allowedDomains && allowedDomains.length > 0) {
+  if (allowedDomains.length > 0) {
     const hostname = parsed.hostname.toLowerCase();
-    const matched = allowedDomains.find(d => {
+    const matched = allowedDomains.find((d: any) => {
       const pattern = d.domain.toLowerCase();
       return hostname === pattern || hostname.endsWith('.' + pattern);
     });
     if (!matched) {
-      const domainNames = allowedDomains.map(d => d.domain).join(', ');
+      const domainNames = allowedDomains.map((d: any) => d.domain).join(', ');
       return { success: false, error: `Domain "${parsed.hostname}" is not in the workspace's allowed HTTP domains list. Allowed: ${domainNames}` };
     }
     domainHeaders = matched.headers;
