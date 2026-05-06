@@ -12,11 +12,18 @@ export class ChatSessionWrapper implements ChatSession {
     systemPrompt: string,
     model: string,
     private onUsage?: (usage: LLMUsage) => void,
-    private onResponse?: (messages: ChatMessage[], response: LLMResponse, model: string) => void
+    private onResponse?: (messages: ChatMessage[], response: LLMResponse, model: string) => void,
+    initialMessages?: ChatMessage[]
   ) {
     this.client = client;
     this.systemPrompt = systemPrompt;
     this.model = model;
+    if (initialMessages && initialMessages.length > 0) {
+      this.messages = initialMessages.map(m => ({
+        role: m.role,
+        content: m.content,
+      }));
+    }
   }
 
   async sendMessage(text: string): Promise<{ text: string; toolCalls?: ToolCall[]; usage?: LLMUsage }> {

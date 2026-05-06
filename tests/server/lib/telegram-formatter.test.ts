@@ -57,10 +57,8 @@ describe('markdownToTelegramHtml', () => {
     expect(result).toContain('Paragraph two.');
   });
 
-  it('renders tables as pretty preformatted blocks', () => {
+  it('renders tables as lists for Telegram readability', () => {
     const result = markdownToTelegramHtml('| Name | Role |\n| --- | --- |\n| Alex | Manager |');
-    expect(result).toContain('<pre>');
-    expect(result).toContain('Name | Role');
-    expect(result).toContain('Alex | Manager');
+    expect(result).toContain('- **Name**: Alex, **Role**: Manager');
   });
 });

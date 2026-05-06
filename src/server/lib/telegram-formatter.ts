@@ -24,6 +24,7 @@ NOT supported (will be removed):
 Rules:
 - Use "- " or "• " for bullet list items. Each item must start at the BEGINNING of a new line.
 - NEVER use indentation alone as a list marker — always include the "-" or "1." prefix.
+- NEVER use tables (|--|). Tables are forbidden in Telegram — they render as garbled text. Use bullet or numbered lists instead. If you need to show structured data (like agent details, task stats, or comparisons), format each row as a list item with labeled fields: "- **Name**: Alice, **Role**: Developer, **Status**: Active".
 - Keep responses concise (1-3 sentences per paragraph).
 - Use short paragraphs, bullet lists, and numbers to organize information.
 - When asked to "list" or "show" agents, tasks, crons, or any collection: ALWAYS enumerate each item individually on its own line with relevant details (name, role, status, etc.). NEVER reply with just a count or summary when the user asks for a list.`;
@@ -90,41 +91,6 @@ function renderTableCell(renderer: Renderer, tokens?: Tokens.Generic[] | null): 
   return content || ' ';
 }
 
-function padCell(text: string, width: number): string {
-  const clean = text.trim();
-  if (clean.length >= width) {
-    return clean;
-  }
-
-  return clean + ' '.repeat(width - clean.length);
-}
-
-function renderPrettyTable(renderer: Renderer, header: Tokens.Table['header'], rows: Tokens.Table['rows']): string {
-  const headerCells = header.map((cell) => renderTableCell(renderer, cell.tokens));
-  const rowCells = rows.map((row) => row.map((cell) => renderTableCell(renderer, cell.tokens)));
-  const columnCount = Math.max(headerCells.length, ...rowCells.map((row) => row.length), 0);
-
-  const widths = Array.from({ length: columnCount }, (_, index) => {
-    const values = [
-      headerCells[index] || '',
-      ...rowCells.map((row) => row[index] || '')
-    ];
-
-    return Math.max(0, ...values.map((value) => value.trim().length));
-  });
-
-  const formatRow = (cells: string[]) =>
-    cells.map((cell, index) => padCell(cell, widths[index] || 0)).join(' | ');
-
-  const lines = [
-    formatRow(headerCells),
-    widths.map((width) => '-'.repeat(Math.max(3, width))).join('-+-'),
-    ...rowCells.map(formatRow)
-  ];
-
-  return `<pre>${escapeHtml(lines.join('\n'))}</pre>\n\n`;
-}
-
 class TelegramRenderer extends Renderer {
   paragraph({ tokens }: Tokens.Paragraph): string {
     return renderTokensAsInline(this, tokens) + '\n\n';
@@ -168,7 +134,17 @@ class TelegramRenderer extends Renderer {
   image(): string { return ''; }
   hr(): string { return ''; }
   table({ header, rows }: Tokens.Table): string {
-    return renderPrettyTable(this, header, rows);
+    const headerLabels = header.map((cell) => stripHtml(renderTableCell(this, cell.tokens)));
+    const lines: string[] = [];
+    for (const row of rows) {
+      const cells = row.map((cell) => stripHtml(renderTableCell(this, cell.tokens)));
+      const parts = cells.map((val, i) => {
+        const label = headerLabels[i] || `col${i + 1}`;
+        return `**${label}**: ${val}`;
+      });
+      lines.push(`- ${parts.join(', ')}`);
+    }
+    return lines.join('\n') + '\n\n';
   }
   tablerow({ text }: Tokens.TableRow): string {
     return `${text}\n`;

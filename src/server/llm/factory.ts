@@ -79,7 +79,7 @@ export function createChatSession(agent: Agent, systemPrompt: string, options: C
     });
   });
 
-  return new ChatSessionWrapper(client, systemPrompt, model, onUsage, onResponse);
+  return new ChatSessionWrapper(client, systemPrompt, model, onUsage, onResponse, options.initialMessages);
 }
 
 export function createClient(

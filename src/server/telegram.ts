@@ -1,6 +1,7 @@
 import { mutateStore, getStore, agentsAreConnected } from './store';
 import { Agent, AgentMessage } from '../types';
 import { createChatSession } from './llm';
+import type { ChatMessage } from './llm/types';
 import { loadMemory, createMemory, appendMessage, buildSystemPrompt } from './agent-memory';
 import { TELEGRAM_FORMATTING_RULES, markdownToTelegramHtml } from './lib/telegram-formatter';
 import { executeTool } from './tools/index';
@@ -47,7 +48,13 @@ export async function processPendingMessage(agent: Agent): Promise<void> {
   const startTime = Date.now();
 
   try {
-    const chatSession = createChatSession(freshAgent, targetSystemPrompt);
+    const memory = loadMemory(freshAgent.id);
+    const recentMsgs: ChatMessage[] = memory?.recentMessages
+      .slice(-15)
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .map(m => ({ role: m.role, content: m.content })) ?? [];
+
+    const chatSession = createChatSession(freshAgent, targetSystemPrompt, { initialMessages: recentMsgs });
     const userMessage = `Request from ${senderName} (${senderRole}):\n\n${pending.content}\n\nDo the work, then call reply_to_message("${pending.id}", "your response") to reply.`;
     logTaskWorkflow(agent.id, 'LLM Session Started', `Sending queued request ${pending.id} to model.`, 'info');
     let response = await chatSession.sendMessage(userMessage);
@@ -321,10 +328,21 @@ async function handleIncomingMessage(agentId: string, token: string, message: an
       memory = createMemory(agentInfo, workspace);
     }
 
+    const recentMsgs: ChatMessage[] = memory.recentMessages
+      .slice(-15)
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .map(m => ({ role: m.role, content: m.content }));
+
     const systemInstruction = buildSystemPrompt(agentInfo) + '\n\n' + TELEGRAM_FORMATTING_RULES;
 
-    const chatSession = createChatSession(agentInfo, systemInstruction);
-    let response = await chatSession.sendMessage(text);
+    let enhancedText = text;
+    const repliedTo = message.reply_to_message?.text;
+    if (repliedTo) {
+      enhancedText = `[Context: the user is replying to:\n"${repliedTo}"]\n\n${text}`;
+    }
+
+    const chatSession = createChatSession(agentInfo, systemInstruction, { initialMessages: recentMsgs });
+    let response = await chatSession.sendMessage(enhancedText);
     let replyText = response.text;
 
     while (response.toolCalls && response.toolCalls.length > 0) {
@@ -345,7 +363,7 @@ async function handleIncomingMessage(agentId: string, token: string, message: an
       finalReply = 'Task executed successfully.';
     }
 
-    await appendMessage(agentId, { role: 'user', content: text, source: 'telegram' });
+    await appendMessage(agentId, { role: 'user', content: enhancedText, source: 'telegram' });
     await appendMessage(agentId, { role: 'assistant', content: finalReply, source: 'telegram' });
 
     const telegramText = markdownToTelegramHtml(finalReply);
@@ -436,7 +454,13 @@ export async function handleAskAgent(args: any, executingAgentId: string, token?
   const startTime = Date.now();
 
   try {
-    const chatSession = createChatSession(targetAgent, targetSystemPrompt);
+    const targetMemory = loadMemory(targetAgent.id);
+    const recentMsgs: ChatMessage[] = targetMemory?.recentMessages
+      .slice(-15)
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .map(m => ({ role: m.role, content: m.content })) ?? [];
+
+    const chatSession = createChatSession(targetAgent, targetSystemPrompt, { initialMessages: recentMsgs });
     const userMessage = `Request from ${senderName} (${senderRole}):\n\n${args.content}\n\n${busyUserNote}`;
     logTaskWorkflow(targetAgent.id, 'LLM Session Started', `Processing ask_agent request ${messageId} from ${senderName}.`, 'info');
     let response = await chatSession.sendMessage(userMessage);
