@@ -3,7 +3,8 @@ import { Task, TaskPriority, TaskRisk, TaskStatus, Comment } from '../../types';
 import { findAgent, logAction } from './agent';
 import { createTaskAssigneeChangedEvent, createTaskCommentAddedEvent, createTaskCompletedEvent, createTaskStatusChangedEvent, publishEvent } from '../events';
 
-function findTask(title: string): Task | undefined {
+function findTask(title: unknown): Task | undefined {
+  if (typeof title !== 'string') return undefined;
   const state = getStore();
   return state.tasks.find(t => t.title.toLowerCase().includes(title.toLowerCase()));
 }

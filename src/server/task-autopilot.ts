@@ -176,7 +176,10 @@ async function runTaskAutopilot(task: Task): Promise<void> {
     logTask(agent.id, 'Task Autopilot Finished', `Finished autonomous pass for "${task.title}".`, 'success', taskMeta);
   } catch (e: any) {
     logTask(agent.id, 'Task Autopilot Failed', `Failed on "${task.title}": ${e.message}`, 'error', taskMeta);
-    if (String(e.message ?? '').includes('402') || String(e.message ?? '').includes('insufficient credits') || String(e.message ?? '').includes('Insufficient credits') || String(e.message ?? '').includes('not enough credits')) {
+    const msg = String(e.message ?? '');
+    const isInputError = msg.includes('is not a function') || msg.includes('is not defined') || msg.includes('Cannot read properties') || msg.includes('not a string');
+    const isCreditError = msg.includes('402') || msg.includes('insufficient credits') || msg.includes('Insufficient credits') || msg.includes('not enough credits');
+    if (isCreditError || isInputError) {
       const failedTask = getStore().tasks.find(t => t.id === task.id);
       if (failedTask) {
         mutateStore(s => {
@@ -188,7 +191,9 @@ async function runTaskAutopilot(task: Task): Promise<void> {
               id: crypto.randomUUID(),
               authorId: agent.id,
               authorName: agent.name,
-              content: `Task failed due to insufficient API credits: ${e.message}. Add credits and retry.`,
+              content: isCreditError
+                ? `Task failed due to insufficient API credits: ${e.message}. Add credits and retry.`
+                : `Task failed due to input error: ${e.message}. The task may use an incompatible model or format.`,
               createdAt: new Date().toISOString(),
               type: 'action',
             });
@@ -332,10 +337,19 @@ export async function requestApproval(input: ApprovalRequestInput & { taskTitle?
       return { success: true, approvalId: 'already_granted' };
     }
 
-    const ceoBot = store.agents.find(a => a.telegramConfig?.botToken);
-    if (ceoBot) {
-      input.approverAgentId = ceoBot.id;
-      input.approverAgentName = ceoBot.name;
+    const telegramAgent = store.agents.find(a => a.telegramConfig?.botToken);
+    if (telegramAgent) {
+      input.approverAgentId = telegramAgent.id;
+      input.approverAgentName = telegramAgent.name;
+    }
+  }
+
+  // Fallback: route to any agent with Telegram if no approver specified
+  if (!input.approverAgentId) {
+    const telegramAgent = store.agents.find(a => a.telegramConfig?.botToken);
+    if (telegramAgent) {
+      input.approverAgentId = telegramAgent.id;
+      input.approverAgentName = telegramAgent.name;
     }
   }
 
