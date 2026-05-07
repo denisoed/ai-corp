@@ -15,6 +15,8 @@ import { CronJobs } from './components/views/CronJobs';
 import { RolesManagement } from './components/views/RolesManagement';
 import { EventsManagement } from './components/views/EventsManagement';
 import { Settings } from './components/views/Settings';
+import { PipelinesList } from './components/views/PipelinesList';
+import { PipelineDetail } from './components/views/PipelineDetail';
 import { Login } from './components/views/Login';
 import { useStore } from './store';
 import { useTelegramManager } from './lib/telegramAdapter';
@@ -78,6 +80,8 @@ export default function App() {
         <Route path="/crons" element={<CronJobs />} />
         <Route path="/roles" element={<RolesManagement />} />
         <Route path="/events" element={<EventsManagement />} />
+        <Route path="/pipelines" element={<PipelinesList />} />
+        <Route path="/pipelines/:id" element={<PipelineDetail />} />
         <Route path="/settings" element={<Settings />} />
       </Routes>
     </Layout>

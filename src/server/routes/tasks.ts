@@ -1,7 +1,10 @@
 import { Router } from 'express';
-import { getStore, mutateStore, agentsAreConnected } from '../store';
-import { createTaskAssigneeChangedEvent, createTaskCommentAddedEvent, createTaskCompletedEvent, createTaskStatusChangedEvent, publishEvent } from '../events';
+import { getStore, mutateStore } from '../store';
+import { createTaskStatusChangedEvent, createTaskCommentAddedEvent } from '../events';
+import { publishEvent } from '../events';
+import { logTaskRoute } from './utils';
 import { resumeApprovedCommand } from '../command-runner';
+import { resumePipelineIfStageTask } from '../task-autopilot';
 
 const router = Router();
 
@@ -180,6 +183,11 @@ router.post('/approvals/:id/resolve', (req, res) => {
   });
 
   logTaskRoute('user', 'Approval Resolved', `Approval ${req.params.id} resolved as ${approved ? 'approved' : 'rejected'}.`, approved ? 'success' : 'warning', { approvalId: req.params.id });
+
+  if (approved) {
+    const approval = getStore().approvals.find(a => a.id === req.params.id);
+    resumePipelineIfStageTask(approval?.taskId);
+  }
 
   res.json(result);
 });

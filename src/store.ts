@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Agent, Task, Log, Comment, TaskStatus, CompanyTemplate, ApprovalRequest, Workspace, CronJob, AgentMessage, Role, PermissionEntry, PermissionType, EventSubscription, DomainEventType, EventDefinition, CommandRun, SkillDefinition } from './types';
+import { Agent, Task, Log, Comment, TaskStatus, CompanyTemplate, ApprovalRequest, Workspace, CronJob, AgentMessage, Role, PermissionEntry, PermissionType, EventSubscription, DomainEventType, EventDefinition, CommandRun, SkillDefinition, Pipeline, PipelineInstance } from './types';
 
 const API_BASE = '/api';
 const FETCH_TIMEOUT = 5000;
@@ -88,6 +88,8 @@ interface AppState {
   roles: Role[];
   subscriptions: EventSubscription[];
   eventDefinitions: EventDefinition[];
+  pipelines: Pipeline[];
+  pipelineInstances: PipelineInstance[];
   totalCost: number;
   loading: boolean;
 
@@ -134,6 +136,12 @@ interface AppState {
   removeCron: (id: string) => Promise<void>;
   runCron: (id: string) => Promise<void>;
 
+  createPipeline: (data: { name: string; description?: string; stages: any[]; agentId: string }) => Promise<Pipeline>;
+  deletePipeline: (id: string) => Promise<void>;
+  startPipeline: (pipelineId: string, taskId: string, agentId: string) => Promise<any>;
+  resumePipeline: (pipelineId: string, instanceId: string) => Promise<void>;
+  cancelPipelineInstance: (instanceId: string, reason?: string) => Promise<void>;
+
   createRole: (role: { name: string; description?: string; workspaceId: string }) => Promise<Role>;
   deleteRole: (roleId: string) => Promise<void>;
   updateRole: (roleId: string, updates: Partial<Role>) => Promise<void>;
@@ -167,6 +175,8 @@ export const useStore = create<AppState>((set, get) => ({
   roles: [],
   subscriptions: [],
   eventDefinitions: [],
+  pipelines: [],
+  pipelineInstances: [],
   totalCost: 0,
   loading: true,
 
@@ -473,6 +483,36 @@ export const useStore = create<AppState>((set, get) => ({
     await apiPost(`/crons/${id}/run`, {});
     const crons = await apiGet('/crons');
     set({ crons });
+  },
+
+  createPipeline: async (data) => {
+    const pipeline = await apiPost('/pipelines', data);
+    set({ pipelines: [...get().pipelines, pipeline] });
+    return pipeline;
+  },
+
+  deletePipeline: async (id) => {
+    await apiDelete(`/pipelines/${id}`);
+    set({ pipelines: get().pipelines.filter(p => p.id !== id) });
+  },
+
+  startPipeline: async (pipelineId, taskId, agentId) => {
+    const result = await apiPost(`/pipelines/${pipelineId}/start`, { taskId, agentId });
+    const state = await apiGet('/state');
+    set({ pipelineInstances: state.pipelineInstances || [] });
+    return result;
+  },
+
+  resumePipeline: async (pipelineId, instanceId) => {
+    await apiPost(`/pipelines/${pipelineId}/resume`, { instanceId });
+    const state = await apiGet('/state');
+    set({ pipelineInstances: state.pipelineInstances || [] });
+  },
+
+  cancelPipelineInstance: async (instanceId, reason) => {
+    await apiPost(`/instances/${instanceId}/cancel`, { reason });
+    const state = await apiGet('/state');
+    set({ pipelineInstances: state.pipelineInstances || [] });
   },
 
   createRole: async (role) => {

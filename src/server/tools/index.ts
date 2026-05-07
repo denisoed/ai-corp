@@ -57,14 +57,22 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     case 'remove_connection': return (await import('./connection')).handleRemoveConnection(args, executingAgentId);
     case 'update_connection': return (await import('./connection')).handleUpdateConnection(args, executingAgentId);
     case 'resolve_approval': return (await import('./connection')).handleResolveApproval(args, executingAgentId);
-    case 'request_approval': return (await import('../task-autopilot')).requestApproval({
-      agentId: executingAgentId,
-      taskTitle: args.taskTitle,
-      action: args.action,
-      risk: args.risk,
-      estimatedCost: args.estimatedCost,
-      details: `${args.question}${args.taskTitle ? ` (Task: ${args.taskTitle})` : ''}`
-    });
+    case 'request_approval': {
+      const approverAgent = args.approverAgentName
+        ? getStore().agents.find(a => a.name.toLowerCase().includes((args.approverAgentName as string).toLowerCase()))
+        : undefined;
+      return (await import('../task-autopilot')).requestApproval({
+        agentId: executingAgentId,
+        taskTitle: args.taskTitle,
+        action: args.action,
+        risk: args.risk,
+        estimatedCost: args.estimatedCost,
+        details: `${args.question}${args.taskTitle ? ` (Task: ${args.taskTitle})` : ''}`,
+        approverAgentId: approverAgent?.id,
+        approverAgentName: approverAgent?.name,
+      });
+    }
+    case 'respond_to_approval': return (await import('../task-autopilot')).handleRespondToApproval(args, executingAgentId);
 
     // Messaging tools
     case 'send_message': return (await import('./messaging')).handleSendMessage(args, executingAgentId);
@@ -107,6 +115,15 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     case 'delete_cron': return (await import('./cron')).handleDeleteCron(args, executingAgentId);
     case 'update_cron': return (await import('./cron')).handleUpdateCron(args, executingAgentId);
     case 'run_cron_now': return (await import('./cron')).handleRunCronNow(args, executingAgentId);
+
+    // Pipeline tools
+    case 'create_pipeline': return (await import('./pipeline')).handleCreatePipeline(args, executingAgentId);
+    case 'start_pipeline': return (await import('./pipeline')).handleStartPipeline(args, executingAgentId);
+    case 'get_pipeline_status': return (await import('./pipeline')).handleGetPipelineStatus(args, executingAgentId);
+    case 'cancel_pipeline': return (await import('./pipeline')).handleCancelPipeline(args, executingAgentId);
+    case 'list_pipelines': return (await import('./pipeline')).handleListPipelines(args, executingAgentId);
+    case 'plan_pipeline': return (await import('./pipeline')).handlePlanPipeline(args, executingAgentId);
+    case 'delete_pipeline': return (await import('./pipeline')).handleDeletePipeline(args, executingAgentId);
 
     default:
       return { success: false, error: 'Unknown tool' };

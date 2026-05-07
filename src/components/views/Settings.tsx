@@ -159,6 +159,7 @@ const SEARCH_ENGINE_OPTIONS = [
 ];
 
 function DomainRow({ config, envVarKeys, onRemove, onHeaderChange }: {
+  key?: string | number;
   config: HttpDomainConfig;
   envVarKeys: string[];
   onRemove: () => void;
@@ -548,7 +549,7 @@ export function Settings() {
     if (!loaded) return;
 
     for (const [providerId, provider] of Object.entries(settings.providers || {})) {
-      if (provider.enabled) {
+      if (typeof provider === 'object' && provider !== null && 'enabled' in provider && (provider as LLMProvider).enabled) {
         loadProviderModels(providerId);
       }
     }

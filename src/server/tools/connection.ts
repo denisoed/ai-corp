@@ -56,8 +56,18 @@ export async function handleUpdateConnection(args: any, executingAgentId: string
 }
 
 export async function handleResolveApproval(args: any, executingAgentId: string): Promise<any> {
+  const { hasPermission } = await import('../store');
+  if (!hasPermission(executingAgentId, 'system:approve_work')) {
+    return { success: false, error: 'Permission denied. Requires system:approve_work.' };
+  }
+
   let result: any = {};
   const now = new Date().toISOString();
+  const state = getStore();
+  const executingAgent = state.agents.find(a => a.id === executingAgentId);
+  const isHuman = !executingAgentId || executingAgentId === 'user';
+  const resolverName = isHuman ? 'Admin (You)' : (executingAgent?.name || executingAgentId);
+  const resolverId = isHuman ? 'user' : executingAgentId;
 
   mutateStore(s => {
     const approval = s.approvals.find(a => a.id === args.approvalId);
@@ -79,8 +89,8 @@ export async function handleResolveApproval(args: any, executingAgentId: string)
         }
         task.comments.push({
           id: crypto.randomUUID(),
-          authorId: 'user',
-          authorName: 'Admin (You)',
+          authorId: resolverId,
+          authorName: resolverName,
           content: args.approved ? `Approval granted for: ${approval.action}. Proceeding.` : 'Approval denied. Please revise according to comments.',
           createdAt: now,
           type: 'action'
@@ -96,13 +106,13 @@ export async function handleResolveApproval(args: any, executingAgentId: string)
     s.logs.unshift({
       id: crypto.randomUUID(),
       timestamp: now,
-      agentId: 'user',
+      agentId: resolverId,
       action: args.approved ? 'Approval Granted' : 'Approval Rejected',
-      details: `User ${args.approved ? 'approved' : 'rejected'} action: ${approval.action}`,
+      details: `${resolverName} ${args.approved ? 'approved' : 'rejected'} action: ${approval.action}`,
       type: args.approved ? 'success' : 'error',
       source: 'tool' as const,
       category: 'approval' as const,
-      metadata: { approvalId: approval.id, action: approval.action, risk: approval.risk, estimatedCost: approval.estimatedCost, resolvedBy: 'user' },
+      metadata: { approvalId: approval.id, action: approval.action, risk: approval.risk, estimatedCost: approval.estimatedCost, resolvedBy: resolverName },
     });
     if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
 

@@ -1,8 +1,10 @@
 import { getStore, mutateStore } from './store';
 import { Agent, Task, ApprovalRequestInput } from '../types';
 import { createChatSession } from './llm';
-import { buildSystemPrompt, loadMemory } from './agent-memory';
+import { buildSystemPrompt, loadMemory, appendMessage } from './agent-memory';
 import { executeTool } from './tools/index';
+import { runPipelineInstance } from './pipeline-engine';
+import { publishEvent, createApprovalRequestedEvent } from './events';
 
 const runningTaskRuns = new Set<string>();
 
@@ -45,7 +47,7 @@ function buildTaskPrompt(agent: Agent, task: Task): string {
     '- Move the task across columns as work progresses.',
     '- Use create_subtask when decomposing work.',
     '- Use add_task_tag or remove_task_tag if it helps with tracking.',
-    '- If you need human decision or clarification, call request_approval with a clear question and then stop until it is resolved.',
+    '- If you need a decision or approval, call request_approval with approverAgentName pointing to the relevant agent (Manager, Reviewer, DevOps, etc.). Only fall back to human approval if no appropriate agent exists.',
     '- If blocked, move the task to Blocked and explain why in a comment.',
     '- When complete, move the task to Done and add a final summary comment.',
   ].filter(Boolean);
@@ -154,6 +156,7 @@ async function runTaskAutopilot(task: Task): Promise<void> {
 export function startTaskAutopilotManager(): void {
   setInterval(() => {
     const store = getStore();
+
     const candidates = store.tasks.filter(task => {
       const agent = task.assigneeId ? store.agents.find(a => a.id === task.assigneeId) : undefined;
       return Boolean(agent && shouldAutopilot(task, agent));
@@ -172,6 +175,67 @@ export function startTaskAutopilotManager(): void {
   console.log('[TaskAutopilot] Manager initialized');
 }
 
+async function runApprovalAutopilot(approval: any): Promise<void> {
+  const store = getStore();
+  const approver = store.agents.find(a => a.id === approval.approverAgentId);
+  const requester = store.agents.find(a => a.id === approval.agentId);
+  if (!approver) return;
+
+  mutateStore(s => {
+    const a = s.agents.find(x => x.id === approval.approverAgentId);
+    if (a) { a.status = 'Working'; a.activeSessions = (a.activeSessions || 0) + 1; }
+  });
+
+  try {
+    const systemPrompt = buildSystemPrompt(approver) + '\n\n' + [
+      'You have a pending approval request from another agent.',
+      '',
+      'Operating rules:',
+      '- Review the request carefully.',
+      '- Call respond_to_approval with the approvalId, approved=true/false, and a reason.',
+      '- If you need more information, write a task comment or send a message to the requester.',
+    ].join('\n');
+
+    const chatSession = createChatSession(approver, systemPrompt);
+    let response = await chatSession.sendMessage(
+      `${requester?.name || 'Another agent'} is requesting approval:\n\n` +
+      `Action: ${approval.action}\n` +
+      `Details: ${approval.details || ''}\n` +
+      `Risk: ${approval.risk}\n` +
+      `Approval ID: ${approval.id}\n\n` +
+      `Call respond_to_approval with approvalId="${approval.id}" to approve or reject.`
+    );
+
+    let safetyCounter = 0;
+    while (response.toolCalls && response.toolCalls.length > 0) {
+      safetyCounter++;
+      if (safetyCounter > 10) break;
+
+      const results = [];
+      for (const call of response.toolCalls) {
+        let args: any;
+        try { args = JSON.parse(call.function.arguments); } catch { continue; }
+        const result = await executeTool(call.function.name, args, approver.id);
+        results.push(result);
+
+        if (call.function.name === 'respond_to_approval') {
+          logTask(approver.id, 'Approval Autopilot Resolved', `Approval ${approval.id} resolved by ${approver.name}.`, 'success', { approvalId: approval.id, approved: args.approved });
+          return;
+        }
+      }
+      response = await chatSession.sendToolResults(response.toolCalls, results);
+    }
+  } finally {
+    mutateStore(s => {
+      const a = s.agents.find(x => x.id === approval.approverAgentId);
+      if (a) {
+        a.activeSessions = Math.max(0, (a.activeSessions || 0) - 1);
+        if (a.status === 'Working') a.status = 'Idle';
+      }
+    });
+  }
+}
+
 export async function requestApproval(input: ApprovalRequestInput & { taskTitle?: string }): Promise<{ success: boolean; approvalId?: string; error?: string }> {
   const store = getStore();
   const agent = store.agents.find(a => a.id === input.agentId);
@@ -185,8 +249,70 @@ export async function requestApproval(input: ApprovalRequestInput & { taskTitle?
     return { success: false, error: `Task "${input.taskTitle || input.taskId || 'unknown'}" not found.` };
   }
 
+  const approvalId = crypto.randomUUID();
+
+  if (input.approverAgentId) {
+    const approver = store.agents.find(a => a.id === input.approverAgentId);
+    if (!approver) return { success: false, error: `Approver agent "${input.approverAgentName}" not found.` };
+
+    const approval = {
+      id: approvalId,
+      taskId: task?.id,
+      agentId: input.agentId,
+      commandRunId: input.commandRunId,
+      action: input.action,
+      risk: input.risk,
+      estimatedCost: input.estimatedCost,
+      status: 'pending' as const,
+      createdAt: new Date().toISOString(),
+      details: input.details,
+      approverAgentId: input.approverAgentId,
+      approverAgentName: input.approverAgentName,
+    };
+
+    mutateStore(s => {
+      s.approvals.unshift(approval);
+      if (s.approvals.length > 100) s.approvals = s.approvals.slice(0, 100);
+      if (task) {
+        const liveTask = s.tasks.find(t => t.id === task.id);
+        if (liveTask) {
+          liveTask.status = 'Needs Approval';
+          liveTask.updatedAt = new Date().toISOString();
+          liveTask.comments.push({
+            id: crypto.randomUUID(),
+            authorId: input.agentId,
+            authorName: agent.name,
+            content: `[Awaiting approval from ${approver.name}]: ${input.details || input.action}`,
+            createdAt: new Date().toISOString(),
+            type: 'action'
+          });
+        }
+      }
+      const a = s.agents.find(x => x.id === input.agentId);
+      if (a) a.status = 'Blocked';
+
+      const now = new Date().toISOString();
+      s.subscriptions.unshift({
+        id: crypto.randomUUID(),
+        agentId: input.approverAgentId!,
+        eventType: 'approval.requested',
+        channel: 'internal',
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        oneshot: true,
+        filters: {},
+      });
+      if (s.subscriptions.length > 100) s.subscriptions = s.subscriptions.slice(0, 100);
+    });
+
+    logTask(agent.id, 'Agent Approval Requested', `Requested approval from ${approver.name} for "${input.action}".`, 'warning', { approvalId, approverAgentName: approver.name, action: input.action });
+    void publishEvent(createApprovalRequestedEvent(approval, task?.title));
+    return { success: true, approvalId };
+  }
+
   const approval = {
-    id: crypto.randomUUID(),
+    id: approvalId,
     taskId: task?.id,
     agentId: input.agentId,
     commandRunId: input.commandRunId,
@@ -220,6 +346,94 @@ export async function requestApproval(input: ApprovalRequestInput & { taskTitle?
     if (a) a.status = 'Blocked';
   });
 
-  logTask(agent.id, 'Approval Requested', `Requested approval for "${input.action}"${task ? ` on task ${task.title}` : ''}.`, 'warning', { ...(task ? { taskId: task.id, taskTitle: task.title } : {}), approvalId: approval.id, action: input.action, risk: input.risk, estimatedCost: input.estimatedCost });
-  return { success: true, approvalId: approval.id };
+  logTask(agent.id, 'Approval Requested', `Requested approval for "${input.action}"${task ? ` on task ${task.title}` : ''}.`, 'warning', { ...(task ? { taskId: task.id, taskTitle: task.title } : {}), approvalId, action: input.action, risk: input.risk, estimatedCost: input.estimatedCost });
+  return { success: true, approvalId };
+}
+
+export function handleRespondToApproval(args: any, agentId: string) {
+  const store = getStore();
+  const agent = store.agents.find(a => a.id === agentId);
+  if (!agent) return { success: false, error: 'Agent not found' };
+
+  const approval = store.approvals.find(a => a.id === args.approvalId);
+  if (!approval) return { success: false, error: 'Approval not found' };
+  if (approval.status !== 'pending') return { success: false, error: 'Approval already resolved' };
+  if (approval.approverAgentId !== agentId) return { success: false, error: 'This approval was not sent to you' };
+
+  const approved = args.approved;
+  const reason = args.reason || '';
+
+  mutateStore(s => {
+    const a = s.approvals.find(x => x.id === args.approvalId);
+    if (!a) return;
+    a.status = approved ? 'approved' : 'rejected';
+
+    if (a.taskId) {
+      const task = s.tasks.find(t => t.id === a.taskId);
+      if (task) {
+        const previousStatus = task.status;
+        task.status = 'In Progress';
+        task.updatedAt = new Date().toISOString();
+        task.comments.push({
+          id: crypto.randomUUID(),
+          authorId: agentId,
+          authorName: agent.name,
+          content: approved
+            ? `Approved: ${a.action}${reason ? ` (${reason})` : ''}. Proceeding.`
+            : `Rejected: ${a.action}${reason ? ` (${reason})` : ''}. Please revise.`,
+          createdAt: new Date().toISOString(),
+          type: 'action'
+        });
+      }
+    }
+
+    const requestingAgent = s.agents.find(x => x.id === a.agentId);
+    if (requestingAgent) requestingAgent.status = 'Idle';
+
+    s.logs.unshift({
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      agentId,
+      action: approved ? 'Agent Approval Granted' : 'Agent Approval Rejected',
+      details: `${agent.name} ${approved ? 'approved' : 'rejected'} request from ${requestingAgent?.name || 'unknown'}: ${a.action}`,
+      type: approved ? 'success' : 'error',
+      source: 'system',
+      category: 'approval',
+      metadata: { approvalId: a.id, action: a.action, resolvedBy: agent.name },
+    });
+    if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
+  });
+
+  resumePipelineIfStageTask(approval.taskId);
+
+  return { success: true, approved, reason };
+}
+
+export function resumePipelineIfStageTask(taskId?: string) {
+  if (!taskId) return;
+  const store = getStore();
+  const task = store.tasks.find(t => t.id === taskId);
+  if (!task) return;
+  const hasPipelineTag = task.tags?.some(t => t.startsWith('pipeline:'));
+  if (!hasPipelineTag) return;
+
+  const pipelineId = task.tags?.find(t => t.startsWith('pipeline:'))?.replace('pipeline:', '');
+  if (!pipelineId) return;
+
+  const instance = store.pipelineInstances.find(pi =>
+    pi.pipelineId === pipelineId && pi.taskId === taskId && pi.status === 'paused'
+  );
+  if (!instance) return;
+
+  const pipeline = store.pipelines.find(p => p.id === pipelineId);
+  if (!pipeline) return;
+
+  const currentStage = pipeline.stages[instance.currentStageIndex];
+  if (!currentStage) return;
+
+  mutateStore(s => {
+    const inst = s.pipelineInstances.find(pi => pi.id === instance.id);
+    if (inst) { inst.status = 'running'; inst.updatedAt = new Date().toISOString(); }
+  });
+  void runPipelineInstance(instance.id);
 }

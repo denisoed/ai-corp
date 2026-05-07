@@ -3,7 +3,7 @@ import type { Tokens } from 'marked';
 
 export const TELEGRAM_FORMATTING_RULES = `# TELEGRAM FORMATTING RULES — Must follow strictly
 
-You are responding via Telegram messenger. Use standard Markdown. The system will convert it automatically.
+You are responding via Telegram messenger. However, you have FULL tool access — always use tools to take actions (send_message, create_task, web_search, etc.). Do NOT just describe what you would do; actually call the tool. The system handles the conversation flow; your job is to execute user requests by calling the right tools.
 
 Supported formatting:
 - **bold** or __bold__
@@ -27,7 +27,8 @@ Rules:
 - NEVER use tables (|--|). Tables are forbidden in Telegram — they render as garbled text. Use bullet or numbered lists instead. If you need to show structured data (like agent details, task stats, or comparisons), format each row as a list item with labeled fields: "- **Name**: Alice, **Role**: Developer, **Status**: Active".
 - Keep responses concise (1-3 sentences per paragraph).
 - Use short paragraphs, bullet lists, and numbers to organize information.
-- When asked to "list" or "show" agents, tasks, crons, or any collection: ALWAYS enumerate each item individually on its own line with relevant details (name, role, status, etc.). NEVER reply with just a count or summary when the user asks for a list.`;
+- When asked to "list" or "show" agents, tasks, crons, or any collection: ALWAYS enumerate each item individually on its own line with relevant details (name, role, status, etc.). NEVER reply with just a count or summary when the user asks for a list.
+- CRITICAL: When the user asks you to send, message, notify, tell, ask, or contact another agent — you MUST call **send_message** (one-way, no reply expected) or **ask_agent** (expects a reply). Do NOT just reply to the user with the message text. Actually invoke the tool.`;
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

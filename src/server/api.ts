@@ -11,6 +11,7 @@ import settingsRoutes from './routes/settings';
 import messageRoutes from './routes/messages';
 import subscriptionRoutes from './routes/subscriptions';
 import skillRoutes from './routes/skills';
+import pipelineRoutes from './routes/pipelines';
 
 const router = Router();
 
@@ -30,5 +31,6 @@ router.use(settingsRoutes);
 router.use(messageRoutes);
 router.use(subscriptionRoutes);
 router.use(skillRoutes);
+router.use(pipelineRoutes);
 
 export default router;

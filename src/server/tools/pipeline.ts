@@ -62,6 +62,28 @@ export function handleStartPipeline(args: any, agentId: string): { success: bool
     return { success: false, error: 'Pipeline belongs to a different workspace' };
   }
 
+  const existingFailed = store.pipelineInstances.find(pi =>
+    pi.pipelineId === pipeline.id &&
+    pi.taskId === task.id &&
+    (pi.status === 'failed' || pi.status === 'cancelled')
+  );
+
+  if (existingFailed) {
+    mutateStore(s => {
+      const inst = s.pipelineInstances.find(pi => pi.id === existingFailed.id);
+      if (inst) {
+        inst.status = 'running';
+        inst.currentStageIndex = 0;
+        inst.stageResults = [];
+        inst.error = undefined;
+        inst.completedAt = undefined;
+        inst.updatedAt = new Date().toISOString();
+      }
+    });
+    void runPipelineInstance(existingFailed.id);
+    return { success: true, instance: existingFailed };
+  }
+
   const instance = createPipelineInstance(pipeline.id, task.id, agent.workspaceId);
 
   void runPipelineInstance(instance.id);

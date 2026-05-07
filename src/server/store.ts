@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { Agent, Task, Log, ApprovalRequest, Workspace, AgentMessage, Role, PermissionEntry, PermissionType, EventSubscription, CommandRun } from '../types';
+import { Agent, Task, Log, ApprovalRequest, Workspace, AgentMessage, Role, PermissionEntry, PermissionType, EventSubscription, CommandRun, Pipeline, PipelineInstance } from '../types';
 import { matchesGlob } from './lib/glob';
 import {
   getDb, loadCollection, saveCollection,
@@ -25,6 +25,8 @@ export interface StoreData {
   roles: Role[];
   subscriptions: EventSubscription[];
   commandRuns: CommandRun[];
+  pipelines: Pipeline[];
+  pipelineInstances: PipelineInstance[];
   totalCost: number;
 }
 
@@ -80,6 +82,8 @@ let store: StoreData = {
   roles: [],
   subscriptions: [],
   commandRuns: [],
+  pipelines: [],
+  pipelineInstances: [],
   totalCost: 0
 };
 
@@ -125,13 +129,16 @@ function loadFromJsonFiles(): StoreData {
       roles: allRoles,
       subscriptions: allSubscriptions,
       commandRuns: allCommandRuns,
+      pipelines: [],
+      pipelineInstances: [],
       totalCost: settings.totalCost
     };
   } catch (e) {
     console.error('[Store] Failed to load from JSON files:', e);
     return {
       agents: [], workspaces: [], tasks: [], logs: [], approvals: [],
-      messages: [], roles: [], subscriptions: [], commandRuns: [], totalCost: 0
+      messages: [], roles: [], subscriptions: [], commandRuns: [],
+      pipelines: [], pipelineInstances: [], totalCost: 0
     };
   }
 }
@@ -148,6 +155,8 @@ function loadFromSqlite(): StoreData {
     roles: loadCollection<Role>('roles'),
     subscriptions: loadCollection<EventSubscription>('subscriptions'),
     commandRuns: loadCollection<CommandRun>('command_runs'),
+    pipelines: loadCollection<Pipeline>('pipelines'),
+    pipelineInstances: loadCollection<PipelineInstance>('pipeline_instances'),
     totalCost: costStr ? parseFloat(costStr) : 0,
   };
 }
@@ -166,6 +175,8 @@ function migrateJsonToSqlite(data: StoreData): void {
   saveCollection('roles', data.roles, (r) => r.workspaceId || '');
   saveCollection('subscriptions', data.subscriptions, (s) => '');
   saveCollection('command_runs', data.commandRuns, (c) => c.workspaceId || '');
+  saveCollection('pipelines', data.pipelines, (p) => p.workspaceId || '');
+  saveCollection('pipeline_instances', data.pipelineInstances, (pi) => '');
 
   console.log('[Store] Migration to SQLite complete');
 }
@@ -245,6 +256,8 @@ export function loadStore() {
           roles: (old as any).roles || [],
           subscriptions: (old as any).subscriptions || [],
           commandRuns: (old as any).commandRuns || [],
+          pipelines: [],
+          pipelineInstances: [],
           totalCost: old.totalCost ?? 0,
         };
         applyOrphanMigration();
@@ -291,6 +304,8 @@ export function saveStore() {
       saveCollection('roles', store.roles, (r) => r.workspaceId || '');
       saveCollection('subscriptions', store.subscriptions, () => '');
       saveCollection('command_runs', store.commandRuns, (c) => c.workspaceId || '');
+      saveCollection('pipelines', store.pipelines, (p) => p.workspaceId || '');
+      saveCollection('pipeline_instances', store.pipelineInstances, () => '');
     });
 
     transaction();

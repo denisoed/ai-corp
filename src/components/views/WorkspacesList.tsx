@@ -152,6 +152,7 @@ export function WorkspacesList() {
   const [settingsData, setSettingsData] = useState<{ providers: Record<string, LLMProvider>; defaultProviderId: string } | null>(null);
   const [agentModels, setAgentModels] = useState<Record<string, string[]>>({});
   const [loadingAgentModels, setLoadingAgentModels] = useState<Record<string, boolean>>({});
+  const [resettingAgentMemory, setResettingAgentMemory] = useState(false);
 
   const [newWsName, setNewWsName] = useState('');
   const [newWsDescription, setNewWsDescription] = useState('');
@@ -250,6 +251,23 @@ export function WorkspacesList() {
       setSavingFile(false);
     }
   };
+
+  const resetAgentMemory = useCallback(async () => {
+    if (!selectedAgentId) return;
+    const agent = agents.find(a => a.id === selectedAgentId);
+    const ok = window.confirm('Clear this agent model context and start a new session?');
+    if (!ok) return;
+    setResettingAgentMemory(true);
+    try {
+      const res = await fetch(`/api/agents/${selectedAgentId}/memory/reset`, { method: 'POST' });
+      if (!res.ok) throw new Error(`Reset failed: ${res.status}`);
+      addLog({ agentId: 'system', action: 'Agent Memory Reset', details: `Cleared model context for ${agent?.name || selectedAgentId}.`, type: 'warning' });
+    } catch (e: any) {
+      addLog({ agentId: 'system', action: 'Agent Memory Reset Failed', details: e.message, type: 'error' });
+    } finally {
+      setResettingAgentMemory(false);
+    }
+  }, [selectedAgentId, agents, addLog]);
 
   const nodeTypes = useMemo(() => ({
     agent: AgentNode,
@@ -1646,13 +1664,25 @@ export function WorkspacesList() {
               </TabPanel>
 
               <div className="pt-4 border-t border-zinc-800 mt-4">
-                <Button variant="destructive" className="w-full flex justify-center items-center gap-2 bg-red-950/50 hover:bg-red-900 border border-red-900/50 text-red-200" onClick={() => {
-                  removeAgent(selectedAgent.id);
-                  setSelectedAgentId(null);
-                  addLog({ agentId: 'system', action: 'Agent Removed', details: `${selectedAgent.name} left the company.`, type: 'warning' });
-                }}>
-                  <Trash2 size={16} /> Retire Agent
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 w-10 shrink-0 justify-center items-center border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                    onClick={resetAgentMemory}
+                    disabled={resettingAgentMemory}
+                    title="Clear Model Context"
+                  >
+                    <RotateCw size={16} className={resettingAgentMemory ? 'animate-spin' : ''} />
+                  </Button>
+                  <Button variant="destructive" className="flex-[1.3] flex justify-center items-center gap-2 bg-red-950/50 hover:bg-red-900 border border-red-900/50 text-red-200" onClick={() => {
+                    removeAgent(selectedAgent.id);
+                    setSelectedAgentId(null);
+                    addLog({ agentId: 'system', action: 'Agent Removed', details: `${selectedAgent.name} left the company.`, type: 'warning' });
+                  }}>
+                    <Trash2 size={16} /> Retire Agent
+                  </Button>
+                </div>
               </div>
             </div>
           </div>

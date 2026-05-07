@@ -27,6 +27,36 @@ export const EVENT_DEFINITIONS: EventDefinition[] = [
     label: 'Task assignee changed',
     description: 'Fires when the assignee of a task changes.',
   },
+  {
+    type: 'pipeline.stage.started',
+    label: 'Pipeline stage started',
+    description: 'Fires when a pipeline stage begins execution.',
+  },
+  {
+    type: 'pipeline.stage.completed',
+    label: 'Pipeline stage completed',
+    description: 'Fires when a pipeline stage finishes successfully.',
+  },
+  {
+    type: 'pipeline.stage.failed',
+    label: 'Pipeline stage failed',
+    description: 'Fires when a pipeline stage fails.',
+  },
+  {
+    type: 'pipeline.completed',
+    label: 'Pipeline completed',
+    description: 'Fires when an entire pipeline finishes all stages.',
+  },
+  {
+    type: 'pipeline.failed',
+    label: 'Pipeline failed',
+    description: 'Fires when a pipeline fails or is cancelled.',
+  },
+  {
+    type: 'approval.requested',
+    label: 'Approval requested',
+    description: 'Fires when an agent requests approval from another agent.',
+  },
 ];
 
 export function isSupportedEventType(type: string): type is DomainEventType {

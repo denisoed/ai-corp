@@ -3,6 +3,7 @@ import { cn } from '../../lib/utils';
 import { renderMarkdown } from '../../lib/markdown';
 
 interface MessageBubbleProps {
+  key?: string | number;
   message: AgentMessage;
   senderName: string;
   isFromMe?: boolean;

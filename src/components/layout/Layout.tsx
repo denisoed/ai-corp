@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FolderKanban, KanbanSquare, Activity, Clock, Shield, Settings, Menu, Bell, MessageSquare, LogOut } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, KanbanSquare, Activity, Clock, Shield, Settings, Menu, Bell, MessageSquare, LogOut, Workflow } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/Button';
 import { Logo } from '../ui/Logo';
@@ -60,6 +60,7 @@ export function Layout({ children }: LayoutProps) {
     { id: 'chats', label: 'Chats', icon: MessageSquare },
     { id: 'board', label: 'Task Board', icon: KanbanSquare },
     { id: 'crons', label: 'Cron Jobs', icon: Clock },
+    { id: 'pipelines', label: 'Pipelines', icon: Workflow },
     { id: 'roles', label: 'Roles', icon: Shield },
     { id: 'events', label: 'Events', icon: Bell },
     { id: 'logs', label: 'Activity Logs', icon: Activity },

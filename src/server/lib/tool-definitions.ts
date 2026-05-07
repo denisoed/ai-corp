@@ -397,17 +397,34 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'request_approval',
-      description: 'Create a pending approval request when the agent needs human confirmation to continue the current task.',
+      description: 'Request approval to continue. If approverAgentName is provided, the named agent will review. Otherwise, a human must approve.',
       parameters: {
         type: 'object' as const,
         properties: {
           taskTitle: { type: 'string' as const, description: 'Title or partial title of the task that needs approval' },
           action: { type: 'string' as const, description: 'What action or decision needs approval' },
-          question: { type: 'string' as const, description: 'Short question for the human reviewer' },
+          question: { type: 'string' as const, description: 'Short question for the reviewer' },
           risk: { type: 'string' as const, description: 'Must be: low, medium, high, or critical' },
-          estimatedCost: { type: 'number' as const, description: 'Estimated cost or effort for the pending decision' }
+          estimatedCost: { type: 'number' as const, description: 'Estimated cost or effort for the pending decision' },
+          approverAgentName: { type: 'string' as const, description: 'Optional. Name of another agent to review this request. Leave empty for human approval.' }
         },
         required: ['taskTitle', 'action', 'question', 'risk', 'estimatedCost']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'respond_to_approval',
+      description: 'Approve or reject a pending approval request that was sent to you by another agent.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          approvalId: { type: 'string' as const, description: 'The approval ID to respond to.' },
+          approved: { type: 'boolean' as const, description: 'true to approve, false to reject.' },
+          reason: { type: 'string' as const, description: 'Optional reason for the decision.' }
+        },
+        required: ['approvalId', 'approved']
       }
     }
   },
@@ -986,6 +1003,125 @@ export const companyTools = [
           timeout: { type: 'number' as const, description: 'Optional. Timeout in milliseconds (default 15000, max 60000).' }
         },
         required: ['method', 'url']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'create_pipeline',
+      description: 'Define a reusable pipeline with ordered stages. Each stage assigns work to an agent role (Developer, Reviewer, DevOps, etc.). Pipelines can be started multiple times on different tasks.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          name: { type: 'string' as const, description: 'Pipeline name, e.g. "Dev → Review → Deploy"' },
+          description: { type: 'string' as const, description: 'Optional. What this pipeline does.' },
+          stages: {
+            type: 'array' as const,
+            description: 'Array of pipeline stages in execution order.',
+            items: {
+              type: 'object' as const,
+              properties: {
+                name: { type: 'string' as const, description: 'Stage name, e.g. "Development"' },
+                assigneeRole: { type: 'string' as const, description: 'Agent role for this stage: Developer, Reviewer, DevOps, Research, Analyst, Manager, Designer' },
+                instructions: { type: 'string' as const, description: 'What the agent should do in this stage.' },
+                expectedOutput: { type: 'string' as const, description: 'Optional. What the stage should produce.' },
+                transition: { type: 'string' as const, description: 'Optional. "auto" (next stage starts automatically), "approval_required" (waits for human approval), or "manual" (PM must trigger next stage). Default: auto.' },
+                timeoutMinutes: { type: 'number' as const, description: 'Optional. Minutes before stage times out and escalates.' }
+              },
+              required: ['name', 'assigneeRole', 'instructions']
+            }
+          }
+        },
+        required: ['name', 'stages']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'start_pipeline',
+      description: 'Launch a pipeline on a task. Creates a pipeline instance which runs each stage sequentially, assigning tasks to available agents by role. The pipeline runs in the background — subscribe to pipeline events or check status for updates.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          taskTitle: { type: 'string' as const, description: 'Title or partial title of the task to run the pipeline on.' },
+          taskId: { type: 'string' as const, description: 'Optional. Exact task ID.' },
+          pipelineName: { type: 'string' as const, description: 'Name or partial name of the pipeline to run.' },
+          pipelineId: { type: 'string' as const, description: 'Optional. Exact pipeline ID.' }
+        },
+        required: ['taskTitle', 'pipelineName']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_pipeline_status',
+      description: 'Check the status of a running or completed pipeline instance.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          instanceId: { type: 'string' as const, description: 'Optional. Pipeline instance ID to check.' },
+          pipelineId: { type: 'string' as const, description: 'Optional. Pipeline ID to list all instances for.' }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'cancel_pipeline',
+      description: 'Cancel a running or paused pipeline instance.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          instanceId: { type: 'string' as const, description: 'Pipeline instance ID to cancel.' },
+          reason: { type: 'string' as const, description: 'Optional. Reason for cancellation.' }
+        },
+        required: ['instanceId']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'list_pipelines',
+      description: 'List all pipelines available in the current workspace with their stage count and active instances.',
+      parameters: {
+        type: 'object' as const,
+        properties: {},
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'plan_pipeline',
+      description: 'Get a suggested pipeline stage plan for a task. Analyzes the task and returns a recommended sequence of stages based on available agent roles. Use the returned stages with create_pipeline to create a new pipeline.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          taskTitle: { type: 'string' as const, description: 'Title or partial title of the task.' },
+          taskId: { type: 'string' as const, description: 'Optional. Exact task ID.' }
+        },
+        required: ['taskTitle']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'delete_pipeline',
+      description: 'Delete a pipeline definition. Only works if the pipeline has no active instances.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          pipelineId: { type: 'string' as const, description: 'Pipeline ID to delete.' }
+        },
+        required: ['pipelineId']
       }
     }
   }

@@ -158,6 +158,22 @@ router.delete('/agents/:id', (req, res) => {
   res.json({ success: true });
 });
 
+router.post('/agents/:id/memory/reset', (req, res) => {
+  const store = getStore();
+  const agent = store.agents.find(a => a.id === req.params.id);
+  if (!agent) {
+    return res.status(404).json({ error: 'Agent not found' });
+  }
+
+  const workspace = agent.workspaceId
+    ? store.workspaces.find(w => w.id === agent.workspaceId)
+    : undefined;
+
+  clearMemory(req.params.id);
+  createMemory(agent, workspace);
+  res.json({ success: true });
+});
+
 router.get('/agents/:id/memory', (req, res) => {
   const memory = loadMemory(req.params.id);
   if (!memory) return res.status(404).json({ error: 'No memory found for this agent' });

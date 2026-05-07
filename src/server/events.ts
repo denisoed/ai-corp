@@ -2,7 +2,7 @@ import { createChatSession } from './llm';
 import { appendMessage, buildSystemPrompt } from './agent-memory';
 import { getStore, mutateStore, agentsAreConnected } from './store';
 import { getEventDefinition, getSupportedEventTypes } from './event-registry';
-import type { Agent, DomainEvent, EventSubscription, Task } from '../types';
+import type { Agent, DomainEvent, EventSubscription, Task, ApprovalRequest } from '../types';
 
 const SUPPORTED_EVENTS = getSupportedEventTypes();
 
@@ -172,7 +172,25 @@ export function createTaskAssigneeChangedEvent(task: Task, previousAssigneeId: s
   };
 }
 
-export async function publishEvent(event: DomainEvent): Promise<void> {
+export function createApprovalRequestedEvent(approval: ApprovalRequest, taskTitle?: string): DomainEvent {
+  return {
+    id: crypto.randomUUID(),
+    type: 'approval.requested',
+    taskId: approval.taskId,
+    createdAt: new Date().toISOString(),
+    payload: {
+      approvalId: approval.id,
+      action: approval.action,
+      details: approval.details,
+      risk: approval.risk,
+      requesterAgentId: approval.agentId,
+      approverAgentId: approval.approverAgentId!,
+      taskTitle,
+    },
+  };
+}
+
+export async function publishEvent(event: DomainEvent, contextAgentId?: string): Promise<void> {
   const state = getStore();
   const def = getEventDefinition(event.type);
   const task = event.taskId ? state.tasks.find(t => t.id === event.taskId) : undefined;
@@ -200,10 +218,7 @@ export async function publishEvent(event: DomainEvent): Promise<void> {
   );
   if (subscriptions.length === 0) return;
 
-  if (!task) {
-    logEvent('Event Dropped', `${def?.label || event.type} had no task context and was skipped.`, 'warning', 'system', eventMeta);
-    return;
-  }
+  const effectiveAgentId = contextAgentId || task?.assigneeId || undefined;
 
   for (const subscription of subscriptions) {
     const agent = state.agents.find(a => a.id === subscription.agentId);
@@ -211,7 +226,7 @@ export async function publishEvent(event: DomainEvent): Promise<void> {
       logEvent('Event Delivery Skipped', `Subscription ${subscription.id.slice(0, 8)} skipped: agent not found.`, 'warning', 'system', eventMeta);
       continue;
     }
-    if (!agentsAreConnected(subscription.agentId, task.assigneeId || subscription.agentId, state.agents)) {
+    if (event.type !== 'approval.requested' && !agentsAreConnected(subscription.agentId, effectiveAgentId || subscription.agentId, state.agents)) {
       logEvent(
         'Event Delivery Skipped',
         `Subscription ${subscription.id.slice(0, 8)} for ${agent.name} skipped: agent is not connected to task context.`,
@@ -220,6 +235,20 @@ export async function publishEvent(event: DomainEvent): Promise<void> {
         { ...eventMeta, agentName: agent.name }
       );
       continue;
+    }
+
+    if (event.type === 'approval.requested') {
+      const { runApprovalAutopilot } = await import('./task-autopilot');
+      const approval = state.approvals.find(a => a.id === event.payload?.approvalId);
+      if (approval && approval.status === 'pending') {
+        void runApprovalAutopilot(approval);
+      }
+      continue;
+    }
+
+    if (!task) {
+      logEvent('Event Dropped', `${def?.label || event.type} had no task context and was skipped.`, 'warning', 'system', eventMeta);
+      return;
     }
 
     const deliveryMeta = { ...eventMeta, agentName: agent.name, deliveryChannel: subscription.channel };
@@ -300,7 +329,7 @@ export function createTaskEventSubscription(
   eventType: DomainEvent['type'],
   filters: Partial<EventSubscription['filters']> = {},
   instructions?: string,
-  oneshot = false
+  oneshot = true
 ): EventSubscription {
   const now = new Date().toISOString();
   return {
