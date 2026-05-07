@@ -93,9 +93,15 @@ export function PipelineDetail() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={() => setShowStartModal(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white">
-            <Play size={14} className="mr-1" /> Start
-          </Button>
+          {activeInstance ? (
+            <Button onClick={() => handleCancel(activeInstance.id)} className="bg-red-600 hover:bg-red-500 text-white">
+              <Square size={14} className="mr-1" /> Stop
+            </Button>
+          ) : (
+            <Button onClick={() => setShowStartModal(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white">
+              <Play size={14} className="mr-1" /> Start
+            </Button>
+          )}
         </div>
       </div>
 

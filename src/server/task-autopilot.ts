@@ -175,7 +175,7 @@ export function startTaskAutopilotManager(): void {
   console.log('[TaskAutopilot] Manager initialized');
 }
 
-async function runApprovalAutopilot(approval: any): Promise<void> {
+export async function runApprovalAutopilot(approval: any): Promise<void> {
   const store = getStore();
   const approver = store.agents.find(a => a.id === approval.approverAgentId);
   const requester = store.agents.find(a => a.id === approval.agentId);

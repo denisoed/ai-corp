@@ -6,8 +6,9 @@ import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { CustomSelect, SelectItem } from '../ui/CustomSelect';
 import { Input } from '../ui/Input';
-import { Plus, Trash2, Play, Eye, Layers, Workflow, GanttChartSquare } from 'lucide-react';
+import { Plus, Trash2, Play, Square, Eye, Layers, Workflow, GanttChartSquare } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 
 const PIPELINE_STATUS_COLORS: Record<string, string> = {
   running: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
@@ -19,7 +20,7 @@ const PIPELINE_STATUS_COLORS: Record<string, string> = {
 
 export function PipelinesList() {
   const navigate = useNavigate();
-  const { pipelines, pipelineInstances, workspaces, agents, tasks, createPipeline, deletePipeline, startPipeline, addLog } = useStore();
+  const { pipelines, pipelineInstances, workspaces, agents, tasks, createPipeline, deletePipeline, startPipeline, cancelPipelineInstance, addLog } = useStore();
   const [showCreate, setShowCreate] = useState(false);
   const [filterWs, setFilterWs] = useState('');
 
@@ -30,6 +31,7 @@ export function PipelinesList() {
 
   const [showStartModal, setShowStartModal] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
 
   const filtered = filterWs
     ? pipelines.filter(p => p.workspaceId === filterWs)
@@ -77,6 +79,16 @@ export function PipelinesList() {
   const handleDelete = async (id: string, name: string) => {
     await deletePipeline(id);
     addLog({ agentId: 'system', action: 'Pipeline Deleted', details: `Pipeline "${name}" deleted`, type: 'warning' });
+    setShowDeleteConfirm(null);
+  };
+
+  const handleStop = async (pipelineId: string) => {
+    const active = getActiveInstances(pipelineId);
+    for (const inst of active) {
+      await cancelPipelineInstance(inst.id);
+    }
+    const p = pipelines.find(p => p.id === pipelineId);
+    addLog({ agentId: 'system', action: 'Pipeline Stopped', details: `Pipeline "${p?.name}" stopped`, type: 'warning' });
   };
 
   const handleStart = async (pipelineId: string) => {
@@ -190,19 +202,30 @@ export function PipelinesList() {
                       <Eye size={12} className="mr-1" />
                       Details
                     </Button>
-                    <Button
-                      size="sm"
-                      className="text-xs h-7 flex-1 bg-indigo-600 hover:bg-indigo-500 text-white"
-                      onClick={() => { setShowStartModal(pipeline.id); setSelectedTaskId(''); }}
-                    >
-                      <Play size={12} className="mr-1" />
-                      Start
-                    </Button>
+                    {activeInstances.length > 0 ? (
+                      <Button
+                        size="sm"
+                        className="text-xs h-7 flex-1 bg-red-600 hover:bg-red-500 text-white"
+                        onClick={() => handleStop(pipeline.id)}
+                      >
+                        <Square size={12} className="mr-1" />
+                        Stop
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        className="text-xs h-7 flex-1 bg-indigo-600 hover:bg-indigo-500 text-white"
+                        onClick={() => { setShowStartModal(pipeline.id); setSelectedTaskId(''); }}
+                      >
+                        <Play size={12} className="mr-1" />
+                        Start
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="ghost"
                       className="text-xs h-7 px-2 text-red-400 hover:text-red-300"
-                      onClick={() => handleDelete(pipeline.id, pipeline.name)}
+                      onClick={() => setShowDeleteConfirm(pipeline.id)}
                     >
                       <Trash2 size={12} />
                     </Button>
@@ -299,6 +322,18 @@ export function PipelinesList() {
           </div>
         </div>
       )}
+
+      {showDeleteConfirm && (() => {
+        const p = pipelines.find(pl => pl.id === showDeleteConfirm);
+        return (
+          <ConfirmDialog
+            title="Delete Pipeline"
+            message={`Are you sure you want to delete "${p?.name}"? This action cannot be undone.`}
+            onConfirm={() => p && handleDelete(p.id, p.name)}
+            onCancel={() => setShowDeleteConfirm(null)}
+          />
+        );
+      })()}
 
       {showStartModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
