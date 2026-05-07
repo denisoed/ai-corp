@@ -103,13 +103,18 @@ export async function processPendingMessage(agent: Agent): Promise<void> {
 
     if (pending.fromAgentId) {
       await appendMessage(pending.fromAgentId, {
-        role: 'user',
+        role: 'system',
         content: `[Reply from ${agent.name}]: ${stored?.reply || replyText || ''}`,
         source: 'system'
       });
     }
     await appendMessage(agent.id, {
-      role: 'assistant',
+      role: 'system',
+      content: `[Request from ${senderName}]: ${pending.content}`,
+      source: 'system'
+    });
+    await appendMessage(agent.id, {
+      role: 'system',
       content: `[Replied to ${senderName}]: ${stored?.reply || replyText || ''}`,
       source: 'system'
     });
@@ -272,7 +277,7 @@ async function pollTelegram(agentId: string, token: string) {
   }
 }
 
-async function handleIncomingMessage(agentId: string, token: string, message: any) {
+export async function handleIncomingMessage(agentId: string, token: string, message: any) {
   const chatId = message.chat.id;
   const text = message.text;
 
@@ -345,12 +350,17 @@ async function handleIncomingMessage(agentId: string, token: string, message: an
     let response = await chatSession.sendMessage(enhancedText);
     let replyText = response.text;
 
+    const calledTools: string[] = [];
+    const toolResults: { tool: string; result: any }[] = [];
     while (response.toolCalls && response.toolCalls.length > 0) {
+      replyText = '';
       const results = [];
       for (const call of response.toolCalls) {
+        calledTools.push(call.function.name);
         const args = JSON.parse(call.function.arguments);
         const result = await executeTool(call.function.name, args, agentId, token);
         results.push(result);
+        toolResults.push({ tool: call.function.name, result });
       }
       response = await chatSession.sendToolResults(response.toolCalls, results);
       if (response.text) {
@@ -360,7 +370,16 @@ async function handleIncomingMessage(agentId: string, token: string, message: an
 
     let finalReply = replyText.trim();
     if (!finalReply) {
-      finalReply = 'Task executed successfully.';
+      if (calledTools.includes('ask_agent')) {
+        const askReply = toolResults.find(tr => tr.tool === 'ask_agent')?.result?.reply;
+        finalReply = askReply || 'Done.';
+      } else if (calledTools.includes('send_message')) {
+        finalReply = 'Message sent.';
+      } else if (calledTools.length > 0) {
+        finalReply = 'Done.';
+      } else {
+        finalReply = 'Task executed successfully.';
+      }
     }
 
     await appendMessage(agentId, { role: 'user', content: enhancedText, source: 'telegram' });
@@ -508,22 +527,22 @@ export async function handleAskAgent(args: any, executingAgentId: string, token?
     }
 
     await appendMessage(executingAgentId, {
-      role: 'assistant',
+      role: 'system',
       content: `[Asked ${targetAgent.name}]: ${args.content}`,
       source: 'telegram'
     });
     await appendMessage(executingAgentId, {
-      role: 'user',
+      role: 'system',
       content: `[Reply from ${targetAgent.name}]: ${stored?.reply || replyText || ''}`,
       source: 'telegram'
     });
     await appendMessage(targetAgent.id, {
-      role: 'user',
+      role: 'system',
       content: `[Request from ${senderName}]: ${args.content}`,
       source: 'telegram'
     });
     await appendMessage(targetAgent.id, {
-      role: 'assistant',
+      role: 'system',
       content: `[Replied to ${senderName}]: ${stored?.reply || replyText || ''}`,
       source: 'telegram'
     });

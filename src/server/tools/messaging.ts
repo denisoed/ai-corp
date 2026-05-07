@@ -33,13 +33,8 @@ export async function handleSendMessage(args: any, executingAgentId: string): Pr
   });
 
   await appendMessage(executingAgentId, {
-    role: 'assistant',
+    role: 'system',
     content: `[Sent to ${targetAgent.name}]: ${args.content}`,
-    source: 'telegram'
-  });
-  await appendMessage(targetAgent.id, {
-    role: 'user',
-    content: `[From ${executingAgent?.name || 'Unknown'}]: ${args.content}`,
     source: 'telegram'
   });
 
@@ -85,13 +80,13 @@ export async function handleReplyToMessage(args: any, executingAgentId: string):
   }
 
   await appendMessage(executingAgentId, {
-    role: 'assistant',
+    role: 'system',
     content: `[Replied to ${sender?.name || msg.fromAgentId}]: ${args.content}`,
     source: 'telegram'
   });
   if (sender) {
     await appendMessage(sender.id, {
-      role: 'user',
+      role: 'system',
       content: `[Reply from ${replier}]: ${args.content}`,
       source: 'telegram'
     });
