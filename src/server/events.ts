@@ -241,7 +241,14 @@ export async function publishEvent(event: DomainEvent, contextAgentId?: string):
       const { runApprovalAutopilot } = await import('./task-autopilot');
       const approval = state.approvals.find(a => a.id === event.payload?.approvalId);
       if (approval && approval.status === 'pending') {
-        void runApprovalAutopilot(approval);
+        runApprovalAutopilot(approval).catch(err => {
+          logEvent('Approval Autopilot Error', `runApprovalAutopilot failed for approval ${approval.id}: ${err.message}`, 'error', 'system');
+        });
+      }
+      if (subscription.oneshot) {
+        mutateStore(s => {
+          s.subscriptions = s.subscriptions.filter(sub => sub.id !== subscription.id);
+        });
       }
       continue;
     }

@@ -1,5 +1,5 @@
-import { getStore, mutateStore } from './store';
-import { Agent, Task, ApprovalRequestInput } from '../types';
+import { getStore, mutateStore, getEffectivePermissions } from './store';
+import { Agent, Task, ApprovalRequestInput, Pipeline, PipelineInstance, PipelineStage, PermissionType } from '../types';
 import { createChatSession } from './llm';
 import { buildSystemPrompt, loadMemory, appendMessage } from './agent-memory';
 import { executeTool } from './tools/index';
@@ -32,7 +32,7 @@ function shouldAutopilot(task: Task, agent: Agent): boolean {
   return true;
 }
 
-function buildTaskPrompt(agent: Agent, task: Task): string {
+function buildTaskPrompt(agent: Agent, task: Task, context?: { permissions?: string; pipeline?: string; workspace?: string }): string {
   const summary = [
     `You are working autonomously on the task "${task.title}".`,
     `Goal: finish the task end-to-end.`,
@@ -41,6 +41,9 @@ function buildTaskPrompt(agent: Agent, task: Task): string {
     task.tags.length ? `Tags: ${task.tags.join(', ')}` : '',
     task.subtasks.length ? `Subtasks: ${task.subtasks.map(st => `${st.completed ? '[x]' : '[ ]'} ${st.title}`).join('; ')}` : '',
     task.comments.length ? `Existing comments: ${task.comments.slice(-5).map(c => `${c.authorName}: ${c.content}`).join(' | ')}` : '',
+    context?.workspace || '',
+    context?.permissions || '',
+    context?.pipeline || '',
     '',
     'Operating rules:',
     '- Keep the user informed by writing task comments at meaningful milestones.',
@@ -50,6 +53,10 @@ function buildTaskPrompt(agent: Agent, task: Task): string {
     '- If you need a decision or approval, call request_approval with approverAgentName pointing to the relevant agent (Manager, Reviewer, DevOps, etc.). Only fall back to human approval if no appropriate agent exists.',
     '- If blocked, move the task to Blocked and explain why in a comment.',
     '- When complete, move the task to Done and add a final summary comment.',
+    '',
+    'Efficiency guidelines:',
+    '- Batch multiple independent read-only operations (e.g., list_files + get_task_details + search_tasks) into a single response to minimize round-trips.',
+    '- You already have your permissions and workspace context below — use that before calling get_agent_permissions again.',
   ].filter(Boolean);
 
   return buildSystemPrompt(agent) + '\n\n' + summary.join('\n');
@@ -71,6 +78,7 @@ async function runTaskAutopilot(task: Task): Promise<void> {
     if (a) {
       a.status = 'Working';
       a.currentTaskId = task.id;
+      if ((a.activeSessions || 0) > 5) a.activeSessions = 0;
       a.activeSessions = (a.activeSessions || 0) + 1;
     }
   });
@@ -84,7 +92,36 @@ async function runTaskAutopilot(task: Task): Promise<void> {
       logTask(agent.id, 'Task Autopilot Memory Missing', `No memory found for "${task.title}", using live context only.`, 'warning', taskMeta);
     }
 
-    const chatSession = createChatSession(agent, buildTaskPrompt(agent, task));
+    const permissions = getEffectivePermissions(agent.id);
+    const permissionLines = permissions.length > 0
+      ? `Your effective permissions:\n${permissions.map(p => `  ${p.type}${p.scope && p.scope !== 'all' ? ` (scope: ${(p.scope as string[]).join(', ')})` : ' (all)'}`).join('\n')}`
+      : 'Your effective permissions: none (you may need to request permissions or use tools that check per-agent).';
+    const permissionsContext = `# PERMISSIONS\n\n${permissionLines}\n\nIf you need a permission you don't have, call request_approval with requiredPermission and permissionScope to request it from the user. Do NOT use grant_permission_to_role to self-grant. If blocked on a permission, wait — do not retry in a loop.`;
+
+    const ws = store.workspaces.find(w => w.id === agent.workspaceId);
+    const workspaceContext = ws ? `# WORKSPACE\n\nName: ${ws.name}\nID: ${ws.id}\nSlug: ${ws.slug}` : '';
+
+    const pipelineTag = task.tags?.find(t => t.startsWith('pipeline:'));
+    const pipelineContext = pipelineTag ? (() => {
+      const pId = pipelineTag.replace('pipeline:', '');
+      const pipeline = store.pipelines.find(p => p.id === pId);
+      if (!pipeline) return '';
+      const instance = store.pipelineInstances.find(pi => pi.pipelineId === pId && pi.taskId === task.id);
+      const currentStage = instance ? pipeline.stages[instance.currentStageIndex] : undefined;
+      const lines = [`# PIPELINE CONTEXT\n\nPipeline: ${pipeline.name}`];
+      if (currentStage) lines.push(`Current stage: ${currentStage.name} (${currentStage.assigneeRole})`);
+      if (currentStage?.instructions) lines.push(`Stage instructions: ${currentStage.instructions}`);
+      if (instance) lines.push(`Instance status: ${instance.status} (stage ${(instance.currentStageIndex || 0) + 1}/${pipeline.stages.length})`);
+      return lines.join('\n');
+    })() : '';
+
+    const finalPrompt = buildTaskPrompt(agent, task, {
+      permissions: permissionsContext,
+      workspace: workspaceContext,
+      pipeline: pipelineContext,
+    });
+
+    const chatSession = createChatSession(agent, finalPrompt);
     const userMessage = `Work on task "${task.title}" until it is complete. Keep the task updated via tools.`;
     let response = await chatSession.sendMessage(userMessage);
     let replyText = response.text;
@@ -139,7 +176,28 @@ async function runTaskAutopilot(task: Task): Promise<void> {
     logTask(agent.id, 'Task Autopilot Finished', `Finished autonomous pass for "${task.title}".`, 'success', taskMeta);
   } catch (e: any) {
     logTask(agent.id, 'Task Autopilot Failed', `Failed on "${task.title}": ${e.message}`, 'error', taskMeta);
-    throw e;
+    if (String(e.message ?? '').includes('402') || String(e.message ?? '').includes('insufficient credits') || String(e.message ?? '').includes('Insufficient credits') || String(e.message ?? '').includes('not enough credits')) {
+      const failedTask = getStore().tasks.find(t => t.id === task.id);
+      if (failedTask) {
+        mutateStore(s => {
+          const t = s.tasks.find(x => x.id === task.id);
+          if (t) {
+            t.status = 'Failed';
+            t.updatedAt = new Date().toISOString();
+            t.comments.push({
+              id: crypto.randomUUID(),
+              authorId: agent.id,
+              authorName: agent.name,
+              content: `Task failed due to insufficient API credits: ${e.message}. Add credits and retry.`,
+              createdAt: new Date().toISOString(),
+              type: 'action',
+            });
+          }
+        });
+      }
+    } else {
+      throw e;
+    }
   } finally {
     mutateStore(s => {
       const a = s.agents.find(x => x.id === agent.id);
@@ -183,28 +241,37 @@ export async function runApprovalAutopilot(approval: any): Promise<void> {
 
   mutateStore(s => {
     const a = s.agents.find(x => x.id === approval.approverAgentId);
-    if (a) { a.status = 'Working'; a.activeSessions = (a.activeSessions || 0) + 1; }
+    if (a) {
+      if ((a.activeSessions || 0) > 5) a.activeSessions = 0;
+      a.status = 'Working';
+      a.activeSessions = (a.activeSessions || 0) + 1;
+    }
   });
 
   try {
+    const isPermissionRequest = approval.requiredPermission;
+
     const systemPrompt = buildSystemPrompt(approver) + '\n\n' + [
       'You have a pending approval request from another agent.',
       '',
-      'Operating rules:',
-      '- Review the request carefully.',
-      '- Call respond_to_approval with the approvalId, approved=true/false, and a reason.',
-      '- If you need more information, write a task comment or send a message to the requester.',
+      isPermissionRequest
+        ? 'This is a PERMISSION request. You must ask the human user to decide via Telegram. Send a clear message using send_telegram_message, then wait for the user\'s reply. When they respond, call respond_to_approval.'
+        : 'Operating rules:',
+      isPermissionRequest ? '' : '- Review the request carefully.',
+      isPermissionRequest ? '' : '- Call respond_to_approval with the approvalId, approved=true/false, and a reason.',
+      isPermissionRequest ? '' : '- If you need more information, write a task comment or send a message to the requester.',
     ].join('\n');
 
     const chatSession = createChatSession(approver, systemPrompt);
-    let response = await chatSession.sendMessage(
-      `${requester?.name || 'Another agent'} is requesting approval:\n\n` +
-      `Action: ${approval.action}\n` +
-      `Details: ${approval.details || ''}\n` +
-      `Risk: ${approval.risk}\n` +
-      `Approval ID: ${approval.id}\n\n` +
-      `Call respond_to_approval with approvalId="${approval.id}" to approve or reject.`
-    );
+    const actionText = isPermissionRequest
+      ? `PERMISSION REQUESTED by ${requester?.name || 'Another agent'}: ${approval.action}\n\nPermission needed: ${approval.requiredPermission}${approval.permissionScope ? ` for ${approval.permissionScope.join(', ')}` : ''}\n\nDetails: ${approval.details || ''}\nRisk: ${approval.risk}\nApproval ID: ${approval.id}\n\nSend a Telegram message to the user asking them to decide. When they reply, call respond_to_approval with approvalId="${approval.id}".`
+      : `${requester?.name || 'Another agent'} is requesting approval:\n\n` +
+        `Action: ${approval.action}\n` +
+        `Details: ${approval.details || ''}\n` +
+        `Risk: ${approval.risk}\n` +
+        `Approval ID: ${approval.id}\n\n` +
+        `Call respond_to_approval with approvalId="${approval.id}" to approve or reject.`;
+    let response = await chatSession.sendMessage(actionText);
 
     let safetyCounter = 0;
     while (response.toolCalls && response.toolCalls.length > 0) {
@@ -251,6 +318,27 @@ export async function requestApproval(input: ApprovalRequestInput & { taskTitle?
 
   const approvalId = crypto.randomUUID();
 
+  if (input.requiredPermission) {
+    if (input.requiredPermission === 'system:manage_permissions' || input.requiredPermission === 'system:manage_roles') {
+      return { success: false, error: `Permission "${input.requiredPermission}" cannot be requested through approval. Contact your administrator.` };
+    }
+
+    const existingPerms = getEffectivePermissions(input.agentId);
+    const missing = !existingPerms.some(p =>
+      p.type === input.requiredPermission &&
+      (p.scope === 'all' || (input.permissionScope && Array.isArray(p.scope) && input.permissionScope.every(s => p.scope.includes(s))))
+    );
+    if (!missing) {
+      return { success: true, approvalId: 'already_granted' };
+    }
+
+    const ceoBot = store.agents.find(a => a.telegramConfig?.botToken);
+    if (ceoBot) {
+      input.approverAgentId = ceoBot.id;
+      input.approverAgentName = ceoBot.name;
+    }
+  }
+
   if (input.approverAgentId) {
     const approver = store.agents.find(a => a.id === input.approverAgentId);
     if (!approver) return { success: false, error: `Approver agent "${input.approverAgentName}" not found.` };
@@ -268,6 +356,8 @@ export async function requestApproval(input: ApprovalRequestInput & { taskTitle?
       details: input.details,
       approverAgentId: input.approverAgentId,
       approverAgentName: input.approverAgentName,
+      requiredPermission: input.requiredPermission,
+      permissionScope: input.permissionScope,
     };
 
     mutateStore(s => {
@@ -321,7 +411,9 @@ export async function requestApproval(input: ApprovalRequestInput & { taskTitle?
     estimatedCost: input.estimatedCost,
     status: 'pending' as const,
     createdAt: new Date().toISOString(),
-    details: input.details
+    details: input.details,
+    requiredPermission: input.requiredPermission,
+    permissionScope: input.permissionScope,
   };
 
   mutateStore(s => {
@@ -371,19 +463,50 @@ export function handleRespondToApproval(args: any, agentId: string) {
     if (a.taskId) {
       const task = s.tasks.find(t => t.id === a.taskId);
       if (task) {
-        const previousStatus = task.status;
-        task.status = 'In Progress';
-        task.updatedAt = new Date().toISOString();
-        task.comments.push({
-          id: crypto.randomUUID(),
-          authorId: agentId,
-          authorName: agent.name,
-          content: approved
-            ? `Approved: ${a.action}${reason ? ` (${reason})` : ''}. Proceeding.`
-            : `Rejected: ${a.action}${reason ? ` (${reason})` : ''}. Please revise.`,
-          createdAt: new Date().toISOString(),
-          type: 'action'
-        });
+        if (a.requiredPermission) {
+          if (approved) {
+            const reqAgent = s.agents.find(x => x.id === a.agentId);
+            if (reqAgent) {
+              if (!reqAgent.permissions) reqAgent.permissions = [];
+              if (!reqAgent.permissions.some(p => p.type === a.requiredPermission && JSON.stringify(p.scope) === JSON.stringify(a.permissionScope || 'all'))) {
+                reqAgent.permissions.push({ type: a.requiredPermission!, scope: a.permissionScope || 'all' });
+              }
+            }
+            task.status = 'In Progress';
+            task.comments.push({
+              id: crypto.randomUUID(),
+              authorId: agentId,
+              authorName: agent.name,
+              content: `Permission ${a.requiredPermission} granted. ${reason ? `(${reason})` : ''} Proceeding.`,
+              createdAt: new Date().toISOString(),
+              type: 'action'
+            });
+          } else {
+            task.status = 'Blocked';
+            task.comments.push({
+              id: crypto.randomUUID(),
+              authorId: agentId,
+              authorName: agent.name,
+              content: `Permission ${a.requiredPermission} denied. ${reason ? `(${reason})` : ''} Task blocked.`,
+              createdAt: new Date().toISOString(),
+              type: 'action'
+            });
+          }
+        } else {
+          const previousStatus = task.status;
+          task.status = 'In Progress';
+          task.updatedAt = new Date().toISOString();
+          task.comments.push({
+            id: crypto.randomUUID(),
+            authorId: agentId,
+            authorName: agent.name,
+            content: approved
+              ? `Approved: ${a.action}${reason ? ` (${reason})` : ''}. Proceeding.`
+              : `Rejected: ${a.action}${reason ? ` (${reason})` : ''}. Please revise.`,
+            createdAt: new Date().toISOString(),
+            type: 'action'
+          });
+        }
       }
     }
 

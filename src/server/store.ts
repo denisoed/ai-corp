@@ -527,3 +527,15 @@ export function assignDefaultRole(agentId: string): void {
     }
   }
 }
+
+export function grantDirectPermission(agentId: string, type: PermissionType, scope: 'all' | string[]): void {
+  mutateStore(s => {
+    const agent = s.agents.find(a => a.id === agentId);
+    if (!agent) return;
+    if (!agent.permissions) agent.permissions = [];
+    if (!agent.permissions.some(p => p.type === type && JSON.stringify(p.scope) === JSON.stringify(scope))) {
+      agent.permissions.push({ type, scope });
+      saveStore();
+    }
+  });
+}

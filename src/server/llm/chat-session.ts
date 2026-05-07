@@ -42,7 +42,17 @@ export class ChatSessionWrapper implements ChatSession {
     return this.callApi();
   }
 
+  private trimMessages(): void {
+    const MAX_MESSAGES = 20;
+    if (this.messages.length > MAX_MESSAGES) {
+      const first = this.messages[0];
+      const last = this.messages.slice(-(MAX_MESSAGES - 1));
+      this.messages = [first, ...last];
+    }
+  }
+
   private async callApi(): Promise<{ text: string; toolCalls?: ToolCall[]; usage?: LLMUsage }> {
+    this.trimMessages();
     const messagesWithSystem: ChatMessage[] = [
       { role: 'system', content: this.systemPrompt },
       ...this.messages,

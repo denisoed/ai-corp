@@ -406,7 +406,9 @@ export const companyTools = [
           question: { type: 'string' as const, description: 'Short question for the reviewer' },
           risk: { type: 'string' as const, description: 'Must be: low, medium, high, or critical' },
           estimatedCost: { type: 'number' as const, description: 'Estimated cost or effort for the pending decision' },
-          approverAgentName: { type: 'string' as const, description: 'Optional. Name of another agent to review this request. Leave empty for human approval.' }
+          approverAgentName: { type: 'string' as const, description: 'Optional. Name of another agent to review this request. Leave empty for human approval.' },
+          requiredPermission: { type: 'string' as const, description: 'Optional. Permission type you need, e.g. "file:write", "run_command". If set, this will be escalated to human for approval.' },
+          permissionScope: { type: 'array' as const, items: { type: 'string' as const }, description: 'Optional. Path globs to limit permission scope, e.g. ["API/**"]. Only meaningful with requiredPermission.' }
         },
         required: ['taskTitle', 'action', 'question', 'risk', 'estimatedCost']
       }

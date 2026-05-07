@@ -135,6 +135,8 @@ export interface ApprovalRequest {
   details?: string;
   approverAgentId?: string;
   approverAgentName?: string;
+  requiredPermission?: PermissionType;
+  permissionScope?: string[];
 }
 
 export interface ApprovalRequestInput {
@@ -147,6 +149,8 @@ export interface ApprovalRequestInput {
   details?: string;
   approverAgentId?: string;
   approverAgentName?: string;
+  requiredPermission?: PermissionType;
+  permissionScope?: string[];
 }
 
 export interface Comment {

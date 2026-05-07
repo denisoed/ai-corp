@@ -127,16 +127,35 @@ router.post('/approvals/:id/resolve', (req, res) => {
       const task = s.tasks.find(t => t.id === approval.taskId);
       if (task) {
         const previousStatus = task.status;
-        task.status = 'In Progress';
-        task.updatedAt = new Date().toISOString();
-        if (!approved) {
-          task.subtasks.push(fixSubtask);
+
+        if (approval.requiredPermission) {
+          if (approved) {
+            const reqAgent = s.agents.find(x => x.id === approval.agentId);
+            if (reqAgent) {
+              if (!reqAgent.permissions) reqAgent.permissions = [];
+              if (!reqAgent.permissions.some(p => p.type === approval.requiredPermission && JSON.stringify(p.scope) === JSON.stringify(approval.permissionScope || 'all'))) {
+                reqAgent.permissions.push({ type: approval.requiredPermission!, scope: approval.permissionScope || 'all' });
+              }
+            }
+            task.status = 'In Progress';
+          } else {
+            task.status = 'Blocked';
+          }
+        } else {
+          task.status = 'In Progress';
+          if (!approved) {
+            task.subtasks.push(fixSubtask);
+          }
         }
+
+        task.updatedAt = new Date().toISOString();
         task.comments.push({
           id: crypto.randomUUID(),
           authorId: 'user',
           authorName: 'Admin (You)',
-          content: approved ? `Approval granted for: ${approval.action}. Proceeding.` : 'Approval denied. Please revise according to comments.',
+          content: approval.requiredPermission
+            ? (approved ? `Permission ${approval.requiredPermission} granted. Proceeding.` : `Permission ${approval.requiredPermission} denied. Task blocked.`)
+            : (approved ? `Approval granted for: ${approval.action}. Proceeding.` : 'Approval denied. Please revise according to comments.'),
           createdAt: new Date().toISOString(),
           type: 'action'
         });
