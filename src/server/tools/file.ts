@@ -88,10 +88,57 @@ export async function handleDeleteFile(args: any, executingAgentId: string): Pro
   }
 }
 
+export async function handleCreateFolder(args: any, executingAgentId: string): Promise<any> {
+  try {
+    if (!hasPermission(executingAgentId, 'folder:write', args.path)) {
+      return { success: false, error: `You do not have folder:write permission for "${args.path}".` };
+    }
+
+    const targetPath = resolveWorkspacePath(executingAgentId, args.path);
+    if (fs.existsSync(targetPath)) {
+      return { success: false, error: `Path "${args.path}" already exists.` };
+    }
+
+    fs.mkdirSync(targetPath, { recursive: true });
+
+    logAction('Folder Created', `Created folder "${args.path}".`, 'success', executingAgentId, 'tool', 'file', undefined, { filePath: args.path, operation: 'create_folder' });
+    return { success: true, message: `Folder "${args.path}" created.` };
+  } catch (e: any) {
+    if (e instanceof WorkspaceAccessDenied) return { success: false, error: e.message };
+    throw e;
+  }
+}
+
+export async function handleDeleteFolder(args: any, executingAgentId: string): Promise<any> {
+  try {
+    if (!hasPermission(executingAgentId, 'folder:delete', args.path)) {
+      return { success: false, error: `You do not have folder:delete permission for "${args.path}".` };
+    }
+
+    const targetPath = resolveWorkspacePath(executingAgentId, args.path);
+    if (!fs.existsSync(targetPath)) {
+      return { success: false, error: `Folder "${args.path}" not found.` };
+    }
+
+    const stat = fs.statSync(targetPath);
+    if (!stat.isDirectory()) {
+      return { success: false, error: `"${args.path}" is not a directory.` };
+    }
+
+    fs.rmSync(targetPath, { recursive: true, force: true });
+
+    logAction('Folder Deleted', `Deleted folder "${args.path}".`, 'warning', executingAgentId, 'tool', 'file', undefined, { filePath: args.path, operation: 'delete_folder' });
+    return { success: true, message: `Folder "${args.path}" deleted.` };
+  } catch (e: any) {
+    if (e instanceof WorkspaceAccessDenied) return { success: false, error: e.message };
+    throw e;
+  }
+}
+
 export async function handleListFiles(args: any, executingAgentId: string): Promise<any> {
   try {
-    if (!hasPermission(executingAgentId, 'file:list')) {
-      return { success: false, error: 'You do not have file:list permission.' };
+    if (!hasPermission(executingAgentId, 'file:list') && !hasPermission(executingAgentId, 'folder:read')) {
+      return { success: false, error: 'You do not have file:list or folder:read permission.' };
     }
 
     const { workspace } = assertAgentInWorkspace(executingAgentId);

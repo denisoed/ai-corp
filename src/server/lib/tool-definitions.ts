@@ -718,6 +718,34 @@ export const companyTools = [
   {
     type: 'function' as const,
     function: {
+      name: 'create_folder',
+      description: 'Create a folder/directory in the workspace. Creates parent directories if they do not exist. Path is relative to the workspace root.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          path: { type: 'string' as const, description: 'Relative path to the folder to create, e.g. "src/components"' }
+        },
+        required: ['path']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'delete_folder',
+      description: 'Recursively delete a folder and all its contents in the workspace. Path is relative to the workspace root. Use with caution — this permanently removes all files and subdirectories.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          path: { type: 'string' as const, description: 'Relative path to the folder to delete, e.g. "temp/old-files"' }
+        },
+        required: ['path']
+      }
+    }
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'list_files',
       description: 'List files and directories in a workspace path. Shows names, types (file/directory), and file sizes.',
       parameters: {
@@ -774,7 +802,7 @@ export const companyTools = [
             items: {
               type: 'object' as const,
               properties: {
-                type: { type: 'string' as const, description: 'Permission type: file:read, file:write, file:delete, file:list, system:manage_agents, system:manage_permissions, system:manage_roles, system:manage_crons, system:broadcast' },
+                type: { type: 'string' as const, description: 'Permission type: file:read, file:write, file:delete, file:list, folder:read, folder:write, folder:delete, folder:list, system:manage_agents, system:manage_permissions, system:manage_roles, system:manage_crons, system:broadcast' },
                 scope: { description: 'Array of path glob patterns for file permissions (e.g. ["src/**", "docs/*.md"]), or omit for "all"' }
               },
               required: ['type']
@@ -794,7 +822,7 @@ export const companyTools = [
         type: 'object' as const,
         properties: {
           roleName: { type: 'string' as const, description: 'Name of the role to enrich' },
-          permissionType: { type: 'string' as const, description: 'Permission type to add: file:read, file:write, file:delete, file:list, system:manage_agents, system:manage_permissions, system:manage_roles, system:manage_crons, system:broadcast' },
+          permissionType: { type: 'string' as const, description: 'Permission type to add: file:read, file:write, file:delete, file:list, folder:read, folder:write, folder:delete, folder:list, system:manage_agents, system:manage_permissions, system:manage_roles, system:manage_crons, system:broadcast' },
           scope: { type: 'array' as const, items: { type: 'string' as const }, description: 'Optional. Array of path globs to limit scope. Omit for full access ("all").' }
         },
         required: ['roleName', 'permissionType']
@@ -936,7 +964,7 @@ export const companyTools = [
         type: 'object' as const,
         properties: {
           agentName: { type: 'string' as const, description: 'Name of the agent to grant the permission to.' },
-           permissionType: { type: 'string' as const, description: 'Permission type to grant: file:read, file:write, file:delete, file:list, system:manage_agents, system:manage_permissions, system:manage_roles, system:manage_crons, system:broadcast, system:web_search, system:fetch_url, system:http_request' },
+           permissionType: { type: 'string' as const, description: 'Permission type to grant: file:read, file:write, file:delete, file:list, folder:read, folder:write, folder:delete, folder:list, system:manage_agents, system:manage_permissions, system:manage_roles, system:manage_crons, system:broadcast, system:web_search, system:fetch_url, system:http_request' },
           scope: { type: 'array' as const, items: { type: 'string' as const }, description: 'Optional. Array of path globs to limit scope. Omit for full access ("all"). Only meaningful for file:* permissions.' }
         },
         required: ['agentName', 'permissionType']

@@ -88,6 +88,8 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     case 'write_file': return (await import('./file')).handleWriteFile(args, executingAgentId);
     case 'delete_file': return (await import('./file')).handleDeleteFile(args, executingAgentId);
     case 'list_files': return (await import('./file')).handleListFiles(args, executingAgentId);
+    case 'create_folder': return (await import('./file')).handleCreateFolder(args, executingAgentId);
+    case 'delete_folder': return (await import('./file')).handleDeleteFolder(args, executingAgentId);
 
     // Role tools
     case 'create_role': return (await import('./role')).handleCreateRole(args, executingAgentId);

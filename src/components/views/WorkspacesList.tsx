@@ -1599,6 +1599,10 @@ export function WorkspacesList() {
                                   p.type.startsWith('file:write') ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5' :
                                   p.type.startsWith('file:delete') ? 'text-red-400 border-red-500/20 bg-red-500/5' :
                                   p.type.startsWith('file:list') ? 'text-cyan-400 border-cyan-500/20 bg-cyan-500/5' :
+                                  p.type.startsWith('folder:read') ? 'text-sky-400 border-sky-500/20 bg-sky-500/5' :
+                                  p.type.startsWith('folder:write') ? 'text-teal-400 border-teal-500/20 bg-teal-500/5' :
+                                  p.type.startsWith('folder:delete') ? 'text-rose-400 border-rose-500/20 bg-rose-500/5' :
+                                  p.type.startsWith('folder:list') ? 'text-sky-400 border-sky-500/20 bg-sky-500/5' :
                                   p.type.startsWith('system:manage_agents') ? 'text-purple-400 border-purple-500/20 bg-purple-500/5' :
                                   p.type.startsWith('system:manage_permissions') ? 'text-amber-400 border-amber-500/20 bg-amber-500/5' :
                                   p.type.startsWith('system:manage_roles') ? 'text-indigo-400 border-indigo-500/20 bg-indigo-500/5' :
@@ -1626,7 +1630,7 @@ export function WorkspacesList() {
                         <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Extra Permissions (direct)</label>
                         <p className="text-[10px] text-zinc-600 leading-tight">Grant individual permissions on top of roles. Useful for quick one-off access without creating a role.</p>
                         <div className="flex flex-wrap gap-1">
-                          {(['file:read', 'file:write', 'file:delete', 'file:list', 'system:run_commands', 'system:approve_commands', 'system:web_search', 'system:fetch_url', 'system:manage_agents', 'system:manage_crons', 'system:broadcast'] as PermissionType[])
+                          {(['file:read', 'file:write', 'file:delete', 'file:list', 'folder:read', 'folder:write', 'folder:delete', 'folder:list', 'system:run_commands', 'system:approve_commands', 'system:web_search', 'system:fetch_url', 'system:manage_agents', 'system:manage_crons', 'system:broadcast'] as PermissionType[])
                             .filter(pt => !uniquePerms.has(pt) || (selectedAgent.permissions || []).some(p => p.type === pt))
                             .map(pt => {
                             const hasDirect = (selectedAgent.permissions || []).some(p => p.type === pt);

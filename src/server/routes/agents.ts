@@ -275,6 +275,7 @@ router.post('/agents/:id/permissions', (req, res) => {
 
   const validTypes: string[] = [
     'file:read', 'file:write', 'file:delete', 'file:list',
+    'folder:read', 'folder:write', 'folder:delete', 'folder:list',
     'system:run_commands', 'system:approve_commands',
     'system:manage_agents', 'system:manage_permissions', 'system:manage_roles',
     'system:manage_crons', 'system:broadcast', 'system:web_search', 'system:fetch_url',
