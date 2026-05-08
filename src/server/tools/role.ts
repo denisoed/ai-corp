@@ -5,7 +5,7 @@ import { findAgent, logAction } from './agent';
 async function requirePermission(executingAgentId: string, perm: PermissionType): Promise<{ success: false; error: string } | null> {
   const { hasPermission } = await import('../store');
   if (!hasPermission(executingAgentId, perm)) {
-    return { success: false, error: `You do not have ${perm} permission.` };
+    return { success: false, error: `You do not have ${perm} permission. Call request_approval with requiredPermission="${perm}" to escalate to the human user.` };
   }
   return null;
 }

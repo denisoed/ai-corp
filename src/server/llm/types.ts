@@ -66,6 +66,7 @@ export interface ProviderDefinition {
 export interface ChatSession {
   sendMessage(text: string): Promise<{ text: string; toolCalls?: ToolCall[]; usage?: LLMUsage }>;
   sendToolResults(toolCalls: ToolCall[], results: unknown[]): Promise<{ text: string; toolCalls?: ToolCall[]; usage?: LLMUsage }>;
+  getMessages(): ChatMessage[];
 }
 
 export interface ChatSessionOptions {

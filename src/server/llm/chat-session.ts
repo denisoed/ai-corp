@@ -42,6 +42,10 @@ export class ChatSessionWrapper implements ChatSession {
     return this.callApi();
   }
 
+  getMessages(): ChatMessage[] {
+    return this.messages;
+  }
+
   private trimMessages(): void {
     const MAX_MESSAGES = 20;
     if (this.messages.length > MAX_MESSAGES) {

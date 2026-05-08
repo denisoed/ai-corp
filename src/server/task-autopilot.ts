@@ -25,10 +25,11 @@ function logTask(agentId: string, action: string, details: string, type: 'info' 
   });
 }
 
-function shouldAutopilot(task: Task, agent: Agent): boolean {
+export function shouldAutopilot(task: Task, agent: Agent): boolean {
   if (task.status !== 'In Progress') return false;
   if (task.assigneeId !== agent.id) return false;
   if (agent.status === 'Offline' || agent.status === 'Error') return false;
+  if (task.tags?.some(t => t.startsWith('pipeline:'))) return false;
   return true;
 }
 
@@ -96,7 +97,7 @@ async function runTaskAutopilot(task: Task): Promise<void> {
     const permissionLines = permissions.length > 0
       ? `Your effective permissions:\n${permissions.map(p => `  ${p.type}${p.scope && p.scope !== 'all' ? ` (scope: ${(p.scope as string[]).join(', ')})` : ' (all)'}`).join('\n')}`
       : 'Your effective permissions: none (you may need to request permissions or use tools that check per-agent).';
-    const permissionsContext = `# PERMISSIONS\n\n${permissionLines}\n\nIf you need a permission you don't have, call request_approval with requiredPermission and permissionScope to request it from the user. Do NOT use grant_permission_to_role to self-grant. If blocked on a permission, wait — do not retry in a loop.`;
+    const permissionsContext = `# PERMISSIONS\n\n${permissionLines}\n\nIf you need a permission you don't have — or if someone asks you to do something but you lack the required permission to help them — call request_approval with requiredPermission set to the missing permission to ask the human user. Do NOT use grant_permission_to_role to self-grant. If blocked on a permission, wait — do not retry in a loop.`;
 
     const ws = store.workspaces.find(w => w.id === agent.workspaceId);
     const workspaceContext = ws ? `# WORKSPACE\n\nName: ${ws.name}\nID: ${ws.id}\nSlug: ${ws.slug}` : '';
@@ -148,7 +149,7 @@ async function runTaskAutopilot(task: Task): Promise<void> {
         const result = await executeTool(call.function.name, args, agent.id);
         results.push(result);
 
-        if (call.function.name === 'request_approval' || result?.status === 'pending_approval') {
+        if (call.function.name === 'request_approval' || result?.status === 'pending_approval' || result?.status === 'needs_approval') {
           logTask(agent.id, 'Task Autopilot Waiting For Approval', `Paused "${task.title}" until approval is resolved.`, 'warning', taskMeta);
           return;
         }
@@ -244,6 +245,12 @@ export async function runApprovalAutopilot(approval: any): Promise<void> {
   const requester = store.agents.find(a => a.id === approval.agentId);
   if (!approver) return;
 
+  if (!approval.requiredPermission && (approval.risk === 'low' || approval.risk === 'medium')) {
+    logTask(approver.id, 'Approval Auto-Approved', `Auto-approved ${approval.risk} risk request "${approval.action}".`, 'success', { approvalId: approval.id, risk: approval.risk });
+    handleRespondToApproval({ approvalId: approval.id, approved: true, reason: `Auto-approved (${approval.risk} risk).` }, approver.id);
+    return;
+  }
+
   mutateStore(s => {
     const a = s.agents.find(x => x.id === approval.approverAgentId);
     if (a) {
@@ -256,46 +263,71 @@ export async function runApprovalAutopilot(approval: any): Promise<void> {
   try {
     const isPermissionRequest = approval.requiredPermission;
 
-    const systemPrompt = buildSystemPrompt(approver) + '\n\n' + [
-      'You have a pending approval request from another agent.',
-      '',
-      isPermissionRequest
-        ? 'This is a PERMISSION request. You must ask the human user to decide via Telegram. Send a clear message using send_telegram_message, then wait for the user\'s reply. When they respond, call respond_to_approval.'
-        : 'Operating rules:',
-      isPermissionRequest ? '' : '- Review the request carefully.',
-      isPermissionRequest ? '' : '- Call respond_to_approval with the approvalId, approved=true/false, and a reason.',
-      isPermissionRequest ? '' : '- If you need more information, write a task comment or send a message to the requester.',
-    ].join('\n');
+    if (!isPermissionRequest) {
+      const systemPrompt = buildSystemPrompt(approver) + '\n\n' + [
+        'You have a pending approval request from another agent.',
+        'Review the request and call respond_to_approval with your decision immediately.',
+        'Do NOT use any other tools — just respond to the approval.',
+      ].join('\n');
 
-    const chatSession = createChatSession(approver, systemPrompt);
-    const actionText = isPermissionRequest
-      ? `PERMISSION REQUESTED by ${requester?.name || 'Another agent'}: ${approval.action}\n\nPermission needed: ${approval.requiredPermission}${approval.permissionScope ? ` for ${approval.permissionScope.join(', ')}` : ''}\n\nDetails: ${approval.details || ''}\nRisk: ${approval.risk}\nApproval ID: ${approval.id}\n\nSend a Telegram message to the user asking them to decide. When they reply, call respond_to_approval with approvalId="${approval.id}".`
-      : `${requester?.name || 'Another agent'} is requesting approval:\n\n` +
+      const chatSession = createChatSession(approver, systemPrompt);
+      const actionText = `${requester?.name || 'Another agent'} is requesting approval:\n\n` +
         `Action: ${approval.action}\n` +
         `Details: ${approval.details || ''}\n` +
         `Risk: ${approval.risk}\n` +
         `Approval ID: ${approval.id}\n\n` +
-        `Call respond_to_approval with approvalId="${approval.id}" to approve or reject.`;
-    let response = await chatSession.sendMessage(actionText);
+        `Call respond_to_approval with approvalId="${approval.id}" to approve or reject. Use approved=true for approval, false for rejection.`;
+      let response = await chatSession.sendMessage(actionText);
 
-    let safetyCounter = 0;
-    while (response.toolCalls && response.toolCalls.length > 0) {
-      safetyCounter++;
-      if (safetyCounter > 10) break;
+      let safetyCounter = 0;
+      while (response.toolCalls && response.toolCalls.length > 0) {
+        safetyCounter++;
+        if (safetyCounter > 3) break;
 
-      const results = [];
-      for (const call of response.toolCalls) {
-        let args: any;
-        try { args = JSON.parse(call.function.arguments); } catch { continue; }
-        const result = await executeTool(call.function.name, args, approver.id);
-        results.push(result);
+        const results = [];
+        for (const call of response.toolCalls) {
+          let args: any;
+          try { args = JSON.parse(call.function.arguments); } catch { continue; }
+          const result = await executeTool(call.function.name, args, approver.id);
+          results.push(result);
 
-        if (call.function.name === 'respond_to_approval') {
-          logTask(approver.id, 'Approval Autopilot Resolved', `Approval ${approval.id} resolved by ${approver.name}.`, 'success', { approvalId: approval.id, approved: args.approved });
-          return;
+          if (call.function.name === 'respond_to_approval') {
+            logTask(approver.id, 'Approval Autopilot Resolved', `Approval ${approval.id} resolved by ${approver.name}.`, 'success', { approvalId: approval.id, approved: args.approved });
+            return;
+          }
         }
+        response = await chatSession.sendToolResults(response.toolCalls, results);
       }
-      response = await chatSession.sendToolResults(response.toolCalls, results);
+    } else {
+      const systemPrompt = buildSystemPrompt(approver) + '\n\n' + [
+        'You have a pending permission request from another agent.',
+        'You must ask the human user to decide via Telegram.',
+        'Send a clear message using send_telegram_message, then wait for the user\'s reply. When they respond, call respond_to_approval.',
+      ].join('\n');
+
+      const chatSession = createChatSession(approver, systemPrompt);
+      const actionText = `PERMISSION REQUESTED by ${requester?.name || 'Another agent'}: ${approval.action}\n\nPermission needed: ${approval.requiredPermission}${approval.permissionScope ? ` for ${approval.permissionScope.join(', ')}` : ''}\n\nDetails: ${approval.details || ''}\nRisk: ${approval.risk}\nApproval ID: ${approval.id}\n\nSend a Telegram message to the user asking them to decide. When they reply, call respond_to_approval with approvalId="${approval.id}".`;
+      let response = await chatSession.sendMessage(actionText);
+
+      let safetyCounter = 0;
+      while (response.toolCalls && response.toolCalls.length > 0) {
+        safetyCounter++;
+        if (safetyCounter > 3) break;
+
+        const results = [];
+        for (const call of response.toolCalls) {
+          let args: any;
+          try { args = JSON.parse(call.function.arguments); } catch { continue; }
+          const result = await executeTool(call.function.name, args, approver.id);
+          results.push(result);
+
+          if (call.function.name === 'respond_to_approval') {
+            logTask(approver.id, 'Approval Autopilot Resolved', `Approval ${approval.id} resolved by ${approver.name}.`, 'success', { approvalId: approval.id, approved: args.approved });
+            return;
+          }
+        }
+        response = await chatSession.sendToolResults(response.toolCalls, results);
+      }
     }
   } finally {
     mutateStore(s => {

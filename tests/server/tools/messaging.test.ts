@@ -54,7 +54,9 @@ describe('messaging tools', () => {
       content: '[Sent to PM]: How are tasks?',
       source: 'telegram',
     }));
-    expect(mockProcessPendingMessage).toHaveBeenCalledOnce();
+    await vi.waitFor(() => {
+      expect(mockProcessPendingMessage).toHaveBeenCalledOnce();
+    });
   });
 
   it('reply_to_message stores the reply for both sender and replier', async () => {

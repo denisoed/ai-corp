@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 import fs from 'fs';
 import { handleCreatePipeline, handleStartPipeline, handleGetPipelineStatus, handlePlanPipeline, handleCancelPipeline } from '../../../src/server/tools/pipeline';
+import { resumePipelineIfStageTask, shouldAutopilot } from '../../../src/server/task-autopilot';
+import { runPipelineInstance } from '../../../src/server/pipeline-engine';
 import type { Agent, Workspace, Task } from '../../../src/types';
 
 const testDir = vi.hoisted(() => {
@@ -16,6 +18,17 @@ vi.mock('../../../src/server/store', async () => {
   actual.loadStore();
   const storeModule = { ...actual, getStore: () => actual.getStore(), mutateStore: actual.mutateStore, loadStore: actual.loadStore, saveStore: actual.saveStore };
   return storeModule;
+});
+
+vi.mock('../../../src/server/pipeline-engine', async (importOriginal) => {
+  const actual = await importOriginal() as any;
+  return {
+    ...actual,
+    runPipelineInstance: vi.fn().mockResolvedValue(undefined),
+    createPipelineInstance: actual.createPipelineInstance,
+    cancelPipelineInstance: actual.cancelPipelineInstance,
+    getPipelineInstanceStatus: actual.getPipelineInstanceStatus,
+  };
 });
 
 import { getStore, mutateStore } from '../../../src/server/store';
@@ -286,6 +299,117 @@ describe('Pipeline Subtask Integration', () => {
 
     const task = getStore().tasks.find(t => t.id === 'task-1');
     expect(task).toBeDefined();
+  });
+});
+
+describe('Pipeline Tags', () => {
+  it('handleStartPipeline adds pipeline: tag to task', () => {
+    const createResult = handleCreatePipeline({
+      name: 'Tag Test Pipeline',
+      stages: [{ name: 'S1', assigneeRole: 'Developer', instructions: 'Do' }],
+    }, 'agent-pm');
+    expect(createResult.success).toBe(true);
+
+    const pipeline = createResult.pipeline!;
+    const startResult = handleStartPipeline({
+      taskId: 'task-1',
+      pipelineId: pipeline.id,
+    }, 'agent-pm');
+    expect(startResult.success).toBe(true);
+
+    const task = getStore().tasks.find(t => t.id === 'task-1');
+    expect(task?.tags).toContain(`pipeline:${pipeline.id}`);
+  });
+});
+
+describe('resumePipelineIfStageTask', () => {
+  beforeEach(() => {
+    createTestWorkspace();
+  });
+
+  it('resumes paused pipeline instance when task has pipeline: tag', () => {
+    const pipeline = handleCreatePipeline({
+      name: 'Resume Test',
+      stages: [
+        { name: 'Dev', assigneeRole: 'Developer', instructions: 'Build' },
+        { name: 'Review', assigneeRole: 'Reviewer', instructions: 'Check', transition: 'approval_required' },
+      ],
+    }, 'agent-pm').pipeline!;
+
+    mutateStore(s => {
+      s.tasks.find(t => t.id === 'task-1')!.tags.push(`pipeline:${pipeline.id}`);
+      s.pipelineInstances.push({
+        id: 'inst-resume',
+        pipelineId: pipeline.id,
+        taskId: 'task-1',
+        currentStageIndex: 1,
+        status: 'paused',
+        stageResults: [{
+          stageId: pipeline.stages[1].id,
+          status: 'pending',
+          comments: ['Stage paused: awaiting approval.'],
+          startedAt: new Date().toISOString(),
+        }],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    });
+
+    resumePipelineIfStageTask('task-1');
+
+    const instance = getStore().pipelineInstances.find(pi => pi.id === 'inst-resume');
+    expect(instance?.status).toBe('running');
+  });
+
+  it('does nothing if task has no pipeline: tag', () => {
+    const pipeline = handleCreatePipeline({
+      name: 'No Tag Resume',
+      stages: [{ name: 'S1', assigneeRole: 'Developer', instructions: 'Do' }],
+    }, 'agent-pm').pipeline!;
+
+    mutateStore(s => {
+      s.pipelineInstances.push({
+        id: 'inst-no-tag',
+        pipelineId: pipeline.id,
+        taskId: 'task-1',
+        currentStageIndex: 0,
+        status: 'paused',
+        stageResults: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    });
+
+    resumePipelineIfStageTask('task-1');
+
+    const instance = getStore().pipelineInstances.find(pi => pi.id === 'inst-no-tag');
+    expect(instance?.status).toBe('paused');
+  });
+});
+
+describe('shouldAutopilot', () => {
+  beforeEach(() => {
+    createTestWorkspace();
+  });
+
+  it('returns false for tasks with pipeline: tag', () => {
+    const agent = getStore().agents.find(a => a.id === 'agent-dev')!;
+    const task = getStore().tasks.find(t => t.id === 'task-1')!;
+    task.tags = ['pipeline:123'];
+    task.status = 'In Progress';
+    task.assigneeId = 'agent-dev';
+
+    expect(shouldAutopilot(task, agent)).toBe(false);
+  });
+
+  it('returns true for same task without pipeline: tag', () => {
+    const agent = getStore().agents.find(a => a.id === 'agent-dev')!;
+    const task = getStore().tasks.find(t => t.id === 'task-1')!;
+    task.tags = ['other-tag'];
+    task.status = 'In Progress';
+    task.assigneeId = 'agent-dev';
+
+    expect(shouldAutopilot(task, agent)).toBe(true);
   });
 });
 

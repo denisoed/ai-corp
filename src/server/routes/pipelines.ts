@@ -165,6 +165,13 @@ router.post('/pipelines/:id/start', async (req, res) => {
     return res.json({ instance: existingFailed });
   }
 
+  mutateStore(s => {
+    const t = s.tasks.find(x => x.id === task.id);
+    if (t && !t.tags.includes(`pipeline:${pipeline.id}`)) {
+      t.tags.push(`pipeline:${pipeline.id}`);
+    }
+  });
+
   const instance = createPipelineInstance(pipeline.id, task.id, agent.workspaceId);
   void runPipelineInstance(instance.id);
 

@@ -123,8 +123,18 @@ async function executeStage(instance: PipelineInstance, pipeline: Pipeline, stag
       '- When complete, move the task to Done and write a summary comment.',
     ].filter(Boolean).join('\n');
 
-    const chatSession = createChatSession(agent, systemPrompt);
-    let response = await chatSession.sendMessage(`Execute stage "${stage.name}" of pipeline "${pipeline.name}". Goal: ${stage.instructions}`);
+    const chatSession = createChatSession(agent, systemPrompt, {
+      initialMessages: ((previousResult?.chatMessages || []) as any[]).map(m => ({
+        role: m.role as 'system' | 'user' | 'assistant' | 'tool',
+        content: m.content,
+        tool_call_id: m.tool_call_id,
+        tool_calls: m.tool_calls as any,
+      })),
+    });
+    const isResumed = previousResult?.chatMessages && previousResult.chatMessages.length > 0;
+    let response = isResumed
+      ? await chatSession.sendMessage(`Resuming stage "${stage.name}". Continue from where you left off.`)
+      : await chatSession.sendMessage(`Execute stage "${stage.name}" of pipeline "${pipeline.name}". Goal: ${stage.instructions}`);
 
     const stageTimeout = stage.timeoutMinutes ? stage.timeoutMinutes * 60 * 1000 : 0;
     const stageStartTime = Date.now();
@@ -139,6 +149,7 @@ async function executeStage(instance: PipelineInstance, pipeline: Pipeline, stag
         result.status = 'failed';
         result.output = `Stage "${stage.name}" timed out after ${stage.timeoutMinutes} minutes.`;
         result.completedAt = new Date().toISOString();
+        result.chatMessages = chatSession.getMessages();
         logPipeline(instance.id, 'Pipeline Stage Timeout', result.output, 'error', { stageName: stage.name });
         publishPipelineEvent(instance, pipeline, stage, 'pipeline.stage.failed', { error: result.output }, assignee.id);
         return result;
@@ -156,9 +167,10 @@ async function executeStage(instance: PipelineInstance, pipeline: Pipeline, stag
         const toolResult = await executeTool(call.function.name, args, agent.id);
         results.push(toolResult);
 
-        if (call.function.name === 'request_approval') {
+        if (call.function.name === 'request_approval' || toolResult?.status === 'needs_approval') {
           result.status = 'pending';
           result.comments.push('Stage paused: awaiting approval.');
+          result.chatMessages = chatSession.getMessages();
           logPipeline(instance.id, 'Pipeline Stage Waiting Approval', `Stage "${stage.name}" waiting for approval.`, 'warning');
           return result;
         }
@@ -213,6 +225,7 @@ async function executeStage(instance: PipelineInstance, pipeline: Pipeline, stag
       }
     }
 
+    result.chatMessages = chatSession.getMessages();
     logPipeline(instance.id, 'Pipeline Stage Completed', `Stage "${stage.name}" -> ${result.status}. Agent: ${assignee.name}`, 'info', {
       stageName: stage.name, stageStatus: result.status, assigneeName: assignee.name
     });
@@ -263,7 +276,12 @@ export async function runPipelineInstance(instanceId: string): Promise<void> {
       mutateStore(s => {
         const inst = s.pipelineInstances.find(pi => pi.id === instanceId);
         if (!inst) return;
-        inst.stageResults.push(stageResult);
+        const existingIdx = inst.stageResults.findIndex(r => r.stageId === stageResult.stageId);
+        if (existingIdx >= 0) {
+          inst.stageResults[existingIdx] = stageResult;
+        } else {
+          inst.stageResults.push(stageResult);
+        }
         inst.updatedAt = new Date().toISOString();
         if (stageResult.status === 'failed') {
           inst.status = 'failed';

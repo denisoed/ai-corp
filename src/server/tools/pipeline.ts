@@ -84,6 +84,13 @@ export function handleStartPipeline(args: any, agentId: string): { success: bool
     return { success: true, instance: existingFailed };
   }
 
+  mutateStore(s => {
+    const t = s.tasks.find(x => x.id === task.id);
+    if (t && !t.tags.includes(`pipeline:${pipeline.id}`)) {
+      t.tags.push(`pipeline:${pipeline.id}`);
+    }
+  });
+
   const instance = createPipelineInstance(pipeline.id, task.id, agent.workspaceId);
 
   void runPipelineInstance(instance.id);

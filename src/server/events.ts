@@ -80,6 +80,53 @@ function buildNotificationPrompt(agent: Agent, event: DomainEvent, task: Task, s
   ].join('\n\n');
 }
 
+function generateNotificationText(event: DomainEvent, task: Task): string {
+  const p = event.payload as Record<string, unknown>;
+  const taskTitle = String(p.taskTitle || task.title);
+
+  switch (event.type) {
+    case 'task.status.changed': {
+      const from = String(p.fromStatus || '?');
+      const to = String(p.toStatus || '?');
+      const summary = typeof p.summary === 'string' && p.summary.trim()
+        ? `\nSummary: ${p.summary.slice(0, 200)}`
+        : '';
+      if (to === 'Done') return `✅ "${taskTitle}" is Complete!${summary}`;
+      if (to === 'Review') return `👀 "${taskTitle}" moved to Review${summary}`;
+      if (to === 'In Progress') return `🔄 "${taskTitle}" is now In Progress`;
+      if (to === 'Blocked') return `🚫 "${taskTitle}" has been Blocked`;
+      if (to === 'Needs Approval') return `⏳ "${taskTitle}" needs approval`;
+      return `📋 "${taskTitle}" moved: ${from} → ${to}${summary}`;
+    }
+    case 'task.completed': {
+      const summary = typeof p.summary === 'string' && p.summary.trim()
+        ? `\n${p.summary.slice(0, 200)}`
+        : '';
+      return `✅ "${taskTitle}" is Complete!${summary}`;
+    }
+    case 'task.comment.added': {
+      const author = String(p.authorName || 'Someone');
+      const content = String(p.content || '').slice(0, 150);
+      return `💬 ${author} on "${taskTitle}": ${content}`;
+    }
+    case 'task.assignee.changed': {
+      return `👤 Task "${taskTitle}" reassigned`;
+    }
+    case 'pipeline.stage.started':
+      return `🚀 Pipeline stage "${String(p.stageName || '?')}" started`;
+    case 'pipeline.stage.completed':
+      return `✅ Pipeline stage "${String(p.stageName || '?')}" completed`;
+    case 'pipeline.stage.failed':
+      return `❌ Pipeline stage "${String(p.stageName || '?')}" failed`;
+    case 'pipeline.completed':
+      return `🎉 Pipeline completed!`;
+    case 'pipeline.failed':
+      return `💥 Pipeline failed`;
+    default:
+      return `📌 Update on "${taskTitle}"`;
+  }
+}
+
 async function sendTelegramNotification(agent: Agent, text: string): Promise<void> {
   const botToken = agent.telegramConfig?.botToken;
   const chatId = agent.telegramConfig?.lastChatId;
@@ -267,14 +314,19 @@ export async function publishEvent(event: DomainEvent, contextAgentId?: string):
         agent.id,
         deliveryMeta
       );
-      const chatSession = createChatSession(agent, buildNotificationPrompt(agent, event, task, subscription));
-      const response = await chatSession.sendMessage(
-        `Generate a Telegram notification for this event:\n${JSON.stringify(event, null, 2)}`
-      );
-      const text = response.text.trim();
-      if (!text) {
-        logEvent('Event Delivery Failed', `LLM returned empty text for ${agent.name} on ${def?.label || event.type}.`, 'error', agent.id, deliveryMeta);
-        continue;
+      let text: string;
+      if (subscription.instructions) {
+        const chatSession = createChatSession(agent, buildNotificationPrompt(agent, event, task, subscription));
+        const response = await chatSession.sendMessage(
+          `Generate a Telegram notification for this event:\n${JSON.stringify(event, null, 2)}`
+        );
+        text = response.text.trim();
+        if (!text) {
+          logEvent('Event Delivery Failed', `LLM returned empty text for ${agent.name} on ${def?.label || event.type}.`, 'error', agent.id, deliveryMeta);
+          continue;
+        }
+      } else {
+        text = generateNotificationText(event, task);
       }
 
       if (subscription.channel === 'telegram') {

@@ -40,20 +40,17 @@ export async function handleSendMessage(args: any, executingAgentId: string): Pr
 
   logAction('Message Sent', `Sent message to ${targetAgent.name} (id: ${message.id}).`, 'info', executingAgentId, 'tool', 'message', state.agents.find(a => a.id === executingAgentId)?.workspaceId, { messageId: message.id, senderName: executingAgent?.name, receiverName: targetAgent.name, channel: 'internal' });
 
-  // Process the recipient immediately so the reply is generated in the same flow.
-  let recipientReply: string | undefined;
-  try {
-    const { processPendingMessage } = await import('../telegram');
-    await processPendingMessage(targetAgent);
-    const updatedMsg = getStore().messages.find(m => m.id === message.id);
-    if (updatedMsg?.reply && updatedMsg.status === 'replied') {
-      recipientReply = updatedMsg.reply;
+  // Process the recipient in background so the sender's LLM session is not blocked.
+  void (async () => {
+    try {
+      const { processPendingMessage } = await import('../telegram');
+      await processPendingMessage(targetAgent);
+    } catch (err) {
+      console.error(`[Messaging] Failed to process ${targetAgent.name}:`, err);
     }
-  } catch (err) {
-    console.error(`[Messaging] Failed to process ${targetAgent.name}:`, err);
-  }
+  })();
 
-  return { success: true, messageId: message.id, to: targetAgent.name, status: 'delivered', reply: recipientReply };
+  return { success: true, messageId: message.id, to: targetAgent.name, status: 'delivered' };
 }
 
 export async function handleReplyToMessage(args: any, executingAgentId: string): Promise<any> {

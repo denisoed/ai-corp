@@ -217,7 +217,7 @@ export interface DomainEvent {
   payload: Record<string, unknown>;
 }
 
-export type SubscriptionChannel = 'telegram' | 'in_app';
+export type SubscriptionChannel = 'telegram' | 'in_app' | 'internal';
 
 export interface EventSubscription {
   id: string;
@@ -490,6 +490,7 @@ export interface PipelineStageResult {
   startedAt?: string;
   completedAt?: string;
   comments: string[];
+  chatMessages?: { role: string; content: string; tool_call_id?: string; tool_calls?: unknown }[];
 }
 
 export interface Pipeline {
