@@ -130,6 +130,7 @@ async function executeStage(instance: PipelineInstance, pipeline: Pipeline, stag
       '',
       'Command execution notes:',
       '- If run_command returns status "needs_approval", do NOT retry the same command. Approval is being processed and the command will execute automatically once approved.',
+      '- If request_approval returns "already_approved" or "already_pending" (in status or error), you already have the permission — proceed without retrying.',
       '- Wait for the command result to come back before proceeding. If you see "needs_approval", the system will notify you when the command completes.',
     ].filter(Boolean).join('\n');
 
@@ -177,7 +178,18 @@ async function executeStage(instance: PipelineInstance, pipeline: Pipeline, stag
         const toolResult = await executeTool(call.function.name, args, agent.id);
         results.push(toolResult);
 
-        if (call.function.name === 'request_approval' || toolResult?.status === 'needs_approval') {
+        if (call.function.name === 'request_approval') {
+          const r = toolResult as any;
+          if (r?.status === 'already_approved' || r?.status === 'already_pending' || r?.approvalId === 'already_granted') {
+            continue;
+          }
+          result.status = 'pending';
+          result.comments.push('Stage paused: awaiting approval.');
+          result.chatMessages = chatSession.getMessages();
+          logPipeline(instance.id, 'Pipeline Stage Waiting Approval', `Stage "${stage.name}" waiting for approval.`, 'warning');
+          return result;
+        }
+        if (toolResult?.status === 'needs_approval') {
           result.status = 'pending';
           result.comments.push('Stage paused: awaiting approval.');
           result.chatMessages = chatSession.getMessages();
@@ -443,6 +455,18 @@ export function startPipelineEngine(): void {
           }
         });
         logPipeline(instance.id, 'Pipeline Failed', `Pipeline failed: ${reason}`, 'error');
+      } else if (pipelineParentTask.status === 'In Progress') {
+        const pendingApproval = store.approvals.find(a =>
+          a.taskId === instance.taskId && a.status === 'pending'
+        );
+        if (!pendingApproval) {
+          mutateStore(s => {
+            const inst = s.pipelineInstances.find(pi => pi.id === instance.id);
+            if (inst) { inst.status = 'running'; inst.updatedAt = new Date().toISOString(); }
+          });
+          logPipeline(instance.id, 'Pipeline Resumed', `Resuming after approval resolved (no pending approvals).`, 'info');
+          void runPipelineInstance(instance.id);
+        }
       }
     }
   }, 5000);

@@ -63,6 +63,7 @@ function buildTaskPrompt(agent: Agent, task: Task, context?: { permissions?: str
     '- Check current task status before calling move_task — if the task is already at the target status, skip the call.',
     '- You may NOT escalate your own permissions via grant_permission_to_agent. If you need a permission, call request_approval.',
     '- If run_command returns "needs_approval", do NOT retry — the command will execute automatically after approval. Wait for the result.',
+    '- If request_approval returns "already_approved" or "already_pending" in the status/error, do NOT call request_approval again — proceed with your work.',
   ].filter(Boolean);
 
   return buildSystemPrompt(agent) + '\n\n' + summary.join('\n');

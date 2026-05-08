@@ -62,6 +62,10 @@ export async function handleResolveApproval(args: any, executingAgentId: string)
   }
 
   let result: any = {};
+  let commandRunId: string | undefined;
+  let taskId: string | undefined;
+  let approved: boolean = false;
+
   const now = new Date().toISOString();
   const state = getStore();
   const executingAgent = state.agents.find(a => a.id === executingAgentId);
@@ -83,6 +87,9 @@ export async function handleResolveApproval(args: any, executingAgentId: string)
     }
 
     approval.status = args.approved ? 'approved' : 'rejected';
+    commandRunId = approval.commandRunId;
+    taskId = approval.taskId;
+    approved = args.approved;
     const fixSubtask = { id: crypto.randomUUID(), title: 'Fix issues based on feedback', completed: false };
 
     if (approval.taskId) {
@@ -124,5 +131,16 @@ export async function handleResolveApproval(args: any, executingAgentId: string)
 
     result = { success: true, message: `Approval ${args.approved ? 'granted' : 'denied'}.` };
   });
+
+  if (approved && commandRunId) {
+    const { resumeApprovedCommand } = await import('../command-runner');
+    await resumeApprovedCommand(commandRunId);
+  }
+
+  if (taskId) {
+    const { resumePipelineIfStageTask } = await import('../task-autopilot');
+    resumePipelineIfStageTask(taskId);
+  }
+
   return result;
 }

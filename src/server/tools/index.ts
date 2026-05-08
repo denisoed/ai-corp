@@ -73,7 +73,8 @@ export async function executeTool(name: string, args: any, executingAgentId: str
         )
       );
       if (duplicate) {
-        return { success: true, approvalId: duplicate.id, error: `Approval already ${duplicate.status} (id: ${duplicate.id}). Do NOT request again.` };
+        const dedupStatus = duplicate.status === 'approved' ? 'already_approved' : 'already_pending';
+        return { success: true, status: dedupStatus, approvalId: duplicate.id, error: `Approval already ${duplicate.status} (id: ${duplicate.id}). Do NOT request again.` };
       }
 
       const approverAgent = args.approverAgentName

@@ -1,8 +1,7 @@
 import { Router } from 'express';
-import { getStore, mutateStore } from '../store';
-import { createTaskStatusChangedEvent, createTaskCommentAddedEvent } from '../events';
+import { getStore, mutateStore, agentsAreConnected } from '../store';
+import { createTaskStatusChangedEvent, createTaskCommentAddedEvent, createTaskCompletedEvent, createTaskAssigneeChangedEvent } from '../events';
 import { publishEvent } from '../events';
-import { logTaskRoute } from './utils';
 import { resumeApprovedCommand } from '../command-runner';
 import { resumePipelineIfStageTask } from '../task-autopilot';
 
