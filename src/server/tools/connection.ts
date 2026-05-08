@@ -76,6 +76,12 @@ export async function handleResolveApproval(args: any, executingAgentId: string)
       return;
     }
 
+    if (!isHuman && approval.approverAgentId && approval.approverAgentId !== executingAgentId) {
+      const designated = s.agents.find(a => a.id === approval.approverAgentId);
+      result = { success: false, error: `Only the designated approver (${designated?.name || approval.approverAgentId}) can resolve this approval.` };
+      return;
+    }
+
     approval.status = args.approved ? 'approved' : 'rejected';
     const fixSubtask = { id: crypto.randomUUID(), title: 'Fix issues based on feedback', completed: false };
 

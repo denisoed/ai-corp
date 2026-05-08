@@ -58,6 +58,21 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     case 'update_connection': return (await import('./connection')).handleUpdateConnection(args, executingAgentId);
     case 'resolve_approval': return (await import('./connection')).handleResolveApproval(args, executingAgentId);
     case 'request_approval': {
+      const store = getStore();
+      const task = args.taskTitle
+        ? store.tasks.find(t => t.title.toLowerCase().includes((args.taskTitle as string).toLowerCase()))
+        : undefined;
+      const recentMs = 60_000;
+      const now = Date.now();
+      const duplicate = store.approvals.find(a =>
+        a.agentId === executingAgentId &&
+        a.taskId === task?.id &&
+        (a.status === 'pending' || (now - new Date(a.createdAt).getTime() < recentMs))
+      );
+      if (duplicate) {
+        return { success: true, approvalId: duplicate.id, error: `Approval already ${duplicate.status} (id: ${duplicate.id}). Do NOT request again.` };
+      }
+
       const approverAgent = args.approverAgentName
         ? getStore().agents.find(a => a.name.toLowerCase().includes((args.approverAgentName as string).toLowerCase()))
         : undefined;

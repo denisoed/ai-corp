@@ -26,10 +26,11 @@ function logTask(agentId: string, action: string, details: string, type: 'info' 
 }
 
 export function shouldAutopilot(task: Task, agent: Agent): boolean {
+  if (task.status === 'Done' || task.status === 'Failed' || task.status === 'Blocked') return false;
   if (task.status !== 'In Progress') return false;
   if (task.assigneeId !== agent.id) return false;
   if (agent.status === 'Offline' || agent.status === 'Error') return false;
-  if (task.tags?.some(t => t.startsWith('pipeline:'))) return false;
+  if (task.tags && task.tags.some(t => t.startsWith('pipeline:'))) return false;
   return true;
 }
 
@@ -58,6 +59,10 @@ function buildTaskPrompt(agent: Agent, task: Task, context?: { permissions?: str
     'Efficiency guidelines:',
     '- Batch multiple independent read-only operations (e.g., list_files + get_task_details + search_tasks) into a single response to minimize round-trips.',
     '- You already have your permissions and workspace context below — use that before calling get_agent_permissions again.',
+    '- NEVER call the same read tool with the same arguments twice in a row (e.g., list_files(".") then immediately list_files(".") again). Cache the result in your context.',
+    '- Check current task status before calling move_task — if the task is already at the target status, skip the call.',
+    '- You may NOT escalate your own permissions via grant_permission_to_agent. If you need a permission, call request_approval.',
+    '- If run_command returns "needs_approval", do NOT retry — the command will execute automatically after approval. Wait for the result.',
   ].filter(Boolean);
 
   return buildSystemPrompt(agent) + '\n\n' + summary.join('\n');
@@ -73,6 +78,25 @@ async function runTaskAutopilot(task: Task): Promise<void> {
   if (runningTaskRuns.has(runKey)) return;
   runningTaskRuns.add(runKey);
 
+  const taskMeta = { taskId: task.id, taskTitle: task.title, assigneeName: agent.name, workspaceId: agent.workspaceId };
+
+  const freshTask = getStore().tasks.find(t => t.id === task.id);
+  if (!freshTask || freshTask.status === 'Done' || freshTask.status === 'Failed' || freshTask.status === 'Blocked') {
+    logTask(agent.id, 'Task Autopilot Blocked', `Task "${task.title}" is ${freshTask?.status || 'gone'} — nothing to do.`, 'info', taskMeta);
+    return;
+  }
+  if (freshTask.tags && freshTask.tags.some(t => t.startsWith('pipeline:'))) {
+    logTask(agent.id, 'Task Autopilot Blocked', `Task "${task.title}" is a pipeline task — pipeline engine handles it.`, 'info', taskMeta);
+    return;
+  }
+  const activeInstance = getStore().pipelineInstances.find(
+    pi => pi.taskId === task.id && (pi.status === 'running' || pi.status === 'paused')
+  );
+  if (activeInstance) {
+    logTask(agent.id, 'Task Autopilot Blocked', `Task "${task.title}" has active pipeline instance (${activeInstance.status}) — pipeline engine handles it.`, 'info', taskMeta);
+    return;
+  }
+
   const now = new Date().toISOString();
   mutateStore(s => {
     const a = s.agents.find(x => x.id === agent.id);
@@ -84,10 +108,10 @@ async function runTaskAutopilot(task: Task): Promise<void> {
     }
   });
 
-  const taskMeta = { taskId: task.id, taskTitle: task.title, assigneeName: agent.name, workspaceId: agent.workspaceId };
   logTask(agent.id, 'Task Autopilot Started', `Starting autonomous work on "${task.title}".`, 'info', taskMeta);
 
   try {
+
     const memory = loadMemory(agent.id);
     if (!memory) {
       logTask(agent.id, 'Task Autopilot Memory Missing', `No memory found for "${task.title}", using live context only.`, 'warning', taskMeta);
@@ -222,6 +246,7 @@ export function startTaskAutopilotManager(): void {
     const store = getStore();
 
     const candidates = store.tasks.filter(task => {
+      if (task.tags && task.tags.some(t => t.startsWith('pipeline:'))) return false;
       const agent = task.assigneeId ? store.agents.find(a => a.id === task.assigneeId) : undefined;
       return Boolean(agent && shouldAutopilot(task, agent));
     });
@@ -488,7 +513,7 @@ export async function requestApproval(input: ApprovalRequestInput & { taskTitle?
   return { success: true, approvalId };
 }
 
-export function handleRespondToApproval(args: any, agentId: string) {
+export async function handleRespondToApproval(args: any, agentId: string) {
   const store = getStore();
   const agent = store.agents.find(a => a.id === agentId);
   if (!agent) return { success: false, error: 'Agent not found' };
@@ -572,6 +597,11 @@ export function handleRespondToApproval(args: any, agentId: string) {
     });
     if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
   });
+
+  if (approved && approval.commandRunId) {
+    const { resumeApprovedCommand } = await import('./command-runner');
+    await resumeApprovedCommand(approval.commandRunId);
+  }
 
   resumePipelineIfStageTask(approval.taskId);
 

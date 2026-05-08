@@ -48,6 +48,9 @@ export async function handleCreateTask(args: any, executingAgentId: string): Pro
 export async function handleMoveTask(args: any, executingAgentId: string): Promise<any> {
   const task = findTask(args.taskTitle);
   if (!task) return { success: false, error: `Task "${args.taskTitle}" not found.` };
+  if (task.status === args.newStatus) {
+    return { success: true, message: `Task "${task.title}" already at ${args.newStatus}.` };
+  }
   const now = new Date().toISOString();
   const previousStatus = task.status;
   const nextStatus = args.newStatus as TaskStatus;

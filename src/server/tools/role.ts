@@ -301,6 +301,10 @@ export async function handleGrantPermissionToAgent(args: any, executingAgentId: 
   const agent = findAgent(args.agentName);
   if (!agent) return { success: false, error: `Agent "${args.agentName}" not found.` };
 
+  if (agent.id === executingAgentId) {
+    return { success: false, error: 'You cannot grant permissions to yourself. Ask a supervisor or admin to escalate your permissions.' };
+  }
+
   const validTypes: PermissionType[] = [
     'file:read', 'file:write', 'file:delete', 'file:list',
     'folder:read', 'folder:write', 'folder:delete', 'folder:list',

@@ -17,7 +17,27 @@ export async function handleRunCommand(args: any, executingAgentId: string): Pro
     return { success: false, error: 'command is required.' };
   }
 
-  return runCommandInWorkspace({
+  const cwd = typeof args.cwd === 'string' ? args.cwd : '.';
+
+  const existing = state.commandRuns.find(r =>
+    r.agentId === executingAgentId &&
+    r.command === command &&
+    JSON.stringify(r.args) === JSON.stringify(commandArgs) &&
+    r.cwd.toLowerCase() === cwd.toLowerCase() &&
+    (r.status === 'needs_approval' || r.status === 'pending' || r.status === 'running')
+  );
+  if (existing) {
+    return {
+      success: false,
+      status: existing.status,
+      commandRunId: existing.id,
+      reason: existing.reason,
+      approvalRequestId: existing.approvalRequestId,
+      message: `Command "${command} ${commandArgs.join(' ')}" is already pending (${existing.status}). Do NOT retry — it will execute automatically once approved.`
+    };
+  }
+
+  const result = await runCommandInWorkspace({
     agentId: executingAgentId,
     command,
     args: commandArgs,
@@ -26,4 +46,11 @@ export async function handleRunCommand(args: any, executingAgentId: string): Pro
     timeoutMs: typeof args.timeoutMs === 'number' ? args.timeoutMs : undefined,
     detach: Boolean(args.detach)
   });
+
+  if (result.status === 'needs_approval') {
+    result.status = 'needs_approval';
+    (result as any).message = 'Command is pending approval. Do NOT retry — it will execute automatically once approved.';
+  }
+
+  return result;
 }
