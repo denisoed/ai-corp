@@ -603,6 +603,19 @@ export async function handleRespondToApproval(args: any, agentId: string) {
     await resumeApprovedCommand(approval.commandRunId);
   }
 
+  if (!approval.commandRunId && approval.taskId) {
+    const hasCommandApproval = getStore().approvals.some(a =>
+      a.id !== approval.id &&
+      a.taskId === approval.taskId &&
+      a.commandRunId &&
+      (a.status === 'pending' || a.status === 'approved')
+    );
+    if (hasCommandApproval) {
+      logTask(agentId, 'Pipeline Resume Deferred', `Another approval with commandRunId exists for task ${approval.taskId} — pipeline will be resumed by that approval.`, 'info', { taskId: approval.taskId });
+      return { success: true, approved, reason };
+    }
+  }
+
   resumePipelineIfStageTask(approval.taskId);
 
   return { success: true, approved, reason };

@@ -66,8 +66,11 @@ export async function executeTool(name: string, args: any, executingAgentId: str
       const now = Date.now();
       const duplicate = store.approvals.find(a =>
         a.agentId === executingAgentId &&
-        a.taskId === task?.id &&
-        (a.status === 'pending' || (now - new Date(a.createdAt).getTime() < recentMs))
+        (a.status === 'pending' || (now - new Date(a.createdAt).getTime() < recentMs)) &&
+        (
+          (task && a.taskId === task.id) ||
+          (a.commandRunId && store.commandRuns.find(r => r.id === a.commandRunId && r.agentId === executingAgentId))
+        )
       );
       if (duplicate) {
         return { success: true, approvalId: duplicate.id, error: `Approval already ${duplicate.status} (id: ${duplicate.id}). Do NOT request again.` };
