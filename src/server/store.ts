@@ -4,11 +4,11 @@ import os from 'os';
 import { Agent, Task, Log, ApprovalRequest, Workspace, AgentMessage, Role, PermissionEntry, PermissionType, EventSubscription, CommandRun, Pipeline, PipelineInstance } from '../types';
 import { matchesGlob } from './lib/glob';
 import {
-  getDb, loadCollection, saveCollection,
+  getDb, loadCollection, saveCollection, resetDb,
   loadSetting, saveSetting, loadAllSettings
 } from './db';
 
-const DATA_DIR = path.join(os.homedir(), '.aicorp');
+const DATA_DIR = process.env.AICORP_HOME || path.join(os.homedir(), '.aicorp');
 const WORKSPACES_DIR = path.join(DATA_DIR, 'workspaces');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const WORKSPACES_LIST_FILE = path.join(DATA_DIR, 'workspaces.json');

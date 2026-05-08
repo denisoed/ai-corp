@@ -61,8 +61,9 @@ export function createProcessPendingMessageHandler(deps: ProcessPendingMessageDe
 
     const TIMEOUT_MS = 120000;
     const startTime = Date.now();
+    const isRateLimit = (msg: string) => msg.includes('429') || /rate.limit|too many requests/i.test(msg);
 
-    try {
+    const runSession = async (): Promise<void> => {
       const memory = deps.loadAgentMemory(freshAgent.id);
       const recentMsgs: ChatMessage[] = memory?.recentMessages
         .slice(-15)
@@ -101,6 +102,11 @@ export function createProcessPendingMessageHandler(deps: ProcessPendingMessageDe
         }
       }
 
+      return replyText;
+    };
+
+    const processWithRetry = async (attempt = 1): Promise<void> => {
+      const replyText = await runSession();
       const stored = deps.getState().messages.find(m => m.id === pending.id);
       if (!stored?.reply) {
         const finalReply = replyText || 'Done.';
@@ -135,6 +141,10 @@ export function createProcessPendingMessageHandler(deps: ProcessPendingMessageDe
       });
       deps.logEvent('Queued Request Processed', `Processed queued request from ${senderName}.`, 'info', agent.id, 'telegram', 'message', freshAgent.workspaceId, { senderName, messageId: pending.id });
       deps.logTask(agent.id, 'Queued Request Finished', `Completed queued request from ${senderName} (${senderRole}).`, 'success');
+    };
+
+    try {
+      await processWithRetry();
     } catch (e: any) {
       deps.logTask(agent.id, 'Queued Request Failed', `Error while processing message ${pending.id}: ${e.message}`, 'error');
       deps.setState(s => {
@@ -566,8 +576,9 @@ export function createAskAgentHandler(deps: AskAgentDeps) {
 
     const TIMEOUT_MS = 120000;
     const startTime = Date.now();
+    const isRateLimit = (msg: string) => msg.includes('429') || /rate.limit|too many requests/i.test(msg);
 
-    try {
+    const askRunSession = async (): Promise<string> => {
       const targetMemory = deps.loadAgentMemory(targetAgent.id);
       const recentMsgs: ChatMessage[] = targetMemory?.recentMessages
         .slice(-15)
@@ -588,7 +599,7 @@ export function createAskAgentHandler(deps: AskAgentDeps) {
             const m = s.messages.find(x => x.id === messageId);
             if (m) { m.status = 'replied'; m.reply = 'Timeout — agent did not respond in 2 minutes.'; m.repliedAt = now; }
           });
-          return { success: false, error: `Timeout waiting for ${targetAgent.name} to respond (2 min limit).` };
+          return '';
         }
 
         const results = [];
@@ -605,6 +616,25 @@ export function createAskAgentHandler(deps: AskAgentDeps) {
           replyText = response.text;
         }
       }
+
+      return replyText;
+    };
+
+    const askProcessWithRetry = async (attempt = 1): Promise<string> => {
+      try {
+        return await askRunSession();
+      } catch (e: any) {
+        if (isRateLimit(String(e.message ?? '')) && attempt < 3) {
+          deps.logTask(targetAgent.id, 'Ask Agent Retry', `Retry ${attempt}/3 after rate limit error.`, 'warning');
+          await new Promise(resolve => setTimeout(resolve, attempt * 5000));
+          return askProcessWithRetry(attempt + 1);
+        }
+        throw e;
+      }
+    };
+
+    try {
+      const replyText = await askProcessWithRetry();
 
       const stored = deps.getState().messages.find(m => m.id === messageId);
       if (!stored?.reply) {
