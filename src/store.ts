@@ -93,6 +93,10 @@ interface AppState {
   totalCost: number;
   loading: boolean;
 
+  // Workspace context
+  activeWorkspaceId: string | null;
+  setActiveWorkspace: (id: string | null) => void;
+
   // Auth
   authRequired: boolean;
   authChecking: boolean;
@@ -179,6 +183,9 @@ export const useStore = create<AppState>((set, get) => ({
   pipelineInstances: [],
   totalCost: 0,
   loading: true,
+
+  activeWorkspaceId: null,
+  setActiveWorkspace: (id) => set({ activeWorkspaceId: id }),
 
   authRequired: true,
   authChecking: true,

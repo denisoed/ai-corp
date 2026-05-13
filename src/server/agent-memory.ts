@@ -541,12 +541,15 @@ function extractSectionLines(text: string, sectionHeader: string, maxLines: numb
   if (idx === -1) return null;
 
   const after = text.slice(idx + sectionHeader.length);
-  const lines = after.split('\n')
-    .map(l => l.replace(/^[\s\-*#]+/, '').trim())
-    .filter(Boolean)
-    .slice(0, maxLines);
+  const lines: string[] = [];
+  for (const l of after.split('\n')) {
+    const trimmed = l.trim();
+    if (trimmed.startsWith('#') || trimmed.startsWith('---')) break;
+    const clean = l.replace(/^[\s\-*#:]+/, '').replace(/\*\*/g, '').trim();
+    if (clean && !clean.startsWith(':')) lines.push(clean);
+  }
 
-  return lines.length > 0 ? lines.join('. ') + '.' : null;
+  return lines.slice(0, maxLines).join('. ') + '.' || null;
 }
 
 function extractSectionContent(text: string, sectionHeader: string): string | null {
@@ -555,13 +558,16 @@ function extractSectionContent(text: string, sectionHeader: string): string | nu
   if (idx === -1) return null;
 
   const after = text.slice(idx + sectionHeader.length);
-  const content = after.split('\n')
-    .map(l => l.replace(/^[\s\-*#]+\s*/, '').replace(/\*\*/g, '').trim())
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('. ');
+  const lines: string[] = [];
+  for (const l of after.split('\n')) {
+    const trimmed = l.trim();
+    if (trimmed.startsWith('#') || trimmed.startsWith('---')) break;
+    const clean = l.replace(/^[\s\-*#:]+/, '').replace(/\*\*/g, '').trim();
+    if (clean && !clean.startsWith(':')) lines.push(clean);
+  }
 
-  return content || null;
+  if (lines.length === 0) return null;
+  return lines[0].replace(/^:\s*/, '').replace(/\.\./g, '.');
 }
 
 function buildDialogState(agentId: string): string {
@@ -634,7 +640,7 @@ export function buildSystemPrompt(agent: Agent, context?: string): string {
     }
   }
 
-  const retrieval = buildRetrievedMemoryContext(agent.id, state || '');
+  const retrieval = buildRetrievedMemoryContext(agent.id, state || '', state || undefined);
   if (retrieval) {
     parts.push(`# RETRIEVED CONTEXT\n\n${retrieval}`);
   }
@@ -663,10 +669,10 @@ When the user says "notify me" or "tell me", default the subscription channel to
   return parts.join('\n\n---\n\n');
 }
 
-export function buildRetrievedMemoryContext(agentId: string, focusText: string): string {
+export function buildRetrievedMemoryContext(agentId: string, focusText: string, excludeText?: string): string {
   if (!focusText.trim()) return '';
   const snippets = retrieveMemorySnippets(agentId, focusText);
-  return formatRetrievedSnippets(snippets);
+  return formatRetrievedSnippets(snippets, excludeText);
 }
 
 export function buildRetrievedMemoryContextFromFiles(sessionFiles: string[], focusText: string): string {
@@ -675,10 +681,29 @@ export function buildRetrievedMemoryContextFromFiles(sessionFiles: string[], foc
   return formatRetrievedSnippets(snippets);
 }
 
-function formatRetrievedSnippets(snippets: string[]): string {
+function formatRetrievedSnippets(snippets: string[], excludeText?: string): string {
   if (snippets.length === 0) return '';
 
-  return snippets
+  const seen = new Set<string>();
+  const excludeWords = excludeText
+    ? new Set(excludeText.toLowerCase().replace(/[^a-zа-яё0-9\s]/g, ' ').replace(/\s+/g, ' ').split(/\s+/).filter(w => w.length > 4))
+    : null;
+
+  const deduped = snippets.filter(s => {
+    const norm = s.toLowerCase().replace(/[^a-zа-яё0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!norm || seen.has(norm)) return false;
+    seen.add(norm);
+
+    if (excludeWords && excludeWords.size > 0) {
+      const words = new Set(norm.split(/\s+/));
+      const overlap = [...excludeWords].filter(w => words.has(w));
+      if (overlap.length >= 3) return false;
+    }
+
+    return true;
+  });
+
+  return deduped
     .map((snippet, index) => `${index + 1}. ${snippet}`)
     .join('\n');
 }

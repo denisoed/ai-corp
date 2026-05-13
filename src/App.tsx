@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams, useLocation } from 'react-router-dom';
 import { Layout } from './components/layout/Layout';
 import { Dashboard } from './components/views/Dashboard';
 import { WorkspacesList } from './components/views/WorkspacesList';
@@ -18,6 +18,7 @@ import { Settings } from './components/views/Settings';
 import { PipelinesList } from './components/views/PipelinesList';
 import { PipelineDetail } from './components/views/PipelineDetail';
 import { Login } from './components/views/Login';
+import { SetupWizard } from './components/views/SetupWizard';
 import { useStore } from './store';
 import { useTelegramManager } from './lib/telegramAdapter';
 
@@ -35,10 +36,88 @@ function useSync() {
   }, [fetchState, authRequired]);
 }
 
+// Wrapper components for workspace-scoped pages
+function WorkspaceAgents() {
+  const { id } = useParams();
+  const setActiveWorkspace = useStore(s => s.setActiveWorkspace);
+  const workspaces = useStore(s => s.workspaces);
+  
+  useEffect(() => {
+    if (id && workspaces.find(w => w.id === id)) {
+      setActiveWorkspace(id);
+    }
+  }, [id, workspaces, setActiveWorkspace]);
+  
+  return <WorkspacesList />;
+}
+
+function WorkspaceBoard() {
+  const { id } = useParams();
+  const setActiveWorkspace = useStore(s => s.setActiveWorkspace);
+  const workspaces = useStore(s => s.workspaces);
+  
+  useEffect(() => {
+    if (id && workspaces.find(w => w.id === id)) {
+      setActiveWorkspace(id);
+    }
+  }, [id, workspaces, setActiveWorkspace]);
+  
+  return <TaskBoard />;
+}
+
+function WorkspaceRoles() {
+  const { id } = useParams();
+  const setActiveWorkspace = useStore(s => s.setActiveWorkspace);
+  const workspaces = useStore(s => s.workspaces);
+  
+  useEffect(() => {
+    if (id && workspaces.find(w => w.id === id)) {
+      setActiveWorkspace(id);
+    }
+  }, [id, workspaces, setActiveWorkspace]);
+  
+  return <RolesManagement />;
+}
+
+function WorkspaceCrons() {
+  const { id } = useParams();
+  const setActiveWorkspace = useStore(s => s.setActiveWorkspace);
+  const workspaces = useStore(s => s.workspaces);
+  
+  useEffect(() => {
+    if (id && workspaces.find(w => w.id === id)) {
+      setActiveWorkspace(id);
+    }
+  }, [id, workspaces, setActiveWorkspace]);
+  
+  return <CronJobs />;
+}
+
+function WorkspacePipelines() {
+  const { id } = useParams();
+  const setActiveWorkspace = useStore(s => s.setActiveWorkspace);
+  const workspaces = useStore(s => s.workspaces);
+  
+  useEffect(() => {
+    if (id && workspaces.find(w => w.id === id)) {
+      setActiveWorkspace(id);
+    }
+  }, [id, workspaces, setActiveWorkspace]);
+  
+  return <PipelinesList />;
+}
+
+// Backward compatibility - redirect old routes to /workspaces
+function LegacyRedirect() {
+  const location = useLocation();
+  return <Navigate to="/workspaces" replace />;
+}
+
 export default function App() {
   const authRequired = useStore(s => s.authRequired);
   const authChecking = useStore(s => s.authChecking);
   const checkAuth = useStore(s => s.checkAuth);
+  const workspaces = useStore(s => s.workspaces);
   const didCheckAuth = useRef(false);
 
   useEffect(() => {
@@ -51,7 +130,7 @@ export default function App() {
     };
     window.addEventListener('aicorp:auth-required', handleAuthRequired);
     return () => window.removeEventListener('aicorp:auth-required', handleAuthRequired);
-  }, []); // Run once on mount
+  }, []);
 
   useSync();
   useTelegramManager();
@@ -68,21 +147,42 @@ export default function App() {
     return <Login />;
   }
 
+  // Show Setup Wizard if no workspaces exist
+  if (workspaces.length === 0) {
+    return <SetupWizard />;
+  }
+
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/" element={<Navigate to="/workspaces" replace />} />
+        
+        {/* Main pages */}
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/workspaces" element={<WorkspacesList />} />
+        
+        {/* Workspace-specific routes */}
+        <Route path="/workspaces/:id" element={<WorkspacesList />} />
+        <Route path="/workspaces/:id/agents" element={<WorkspaceAgents />} />
+        <Route path="/workspaces/:id/board" element={<WorkspaceBoard />} />
+        <Route path="/workspaces/:id/roles" element={<WorkspaceRoles />} />
+        <Route path="/workspaces/:id/crons" element={<WorkspaceCrons />} />
+        <Route path="/workspaces/:id/pipelines" element={<WorkspacePipelines />} />
+        
+        {/* Global pages */}
         <Route path="/chats" element={<ChatsPage />} />
-        <Route path="/board" element={<TaskBoard />} />
         <Route path="/logs" element={<ActivityLogs />} />
-        <Route path="/crons" element={<CronJobs />} />
-        <Route path="/roles" element={<RolesManagement />} />
         <Route path="/events" element={<EventsManagement />} />
-        <Route path="/pipelines" element={<PipelinesList />} />
-        <Route path="/pipelines/:id" element={<PipelineDetail />} />
         <Route path="/settings" element={<Settings />} />
+        
+        {/* Legacy routes - redirect to /workspaces */}
+        <Route path="/board" element={<LegacyRedirect />} />
+        <Route path="/roles" element={<LegacyRedirect />} />
+        <Route path="/crons" element={<LegacyRedirect />} />
+        <Route path="/pipelines" element={<LegacyRedirect />} />
+        
+        {/* Pipeline detail */}
+        <Route path="/pipelines/:id" element={<PipelineDetail />} />
       </Routes>
     </Layout>
   );
