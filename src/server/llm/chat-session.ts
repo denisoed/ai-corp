@@ -1,6 +1,12 @@
 import type { ChatMessage, ChatSession, ChatSessionOptions, LLMUsage, LLMResponse, ToolCall, Tool } from './types';
 import { truncateToolResult } from '../lib/tool-result-truncation';
 
+const MAX_CONTEXT_TOKENS = 8000;
+
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
 const IDEMPOTENT_READ_TOOLS = new Set([
   'read_file', 'list_files', 'get_company_state', 'get_task_details',
   'get_agent_details', 'search_tasks', 'check_my_inbox', 'list_roles',
@@ -71,11 +77,24 @@ export class ChatSessionWrapper implements ChatSession {
   }
 
   private trimMessages(): void {
-    const MAX_MESSAGES = 20;
-    if (this.messages.length > MAX_MESSAGES) {
-      const first = this.messages[0];
-      const last = this.messages.slice(-(MAX_MESSAGES - 1));
-      this.messages = [first, ...last];
+    let totalTokens = 0;
+    for (const m of this.messages) {
+      totalTokens += estimateTokens(m.content);
+      if (m.tool_calls) {
+        for (const tc of m.tool_calls) {
+          totalTokens += estimateTokens(tc.function.name + tc.function.arguments);
+        }
+      }
+    }
+
+    while (this.messages.length > 4 && totalTokens > MAX_CONTEXT_TOKENS) {
+      const removed = this.messages.splice(1, 1)[0];
+      totalTokens -= estimateTokens(removed.content);
+      if (removed.tool_calls) {
+        for (const tc of removed.tool_calls) {
+          totalTokens -= estimateTokens(tc.function.name + tc.function.arguments);
+        }
+      }
     }
   }
 

@@ -8,6 +8,11 @@ import { publishEvent, createApprovalRequestedEvent } from './events';
 
 const runningTaskRuns = new Set<string>();
 
+function truncateDesc(text: string): string {
+  if (text.length <= 500) return text;
+  return text.slice(0, 497) + '...';
+}
+
 function logTask(agentId: string, action: string, details: string, type: 'info' | 'success' | 'warning' | 'error' = 'info', metadata?: Record<string, unknown>) {
   mutateStore(s => {
     s.logs.unshift({
@@ -39,10 +44,10 @@ function buildTaskPrompt(agent: Agent, task: Task, context?: { permissions?: str
     `You are working autonomously on the task "${task.title}".`,
     `Goal: finish the task end-to-end.`,
     `Current status: ${task.status}. Priority: ${task.priority}. Risk: ${task.risk}.`,
-    `Task description: ${task.description}`,
+    `Task description: ${truncateDesc(task.description)}`,
     task.tags.length ? `Tags: ${task.tags.join(', ')}` : '',
     task.subtasks.length ? `Subtasks: ${task.subtasks.map(st => `${st.completed ? '[x]' : '[ ]'} ${st.title}`).join('; ')}` : '',
-    task.comments.length ? `Existing comments: ${task.comments.slice(-3).map(c => `${c.authorName}: ${c.content}`).join(' | ')}` : '',
+    task.comments.length ? `Existing comments: ${task.comments.slice(-3).map(c => `${c.authorName}: ${c.content.length > 150 ? c.content.slice(0, 147) + '...' : c.content}`).join(' | ')}` : '',
     context?.workspace || '',
     context?.permissions || '',
     context?.pipeline || '',
@@ -101,10 +106,10 @@ async function runTaskAutopilot(task: Task): Promise<void> {
     }
 
     const permissions = getEffectivePermissions(agent.id);
-    const permissionLines = permissions.length > 0
-      ? `Your effective permissions:\n${permissions.map(p => `  ${p.type}${p.scope && p.scope !== 'all' ? ` (scope: ${(p.scope as string[]).join(', ')})` : ' (all)'}`).join('\n')}`
-      : 'Your effective permissions: none (you may need to request permissions or use tools that check per-agent).';
-    const permissionsContext = `# PERMISSIONS\n\n${permissionLines}\n\nIf you need a permission you don't have — or if someone asks you to do something but you lack the required permission to help them — call request_approval with requiredPermission set to the missing permission to ask the human user. Do NOT use grant_permission_to_role to self-grant. If blocked on a permission, wait — do not retry in a loop.`;
+    const permTypes = [...new Set(permissions.map(p => p.type))];
+    const permissionsContext = permTypes.length > 0
+      ? `# PERMISSIONS\nYou have: ${permTypes.join(', ')}. If blocked on a missing permission, call request_approval — do NOT self-grant.`
+      : '# PERMISSIONS\nNo effective permissions. Call request_approval to escalate.';
 
     const ws = store.workspaces.find(w => w.id === agent.workspaceId);
     const workspaceContext = ws ? `# WORKSPACE\n\nName: ${ws.name}\nID: ${ws.id}\nSlug: ${ws.slug}` : '';

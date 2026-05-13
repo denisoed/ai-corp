@@ -39,6 +39,8 @@ export class OpenRouterClient extends AIBaseClient {
       body.tool_choice = toolChoice || 'auto';
     }
 
+    body.transforms = ['middle-out'];
+
     const response = await this.request<{
       choices: Array<{
         message: {
