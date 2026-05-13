@@ -1,15 +1,10 @@
-import { EVENT_DEFINITIONS } from '../event-registry';
-
-const eventTypeDescription = EVENT_DEFINITIONS
-  .map(def => `${def.type} - ${def.description}`)
-  .join('; ');
 
 export const companyTools = [
   {
     type: 'function' as const,
     function: {
       name: 'create_agent',
-      description: 'Hire/Onboard a new AI agent into the company. You can only create agents under a manager you are connected to (manager/subordinate or collaborator). Use soul/identity/roleDoc params to define their personality directly.',
+      description: 'Hire a new AI agent. You can only create agents under a manager you are connected to. Use soul/identity/roleDoc to define personality directly.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -29,7 +24,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'create_task',
-      description: 'Create a new task on the Kanban board. You can only assign tasks to agents you have a relationship with (manager/subordinate or collaborator).',
+      description: 'Create a new task on the Kanban board. Connected agents only.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -48,7 +43,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'get_company_state',
-      description: 'Get details of agents and tasks. When focus="agents", only agents connected to you are shown. ALWAYS present the complete list to the user — do NOT summarize or count. When asked about agents, list each agent with name, role, and status on separate bullet lines. When asked about tasks, list each task with title, status, and assignee.',
+      description: 'Get overview of agents, tasks or both. focus: "agents", "tasks", or "all".',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -77,7 +72,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'assign_task',
-      description: 'Assign or reassign a task to a specific agent by name. You can only assign tasks to agents you have a relationship with (manager/subordinate or collaborator).',
+      description: 'Assign or reassign a task to a specific agent by name. Connected agents only.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -124,7 +119,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'add_task_comment',
-      description: 'Add a comment or note to an existing task. You can only comment on tasks assigned to agents you are connected to (manager/subordinate or collaborator). Unassigned tasks can be commented on by any agent.',
+      description: 'Add a comment to a task. Connected agents only. Unassigned tasks can be commented on by any agent.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -204,7 +199,7 @@ export const companyTools = [
       parameters: {
         type: 'object' as const,
         properties: {
-          eventType: { type: 'string' as const, description: `Optional. Supported event types: ${eventTypeDescription}` },
+           eventType: { type: 'string' as const, description: 'Event type, e.g. "task.status.changed", "approval.requested". Omit to subscribe to all.' },
           taskTitle: { type: 'string' as const, description: 'Optional. Title or partial title of the task to watch when subscribing to task events' },
           taskId: { type: 'string' as const, description: 'Optional. Exact task id to watch when subscribing to task events' },
           channel: { type: 'string' as const, description: 'Optional. telegram or in_app (default: telegram)' },
@@ -268,7 +263,7 @@ export const companyTools = [
           agentName: { type: 'string' as const, description: 'Current name of the agent to update' },
           newName: { type: 'string' as const, description: 'Optional. New name for the agent' },
           model: { type: 'string' as const, description: 'Optional. New AI model' },
-          role: { type: 'string' as const, description: 'Optional. Must be: Manager, Developer, Analyst, Reviewer, Designer, DevOps, Research' },
+           role: { type: 'string' as const, description: 'Agent role (e.g. Developer, Reviewer, Manager).' },
           description: { type: 'string' as const, description: 'Optional. Updated description' },
           skills: { type: 'array' as const, items: { type: 'string' as const }, description: 'Optional. New skills list' }
         },
@@ -309,7 +304,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'get_agent_details',
-      description: 'Get detailed information about a specific agent — their role, skills, tasks, and your connection to them (manager, subordinate, collaborator, or none).',
+      description: 'Get agent info: role, skills, tasks, and your connection type (manager, subordinate, collaborator, or none).',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -323,7 +318,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'get_my_connections',
-      description: 'List all agents you are connected to — your manager, your subordinates, and your collaborators. Use this to know who you can interact with.',
+      description: 'List your manager, subordinates, and collaborators.',
       parameters: {
         type: 'object' as const,
         properties: {},
@@ -335,7 +330,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'add_connection',
-      description: 'Create a connection between two agents. Use "manager" to make agentName the manager of targetAgentName (targetAgentName will report to agentName). Use "collaborator" for bidirectional peer collaboration. IMPORTANT: to make Bob report to Alice, set agentName="Alice", targetAgentName="Bob", connectionType="manager". The MANAGER is always agentName, the SUBORDINATE is always targetAgentName.',
+      description: 'Create a connection between two agents. "manager": agentName manages targetAgentName. "collaborator": bidirectional peers. Manager is always agentName, subordinate is targetAgentName.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -366,7 +361,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'update_connection',
-      description: 'Change the type of connection between two agents. Removes existing connection first, then applies the new type. Use "manager" to make agentName the manager of targetAgentName. Use "collaborator" for bidirectional peers. Use "none" to just remove all connections. IMPORTANT: the MANAGER is agentName, the SUBORDINATE is targetAgentName.',
+      description: 'Change the connection type between two agents. "manager": agentName manages targetAgentName. "collaborator": bidirectional. "none": remove all connections.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -465,7 +460,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'send_broadcast',
-      description: 'Send a message to agents that have Telegram bots configured. Only agents connected to you (manager/subordinate or collaborator) will receive the broadcast.',
+      description: 'Send a message to connected agents that have Telegram bots. Requires system:broadcast permission.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -479,7 +474,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'send_telegram_message',
-      description: 'Send a message directly to a Telegram chat using your bot. Use this to notify users of cron job results, report updates, or any important information. The chat ID defaults to the last known chat if not provided.',
+      description: 'Send a message via your Telegram bot. Defaults to the last known chat.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -565,7 +560,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'set_agent_personality',
-      description: "Update an agent's SOUL, IDENTITY, and/or ROLE files. Use after creating a new agent to configure their personality, or to refine an existing agent's behavior.",
+      description: 'Update SOUL, IDENTITY, and/or ROLE files for an agent. Use after agent creation to define personality.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -582,7 +577,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'create_cron',
-      description: 'Create a scheduled cron job for an agent. The agent will execute the prompt on the given schedule using its AI capabilities and tools.',
+      description: 'Create a scheduled cron job. The agent will execute the prompt on the given schedule with full tool access.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -626,7 +621,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'update_cron',
-      description: 'Update a cron job — change its schedule, prompt, enable/disable it.',
+      description: 'Update a cron job schedule, prompt, enabled state, or description.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -644,7 +639,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'run_cron_now',
-      description: 'Manually trigger a cron job to run immediately (for testing or ad-hoc execution).',
+      description: 'Manually trigger a cron job to run immediately.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -804,8 +799,8 @@ export const companyTools = [
             items: {
               type: 'object' as const,
               properties: {
-                type: { type: 'string' as const, description: 'Permission type: file:read, file:write, file:delete, file:list, folder:read, folder:write, folder:delete, folder:list, system:manage_agents, system:manage_permissions, system:manage_roles, system:manage_crons, system:broadcast' },
-                scope: { description: 'Array of path glob patterns for file permissions (e.g. ["src/**", "docs/*.md"]), or omit for "all"' }
+                 type: { type: 'string' as const, description: 'Permission type, e.g. "file:read", "system:manage_crons".' },
+                scope: { description: 'Path glob patterns, e.g. ["src/**", "docs/*.md"]. Omit for "all".' }
               },
               required: ['type']
             }
@@ -824,8 +819,8 @@ export const companyTools = [
         type: 'object' as const,
         properties: {
           roleName: { type: 'string' as const, description: 'Name of the role to enrich' },
-          permissionType: { type: 'string' as const, description: 'Permission type to add: file:read, file:write, file:delete, file:list, folder:read, folder:write, folder:delete, folder:list, system:manage_agents, system:manage_permissions, system:manage_roles, system:manage_crons, system:broadcast' },
-          scope: { type: 'array' as const, items: { type: 'string' as const }, description: 'Optional. Array of path globs to limit scope. Omit for full access ("all").' }
+           permissionType: { type: 'string' as const, description: 'Permission type, e.g. "file:read", "system:manage_crons". Use list_permissions for all valid types.' },
+           scope: { type: 'array' as const, items: { type: 'string' as const }, description: 'Path globs to limit scope, e.g. ["src/**"]. Omit for full access.' },
         },
         required: ['roleName', 'permissionType']
       }
@@ -932,7 +927,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'web_search',
-      description: 'Search the internet for current information, news, documentation, and data. Returns results with title, URL, and snippet. Use this to research topics, find documentation, monitor trends, or gather market intelligence. To read the full content of a result, use fetch_url on its URL.',
+      description: 'Search the internet. Returns title, URL, and snippet. Use fetch_url to read full page content.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -947,7 +942,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'fetch_url',
-      description: 'Fetch and read the content of a web page. Returns the text content of the page with HTML stripped. Use this after web_search to read full articles, documentation pages, or any specific URL in detail. Supports text/html, text/plain, and application/json content types.',
+      description: 'Fetch and read content from a URL. Strips HTML. Supports text/html, text/plain, application/json. Use after web_search to read full pages.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -966,8 +961,8 @@ export const companyTools = [
         type: 'object' as const,
         properties: {
           agentName: { type: 'string' as const, description: 'Name of the agent to grant the permission to.' },
-           permissionType: { type: 'string' as const, description: 'Permission type to grant: file:read, file:write, file:delete, file:list, folder:read, folder:write, folder:delete, folder:list, system:manage_agents, system:manage_permissions, system:manage_roles, system:manage_crons, system:broadcast, system:web_search, system:fetch_url, system:http_request' },
-          scope: { type: 'array' as const, items: { type: 'string' as const }, description: 'Optional. Array of path globs to limit scope. Omit for full access ("all"). Only meaningful for file:* permissions.' }
+            permissionType: { type: 'string' as const, description: 'Permission type, e.g. "file:read", "system:manage_crons". Use list_permissions for all valid types.' },
+           scope: { type: 'array' as const, items: { type: 'string' as const }, description: 'Path globs to limit scope, e.g. ["src/**"]. Omit for full access.' },
         },
         required: ['agentName', 'permissionType']
       }
@@ -992,7 +987,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'install_skill',
-      description: 'Install a skill from the skills catalog onto an agent (yourself by default). Skills provide specialized knowledge for frameworks, tools, and platforms. Requires system:manage_skills permission to install on other agents.',
+      description: 'Install a skill onto an agent (yourself by default). Requires system:manage_skills to install on others.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -1007,7 +1002,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'uninstall_skill',
-      description: 'Remove an installed skill from an agent (yourself by default). Requires system:manage_skills permission to uninstall from other agents.',
+      description: 'Remove an installed skill from an agent (yourself by default). Requires system:manage_skills to uninstall from others.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -1022,7 +1017,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'http_request',
-      description: 'Make an arbitrary HTTP request to any external API. Supports GET, POST, PUT, DELETE, and PATCH methods. Use this to interact with external services (GitHub, Slack, Jira, Stripe, etc.). Private/internal hosts are blocked for security. Maximum response size is 500KB. Requires system:http_request permission.',
+      description: 'Make an HTTP request to an external API. Supports GET, POST, PUT, DELETE, PATCH. Private hosts blocked. Max response 500KB. Requires system:http_request permission.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -1040,7 +1035,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'create_pipeline',
-      description: 'Define a reusable pipeline with ordered stages. Each stage assigns work to an agent role (Developer, Reviewer, DevOps, etc.). Pipelines can be started multiple times on different tasks.',
+      description: 'Define a reusable pipeline with ordered stages. Each stage targets an agent role (Developer, Reviewer, etc.).',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -1053,7 +1048,7 @@ export const companyTools = [
               type: 'object' as const,
               properties: {
                 name: { type: 'string' as const, description: 'Stage name, e.g. "Development"' },
-                assigneeRole: { type: 'string' as const, description: 'Agent role for this stage: Developer, Reviewer, DevOps, Research, Analyst, Manager, Designer' },
+                 assigneeRole: { type: 'string' as const, description: 'Agent role for this stage (e.g. Developer, Reviewer, DevOps).' },
                 instructions: { type: 'string' as const, description: 'What the agent should do in this stage.' },
                 expectedOutput: { type: 'string' as const, description: 'Optional. What the stage should produce.' },
                 transition: { type: 'string' as const, description: 'Optional. "auto" (next stage starts automatically), "approval_required" (waits for human approval), or "manual" (PM must trigger next stage). Default: auto.' },
@@ -1071,7 +1066,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'start_pipeline',
-      description: 'Launch a pipeline on a task. Creates a pipeline instance which runs each stage sequentially, assigning tasks to available agents by role. The pipeline runs in the background — subscribe to pipeline events or check status for updates.',
+      description: 'Launch a pipeline on a task. Runs stages sequentially, assigning work to agents by role. Use get_pipeline_status to track progress.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -1130,7 +1125,7 @@ export const companyTools = [
     type: 'function' as const,
     function: {
       name: 'plan_pipeline',
-      description: 'Get a suggested pipeline stage plan for a task. Analyzes the task and returns a recommended sequence of stages based on available agent roles. Use the returned stages with create_pipeline to create a new pipeline.',
+      description: 'Get a suggested pipeline stage plan for a task. Use returned stages with create_pipeline.',
       parameters: {
         type: 'object' as const,
         properties: {
