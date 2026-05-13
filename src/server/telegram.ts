@@ -56,8 +56,8 @@ export function createProcessPendingMessageHandler(deps: ProcessPendingMessageDe
 
     deps.logTask(agent.id, 'Queued Request Started', `Processing queued request from ${senderName} (${senderRole}). Message ${pending.id}.`, 'info');
 
-    const targetSystemPrompt = buildSystemPrompt(freshAgent) +
-      `\n\nYou are responding to a queued request from ${senderName} (${senderRole}), a connected agent. Use reply_to_message("${pending.id}", content) to send your reply.\n\nIMPORTANT RULES:\n- Focus ONLY on the specific request below. Do NOT modify permissions, roles, or system configuration — those are handled automatically by the human user.\n- If a tool fails with a permission error, skip it and move on — do not retry or try alternative approaches. Permissions are NOT your responsibility.\n- Your goal is to complete the actual work and reply, not to fix infrastructure or access issues. If you can't do something because of permissions, just say so in your reply and move on.`;
+    const targetSystemPrompt = buildSystemPrompt(freshAgent, 'telegram-queued') +
+      `\n\nYou are responding to a queued request from ${senderName} (${senderRole}), a connected agent. Use reply_to_message("${pending.id}", content) to send your reply.`;
 
     const TIMEOUT_MS = 120000;
     const startTime = Date.now();
@@ -66,7 +66,7 @@ export function createProcessPendingMessageHandler(deps: ProcessPendingMessageDe
     const runSession = async (): Promise<void> => {
       const memory = deps.loadAgentMemory(freshAgent.id);
       const recentMsgs: ChatMessage[] = memory?.recentMessages
-        .slice(-15)
+        .slice(-6)
         .filter(m => m.role === 'user' || m.role === 'assistant')
         .map(m => ({ role: m.role, content: m.content })) ?? [];
 
@@ -408,11 +408,11 @@ export function createHandleIncomingMessageHandler(deps: IncomingMessageDeps) {
       }
 
       const recentMsgs: ChatMessage[] = memory.recentMessages
-        .slice(-15)
+        .slice(-6)
         .filter(m => m.role === 'user' || m.role === 'assistant')
         .map(m => ({ role: m.role, content: m.content }));
 
-      const systemInstruction = deps.buildPrompt(agentInfo) + '\n\n' + TELEGRAM_FORMATTING_RULES + '\n\nCRITICAL RULE: When the user asks you to do something involving other agents (send a message, ask a question, coordinate work), you MUST use the available tools (send_message, ask_agent, create_task, etc.) to execute the request. Do NOT just acknowledge — take action using tools. After executing tools, always reply to the user with a summary of what was done.';
+      const systemInstruction = deps.buildPrompt(agentInfo, 'telegram') + '\n\n' + TELEGRAM_FORMATTING_RULES;
 
       let enhancedText = text;
       const repliedTo = message.reply_to_message?.text;
@@ -571,8 +571,8 @@ export function createAskAgentHandler(deps: AskAgentDeps) {
       }
     }
 
-    const targetSystemPrompt = buildSystemPrompt(targetAgent) +
-      `\n\nYou are responding to a request from ${senderName} (${senderRole}), a connected agent. Use reply_to_message("${messageId}", content) to send your reply.\n\nIMPORTANT: Focus only on the specific request. Do not attempt to fix permissions, roles, or system config — those require human approval. If a permission tool fails, skip it.` + busyContext;
+    const targetSystemPrompt = buildSystemPrompt(targetAgent, 'telegram-ask') +
+      `\n\nYou are responding to a request from ${senderName} (${senderRole}), a connected agent. Use reply_to_message("${messageId}", content) to send your reply.` + busyContext;
 
     const TIMEOUT_MS = 120000;
     const startTime = Date.now();
@@ -581,7 +581,7 @@ export function createAskAgentHandler(deps: AskAgentDeps) {
     const askRunSession = async (): Promise<string> => {
       const targetMemory = deps.loadAgentMemory(targetAgent.id);
       const recentMsgs: ChatMessage[] = targetMemory?.recentMessages
-        .slice(-15)
+        .slice(-6)
         .filter(m => m.role === 'user' || m.role === 'assistant')
         .map(m => ({ role: m.role, content: m.content })) ?? [];
 

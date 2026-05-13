@@ -110,28 +110,11 @@ async function executeStage(instance: PipelineInstance, pipeline: Pipeline, stag
     if (!agent) throw new Error('Agent not found');
 
     const memory = loadMemory(agent.id);
-    const systemPrompt = buildSystemPrompt(agent) + '\n\n' + [
+    const systemPrompt = buildSystemPrompt(agent, 'pipeline') + '\n\n' + [
       `You are executing stage "${stage.name}" of pipeline "${pipeline.name}".`,
       stage.instructions,
       stage.expectedOutput ? `Expected output: ${stage.expectedOutput}` : '',
       task ? `Parent task context:\nTitle: ${task.title}\nDescription: ${task.description}` : '',
-      '',
-      'Operating rules for pipeline stage:',
-      '- Work on the stage task until it reaches Done.',
-      '- Use tools to accomplish the stage goal.',
-      '- If you need approval, call request_approval with approverAgentName set to a relevant agent (e.g., "Manager" for decisions, "Reviewer" for code review, "DevOps" for deployment). Do NOT ask humans unless no other agent is available.',
-      '- When complete, move the task to Done and write a summary comment.',
-      '',
-      'Anti-bloat rules:',
-      '- NEVER call the same read tool (list_files, read_file, get_task_details, etc.) with the same arguments more than once. Cache results mentally.',
-      '- Do NOT call grant_permission_to_agent to escalate your own permissions — request approval instead.',
-      '- Check task status before calling move_task — skip if already at target.',
-      '- Focus on the specific stage goal. Do not wander into unrelated directories or tasks.',
-      '',
-      'Command execution notes:',
-      '- If run_command returns status "needs_approval", do NOT retry the same command. Approval is being processed and the command will execute automatically once approved.',
-      '- If request_approval returns "already_approved" or "already_pending" (in status or error), you already have the permission — proceed without retrying.',
-      '- Wait for the command result to come back before proceeding. If you see "needs_approval", the system will notify you when the command completes.',
     ].filter(Boolean).join('\n');
 
     const chatSession = createChatSession(agent, systemPrompt, {

@@ -42,31 +42,13 @@ function buildTaskPrompt(agent: Agent, task: Task, context?: { permissions?: str
     `Task description: ${task.description}`,
     task.tags.length ? `Tags: ${task.tags.join(', ')}` : '',
     task.subtasks.length ? `Subtasks: ${task.subtasks.map(st => `${st.completed ? '[x]' : '[ ]'} ${st.title}`).join('; ')}` : '',
-    task.comments.length ? `Existing comments: ${task.comments.slice(-5).map(c => `${c.authorName}: ${c.content}`).join(' | ')}` : '',
+    task.comments.length ? `Existing comments: ${task.comments.slice(-3).map(c => `${c.authorName}: ${c.content}`).join(' | ')}` : '',
     context?.workspace || '',
     context?.permissions || '',
     context?.pipeline || '',
-    '',
-    'Operating rules:',
-    '- Keep the user informed by writing task comments at meaningful milestones.',
-    '- Move the task across columns as work progresses.',
-    '- Use create_subtask when decomposing work.',
-    '- Use add_task_tag or remove_task_tag if it helps with tracking.',
-    '- If you need a decision or approval, call request_approval with approverAgentName pointing to the relevant agent (Manager, Reviewer, DevOps, etc.). Only fall back to human approval if no appropriate agent exists.',
-    '- If blocked, move the task to Blocked and explain why in a comment.',
-    '- When complete, move the task to Done and add a final summary comment.',
-    '',
-    'Efficiency guidelines:',
-    '- Batch multiple independent read-only operations (e.g., list_files + get_task_details + search_tasks) into a single response to minimize round-trips.',
-    '- You already have your permissions and workspace context below — use that before calling get_agent_permissions again.',
-    '- NEVER call the same read tool with the same arguments twice in a row (e.g., list_files(".") then immediately list_files(".") again). Cache the result in your context.',
-    '- Check current task status before calling move_task — if the task is already at the target status, skip the call.',
-    '- You may NOT escalate your own permissions via grant_permission_to_agent. If you need a permission, call request_approval.',
-    '- If run_command returns "needs_approval", do NOT retry — the command will execute automatically after approval. Wait for the result.',
-    '- If request_approval returns "already_approved" or "already_pending" in the status/error, do NOT call request_approval again — proceed with your work.',
   ].filter(Boolean);
 
-  return buildSystemPrompt(agent) + '\n\n' + summary.join('\n');
+  return buildSystemPrompt(agent, 'autopilot') + '\n\n' + summary.join('\n');
 }
 
 async function runTaskAutopilot(task: Task): Promise<void> {
