@@ -18,124 +18,183 @@ interface BotState {
 
 const runningBots: Map<string, BotState> = new Map();
 
-export async function processPendingMessage(agent: Agent): Promise<void> {
-  const store = getStore();
-  const freshAgent = store.agents.find(a => a.id === agent.id);
-  if (!freshAgent) return;
+type ProcessPendingMessageDeps = {
+  getState: typeof getStore;
+  setState: typeof mutateStore;
+  createSession: typeof createChatSession;
+  loadAgentMemory: typeof loadMemory;
+  appendAgentMessage: typeof appendMessage;
+  runTool: typeof executeTool;
+  logTask: typeof logTaskWorkflow;
+  logEvent: typeof logAction;
+};
 
-  const pending = store.messages.find(m =>
-    m.toAgentId === agent.id && m.status === 'pending'
-  );
-  if (!pending) return;
+export function createProcessPendingMessageHandler(deps: ProcessPendingMessageDeps) {
+  return async function processPendingMessage(agent: Agent): Promise<void> {
+    const store = deps.getState();
+    const freshAgent = store.agents.find(a => a.id === agent.id);
+    if (!freshAgent) return;
 
-  mutateStore(s => {
-    const a = s.agents.find(x => x.id === agent.id);
-    if (a) a.activeSessions = (a.activeSessions || 0) + 1;
-    const m = s.messages.find(x => x.id === pending.id);
-    if (m) m.status = 'delivered';
-  });
+    const pending = store.messages.find(m =>
+      m.toAgentId === agent.id && m.status === 'pending'
+    );
+    if (!pending) return;
 
-  const sender = store.agents.find(a => a.id === pending.fromAgentId);
-  const senderName = sender?.name || 'Unknown';
-  const senderRole = sender?.role || 'Agent';
+    deps.setState(s => {
+      const a = s.agents.find(x => x.id === agent.id);
+      if (a) {
+        if ((a.activeSessions || 0) > 5) a.activeSessions = 0;
+        a.activeSessions = (a.activeSessions || 0) + 1;
+      }
+      const m = s.messages.find(x => x.id === pending.id);
+      if (m) m.status = 'delivered';
+    });
 
-  logTaskWorkflow(agent.id, 'Queued Request Started', `Processing queued request from ${senderName} (${senderRole}). Message ${pending.id}.`, 'info');
+    const sender = store.agents.find(a => a.id === pending.fromAgentId);
+    const senderName = sender?.name || 'Unknown';
+    const senderRole = sender?.role || 'Agent';
 
-  const targetSystemPrompt = buildSystemPrompt(freshAgent) +
-    `\n\nYou are responding to a queued request from ${senderName} (${senderRole}), a connected agent. Use reply_to_message("${pending.id}", content) to send your reply. You have full tool access — do whatever work is needed before replying.`;
+    deps.logTask(agent.id, 'Queued Request Started', `Processing queued request from ${senderName} (${senderRole}). Message ${pending.id}.`, 'info');
 
-  const TIMEOUT_MS = 120000;
-  const startTime = Date.now();
+    const targetSystemPrompt = buildSystemPrompt(freshAgent, 'telegram-queued') +
+      `\n\nYou are responding to a queued request from ${senderName} (${senderRole}), a connected agent. Use reply_to_message("${pending.id}", content) to send your reply.`;
 
-  try {
-    const memory = loadMemory(freshAgent.id);
-    const recentMsgs: ChatMessage[] = memory?.recentMessages
-      .slice(-15)
-      .filter(m => m.role === 'user' || m.role === 'assistant')
-      .map(m => ({ role: m.role, content: m.content })) ?? [];
+    const TIMEOUT_MS = 120000;
+    const startTime = Date.now();
+    const isRateLimit = (msg: string) => msg.includes('429') || /rate.limit|too many requests/i.test(msg);
 
-    const chatSession = createChatSession(freshAgent, targetSystemPrompt, { initialMessages: recentMsgs });
-    const userMessage = `Request from ${senderName} (${senderRole}):\n\n${pending.content}\n\nDo the work, then call reply_to_message("${pending.id}", "your response") to reply.`;
-    logTaskWorkflow(agent.id, 'LLM Session Started', `Sending queued request ${pending.id} to model.`, 'info');
-    let response = await chatSession.sendMessage(userMessage);
-    let replyText = response.text;
+    const runSession = async (): Promise<void> => {
+      const memory = deps.loadAgentMemory(freshAgent.id);
+      const recentMsgs: ChatMessage[] = memory?.recentMessages
+        .slice(-6)
+        .filter(m => m.role === 'user' || m.role === 'assistant')
+        .map(m => ({ role: m.role, content: m.content })) ?? [];
 
-    while (response.toolCalls && response.toolCalls.length > 0) {
-      logTaskWorkflow(agent.id, 'Tool Calls Planned', `Model returned ${response.toolCalls.length} tool call(s) for message ${pending.id}: ${response.toolCalls.map(c => c.function.name).join(', ')}.`, 'info');
-      if (Date.now() - startTime > TIMEOUT_MS) {
-        logTaskWorkflow(agent.id, 'Queued Request Timeout', `Timeout while processing message ${pending.id}.`, 'warning');
-        mutateStore(s => {
+      const chatSession = deps.createSession(freshAgent, targetSystemPrompt, { initialMessages: recentMsgs });
+      const userMessage = `Request from ${senderName} (${senderRole}):\n\n${pending.content}\n\nDo the work, then call reply_to_message("${pending.id}", "your response") to reply.`;
+      deps.logTask(agent.id, 'LLM Session Started', `Sending queued request ${pending.id} to model.`, 'info');
+      let response = await chatSession.sendMessage(userMessage);
+      let replyText = response.text;
+
+      while (response.toolCalls && response.toolCalls.length > 0) {
+        deps.logTask(agent.id, 'Tool Calls Planned', `Model returned ${response.toolCalls.length} tool call(s) for message ${pending.id}: ${response.toolCalls.map(c => c.function.name).join(', ')}.`, 'info');
+        if (Date.now() - startTime > TIMEOUT_MS) {
+          deps.logTask(agent.id, 'Queued Request Timeout', `Timeout while processing message ${pending.id}.`, 'warning');
+          deps.setState(s => {
+            const m = s.messages.find(x => x.id === pending.id);
+            if (m) { m.status = 'replied'; m.reply = 'Timeout — agent did not respond in 2 minutes.'; m.repliedAt = new Date().toISOString(); }
+          });
+          break;
+        }
+
+        const results = [];
+        for (const call of response.toolCalls) {
+          const toolArgs = JSON.parse(call.function.arguments);
+          deps.logTask(agent.id, 'Executing Tool', `Calling ${call.function.name} with args ${JSON.stringify(toolArgs).slice(0, 500)}.`, 'info');
+          const result = await deps.runTool(call.function.name, toolArgs, agent.id, undefined);
+          deps.logTask(agent.id, 'Tool Result', `${call.function.name} returned ${JSON.stringify(result).slice(0, 500)}.`, result?.success === false ? 'warning' : 'info');
+          results.push(result);
+        }
+        deps.logTask(agent.id, 'Sending Tool Results', `Returning ${results.length} tool result(s) to model for message ${pending.id}.`, 'info');
+        response = await chatSession.sendToolResults(response.toolCalls, results);
+        if (response.text) {
+          replyText = response.text;
+        }
+      }
+
+      return replyText;
+    };
+
+    const processWithRetry = async (attempt = 1): Promise<void> => {
+      const replyText = await runSession();
+      const stored = deps.getState().messages.find(m => m.id === pending.id);
+      if (!stored?.reply) {
+        const finalReply = replyText || 'Done.';
+        deps.setState(s => {
           const m = s.messages.find(x => x.id === pending.id);
-          if (m) { m.status = 'delivered'; m.reply = 'Timeout — agent did not respond in 2 minutes.'; m.repliedAt = new Date().toISOString(); }
+          if (m) { m.reply = finalReply; m.status = 'replied'; m.repliedAt = new Date().toISOString(); }
         });
-        break;
+        if (pending.botToken && pending.chatId) {
+          deps.setState(s => {
+            const m = s.messages.find(x => x.id === pending.id);
+            if (m) m.replyDelivered = true;
+          });
+        }
       }
 
-      const results = [];
-      for (const call of response.toolCalls) {
-        const toolArgs = JSON.parse(call.function.arguments);
-        logTaskWorkflow(agent.id, 'Executing Tool', `Calling ${call.function.name} with args ${JSON.stringify(toolArgs).slice(0, 500)}.`, 'info');
-        const result = await executeTool(call.function.name, toolArgs, agent.id, undefined);
-        logTaskWorkflow(agent.id, 'Tool Result', `${call.function.name} returned ${JSON.stringify(result).slice(0, 500)}.`, result?.success === false ? 'warning' : 'info');
-        results.push(result);
-      }
-      logTaskWorkflow(agent.id, 'Sending Tool Results', `Returning ${results.length} tool result(s) to model for message ${pending.id}.`, 'info');
-      response = await chatSession.sendToolResults(response.toolCalls, results);
-      if (response.text) {
-        replyText = response.text;
-      }
-    }
-
-    const stored = getStore().messages.find(m => m.id === pending.id);
-    if (!stored?.reply) {
-      const finalReply = replyText || 'Done.';
-      mutateStore(s => {
-        const m = s.messages.find(x => x.id === pending.id);
-        if (m) { m.reply = finalReply; m.status = 'replied'; m.repliedAt = new Date().toISOString(); }
-      });
-      if (pending.botToken && pending.chatId) {
-        mutateStore(s => {
-          const m = s.messages.find(x => x.id === pending.id);
-          if (m) m.replyDelivered = true;
+      if (pending.fromAgentId) {
+        await deps.appendAgentMessage(pending.fromAgentId, {
+          role: 'user',
+          content: `[Reply from ${agent.name}]: ${stored?.reply || replyText || ''}`,
+          source: 'system'
         });
       }
-    }
-
-    if (pending.fromAgentId) {
-      await appendMessage(pending.fromAgentId, {
-        role: 'system',
-        content: `[Reply from ${agent.name}]: ${stored?.reply || replyText || ''}`,
+      await deps.appendAgentMessage(agent.id, {
+        role: 'user',
+        content: `[Request from ${senderName}]: ${pending.content}`,
         source: 'system'
       });
-    }
-    await appendMessage(agent.id, {
-      role: 'system',
-      content: `[Request from ${senderName}]: ${pending.content}`,
-      source: 'system'
-    });
-    await appendMessage(agent.id, {
-      role: 'system',
-      content: `[Replied to ${senderName}]: ${stored?.reply || replyText || ''}`,
-      source: 'system'
-    });
+      await deps.appendAgentMessage(agent.id, {
+        role: 'assistant',
+        content: `[Replied to ${senderName}]: ${stored?.reply || replyText || ''}`,
+        source: 'system'
+      });
+      deps.logEvent('Queued Request Processed', `Processed queued request from ${senderName}.`, 'info', agent.id, 'telegram', 'message', freshAgent.workspaceId, { senderName, messageId: pending.id });
+      deps.logTask(agent.id, 'Queued Request Finished', `Completed queued request from ${senderName} (${senderRole}).`, 'success');
+    };
 
-    logAction('Queued Request Processed', `Processed queued request from ${senderName}.`, 'info', agent.id, 'telegram', 'message', freshAgent.workspaceId, { senderName, messageId: pending.id });
-    logTaskWorkflow(agent.id, 'Queued Request Finished', `Completed queued request from ${senderName} (${senderRole}).`, 'success');
-  } catch (e: any) {
-    logTaskWorkflow(agent.id, 'Queued Request Failed', `Error while processing message ${pending.id}: ${e.message}`, 'error');
-    mutateStore(s => {
-      const m = s.messages.find(x => x.id === pending.id);
-      if (m) { m.status = 'delivered'; m.reply = `Error: ${e.message}`; m.repliedAt = new Date().toISOString(); }
-    });
-    console.error(`[processPendingMessage] Failed for agent ${agent.name}:`, e.message);
-  } finally {
-    mutateStore(s => {
-      const a = s.agents.find(x => x.id === agent.id);
-      if (a) a.activeSessions = Math.max(0, (a.activeSessions || 0) - 1);
-    });
-    chainProcessNext(agent);
+    try {
+      await processWithRetry();
+    } catch (e: any) {
+      deps.logTask(agent.id, 'Queued Request Failed', `Error while processing message ${pending.id}: ${e.message}`, 'error');
+      deps.setState(s => {
+        const m = s.messages.find(x => x.id === pending.id);
+        if (m) { m.status = 'replied'; m.reply = `Error: ${e.message}`; m.repliedAt = new Date().toISOString(); }
+      });
+      console.error(`[processPendingMessage] Failed for agent ${agent.name}:`, e.message);
+    } finally {
+      deps.setState(s => {
+        const a = s.agents.find(x => x.id === agent.id);
+        if (a) a.activeSessions = Math.max(0, (a.activeSessions || 0) - 1);
+      });
+      chainProcessNext(agent);
+    }
+  };
+}
+
+export function processPendingMessagesAtStartup(): void {
+  const store = getStore();
+
+  // Reset ephemeral session counters — they persist in DB but are meaningless after restart
+  mutateStore(s => {
+    for (const a of s.agents) {
+      a.activeSessions = 0;
+      if (a.status === 'Working') a.status = 'Idle';
+    }
+  });
+
+  const processed = new Set<string>();
+  for (const msg of store.messages) {
+    if (msg.status === 'pending' && !processed.has(msg.toAgentId)) {
+      const agent = store.agents.find(a => a.id === msg.toAgentId);
+      if (agent && (!agent.activeSessions || agent.activeSessions === 0)) {
+        processed.add(msg.toAgentId);
+        processPendingMessage(agent);
+      }
+    }
   }
 }
+
+export const processPendingMessage = createProcessPendingMessageHandler({
+  getState: getStore,
+  setState: mutateStore,
+  createSession: createChatSession,
+  loadAgentMemory: loadMemory,
+  appendAgentMessage: appendMessage,
+  runTool: executeTool,
+  logTask: logTaskWorkflow,
+  logEvent: logAction,
+});
 
 function chainProcessNext(agent: Agent): void {
   const store = getStore();
@@ -277,291 +336,370 @@ async function pollTelegram(agentId: string, token: string) {
   }
 }
 
-export async function handleIncomingMessage(agentId: string, token: string, message: any) {
-  const chatId = message.chat.id;
-  const text = message.text;
+type IncomingMessageDeps = {
+  getState: typeof getStore;
+  setState: typeof mutateStore;
+  createSession: typeof createChatSession;
+  loadAgentMemory: typeof loadMemory;
+  createAgentMemory: typeof createMemory;
+  appendAgentMessage: typeof appendMessage;
+  runTool: typeof executeTool;
+  buildPrompt: typeof buildSystemPrompt;
+  logEvent: typeof logAction;
+  markdownToTelegram: typeof markdownToTelegramHtml;
+  fetchImpl: typeof fetch;
+};
 
-  const agentInfo = getStore().agents.find(a => a.id === agentId);
-  if (!agentInfo) return;
+export function createHandleIncomingMessageHandler(deps: IncomingMessageDeps) {
+  return async function handleIncomingMessage(agentId: string, token: string, message: any) {
+    const chatId = message.chat.id;
+    const text = message.text;
 
-  const senderId = message.from?.id;
-  const allowedIds = agentInfo.telegramConfig?.allowedChatIds;
+    const agentInfo = deps.getState().agents.find(a => a.id === agentId);
+    if (!agentInfo) return;
 
-  if (!allowedIds || allowedIds.length === 0) return;
-  if (!senderId || !allowedIds.includes(senderId)) return;
+    const senderId = message.from?.id;
+    const allowedIds = agentInfo.telegramConfig?.allowedChatIds;
 
-  mutateStore(s => {
-    s.logs.unshift({
-      id: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-      agentId,
-      action: 'Telegram Message Received',
-      details: `${agentInfo.name} received a message: "${text.slice(0, 200)}"`,
-      type: 'info',
-      source: 'telegram',
-      category: 'telegram',
-      workspaceId: agentInfo.workspaceId,
-      metadata: { chatId, messageText: text, agentName: agentInfo.name, botName: agentInfo.name, direction: 'in' },
+    if (!allowedIds || allowedIds.length === 0) return;
+    if (!senderId || !allowedIds.includes(senderId)) return;
+
+    deps.setState(s => {
+      s.logs.unshift({
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        agentId,
+        action: 'Telegram Message Received',
+        details: `${agentInfo.name} received a message: "${text.slice(0, 200)}"`,
+        type: 'info',
+        source: 'telegram',
+        category: 'telegram',
+        workspaceId: agentInfo.workspaceId,
+        metadata: { chatId, messageText: text, agentName: agentInfo.name, botName: agentInfo.name, direction: 'in' },
+      });
+      if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
     });
-    if (s.logs.length > 100) s.logs = s.logs.slice(0, 100);
-  });
 
-  if (agentInfo.telegramConfig && agentInfo.telegramConfig.lastChatId !== chatId) {
-    mutateStore(s => {
-      const a = s.agents.find(x => x.id === agentId);
-      if (a && a.telegramConfig) {
-        a.telegramConfig.lastChatId = chatId;
+    if (agentInfo.telegramConfig && agentInfo.telegramConfig.lastChatId !== chatId) {
+      deps.setState(s => {
+        const a = s.agents.find(x => x.id === agentId);
+        if (a && a.telegramConfig) {
+          a.telegramConfig.lastChatId = chatId;
+        }
+      });
+    }
+
+    try {
+      await deps.fetchImpl(`${TELEGRAM_API}${token}/sendChatAction`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, action: 'typing' })
+      });
+
+      const store = deps.getState();
+
+      const workspace = agentInfo.workspaceId
+        ? store.workspaces.find(w => w.id === agentInfo.workspaceId)
+        : undefined;
+
+      let memory = deps.loadAgentMemory(agentId);
+      if (!memory) {
+        memory = deps.createAgentMemory(agentInfo, workspace);
       }
-    });
-  }
 
-  try {
-    await fetch(`${TELEGRAM_API}${token}/sendChatAction`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, action: 'typing' })
-    });
+      const recentMsgs: ChatMessage[] = memory.recentMessages
+        .slice(-6)
+        .filter(m => m.role === 'user' || m.role === 'assistant')
+        .map(m => ({ role: m.role, content: m.content }));
 
-    const store = getStore();
+      const systemInstruction = deps.buildPrompt(agentInfo, 'telegram') + '\n\n' + TELEGRAM_FORMATTING_RULES;
 
-    const workspace = agentInfo.workspaceId
-      ? store.workspaces.find(w => w.id === agentInfo.workspaceId)
-      : undefined;
-
-    let memory = loadMemory(agentId);
-    if (!memory) {
-      memory = createMemory(agentInfo, workspace);
-    }
-
-    const recentMsgs: ChatMessage[] = memory.recentMessages
-      .slice(-15)
-      .filter(m => m.role === 'user' || m.role === 'assistant')
-      .map(m => ({ role: m.role, content: m.content }));
-
-    const systemInstruction = buildSystemPrompt(agentInfo) + '\n\n' + TELEGRAM_FORMATTING_RULES;
-
-    let enhancedText = text;
-    const repliedTo = message.reply_to_message?.text;
-    if (repliedTo) {
-      enhancedText = `[Context: the user is replying to:\n"${repliedTo}"]\n\n${text}`;
-    }
-
-    const chatSession = createChatSession(agentInfo, systemInstruction, { initialMessages: recentMsgs });
-    let response = await chatSession.sendMessage(enhancedText);
-    let replyText = response.text;
-
-    const calledTools: string[] = [];
-    const toolResults: { tool: string; result: any }[] = [];
-    while (response.toolCalls && response.toolCalls.length > 0) {
-      replyText = '';
-      const results = [];
-      for (const call of response.toolCalls) {
-        calledTools.push(call.function.name);
-        const args = JSON.parse(call.function.arguments);
-        const result = await executeTool(call.function.name, args, agentId, token);
-        results.push(result);
-        toolResults.push({ tool: call.function.name, result });
+      let enhancedText = text;
+      const repliedTo = message.reply_to_message?.text;
+      if (repliedTo) {
+        enhancedText = `[Context: the user is replying to:\n"${repliedTo}"]\n\n${text}`;
       }
-      response = await chatSession.sendToolResults(response.toolCalls, results);
-      if (response.text) {
-        replyText = response.text;
+
+      const chatSession = deps.createSession(agentInfo, systemInstruction, { initialMessages: recentMsgs });
+      let response = await chatSession.sendMessage(enhancedText);
+      let replyText = response.text;
+
+      const calledTools: string[] = [];
+      const toolResults: Array<{ name: string; result: any }> = [];
+      while (response.toolCalls && response.toolCalls.length > 0) {
+        const results = [];
+        for (const call of response.toolCalls) {
+          calledTools.push(call.function.name);
+          const args = JSON.parse(call.function.arguments);
+          const result = await deps.runTool(call.function.name, args, agentId, token);
+          toolResults.push({ name: call.function.name, result });
+          results.push(result);
+        }
+        response = await chatSession.sendToolResults(response.toolCalls, results);
+        if (response.text) {
+          replyText = response.text;
+        }
       }
-    }
 
-    let finalReply = replyText.trim();
-    if (!finalReply) {
-      if (calledTools.includes('ask_agent')) {
-        const askReply = toolResults.find(tr => tr.tool === 'ask_agent')?.result?.reply;
-        finalReply = askReply || 'Done.';
-      } else if (calledTools.includes('send_message')) {
-        finalReply = 'Message sent.';
-      } else if (calledTools.length > 0) {
-        finalReply = 'Done.';
-      } else {
-        finalReply = 'Task executed successfully.';
+      let finalReply = replyText.trim();
+      const askAgentResult = [...toolResults].reverse().find(item => item.name === 'ask_agent' && item.result?.success && typeof item.result.reply === 'string');
+      if (askAgentResult?.result?.reply) {
+        finalReply = askAgentResult.result.reply.trim();
       }
+      if (!finalReply) {
+        if (calledTools.includes('send_message')) {
+          finalReply = 'Message sent.';
+        } else if (calledTools.length > 0) {
+          finalReply = 'Done.';
+        } else {
+          finalReply = 'Task executed successfully.';
+        }
+      }
+
+      await deps.appendAgentMessage(agentId, { role: 'user', content: enhancedText, source: 'telegram' });
+      await deps.appendAgentMessage(agentId, { role: 'assistant', content: finalReply, source: 'telegram' });
+
+      const telegramText = deps.markdownToTelegram(finalReply);
+
+      const res = await deps.fetchImpl(`${TELEGRAM_API}${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text: telegramText, parse_mode: 'HTML' })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(`Telegram Send Error: ${errData.description}`);
+      }
+
+    } catch (err: any) {
+      console.error('[Telegram] Error processing message:', err.message);
+      await deps.fetchImpl(`${TELEGRAM_API}${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text: `Sorry, I encountered an internal cognitive error: ${err.message}` })
+      });
     }
-
-    await appendMessage(agentId, { role: 'user', content: enhancedText, source: 'telegram' });
-    await appendMessage(agentId, { role: 'assistant', content: finalReply, source: 'telegram' });
-
-    const telegramText = markdownToTelegramHtml(finalReply);
-
-    const res = await fetch(`${TELEGRAM_API}${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: telegramText, parse_mode: 'HTML' })
-    });
-
-    if (!res.ok) {
-      const errData = await res.json();
-      throw new Error(`Telegram Send Error: ${errData.description}`);
-    }
-
-  } catch (err: any) {
-    console.error('[Telegram] Error processing message:', err.message);
-    await fetch(`${TELEGRAM_API}${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: `Sorry, I encountered an internal cognitive error: ${err.message}` })
-    });
-  }
+  };
 }
+
+export const handleIncomingMessage = createHandleIncomingMessageHandler({
+  getState: getStore,
+  setState: mutateStore,
+  createSession: createChatSession,
+  loadAgentMemory: loadMemory,
+  createAgentMemory: createMemory,
+  appendAgentMessage: appendMessage,
+  runTool: executeTool,
+  buildPrompt: buildSystemPrompt,
+  logEvent: logAction,
+  markdownToTelegram: markdownToTelegramHtml,
+  fetchImpl: fetch,
+});
 
 /**
  * Orchestrator tool: ask_agent — creates an LLM session for the target agent
  * to process a request synchronously and return a reply.
  */
-export async function handleAskAgent(args: any, executingAgentId: string, token?: string): Promise<any> {
-  const state = getStore();
-  const executingAgent = state.agents.find(a => a.id === executingAgentId);
-  const targetAgent = state.agents.find(a => a.name.toLowerCase().includes(args.agentName.toLowerCase()));
-  if (!targetAgent) return { success: false, error: `Agent "${args.agentName}" not found.` };
-  if (targetAgent.id === executingAgentId) return { success: false, error: 'You cannot ask yourself.' };
-  if (!agentsAreConnected(executingAgentId, targetAgent.id, state.agents)) {
-    return { success: false, error: `You are not connected to "${targetAgent.name}".` };
-  }
+type AskAgentDeps = {
+  getState: typeof getStore;
+  setState: typeof mutateStore;
+  createSession: typeof createChatSession;
+  loadAgentMemory: typeof loadMemory;
+  appendAgentMessage: typeof appendMessage;
+  runTool: typeof executeTool;
+  logTask: typeof logTaskWorkflow;
+  logEvent: typeof logAction;
+  isConnected: typeof agentsAreConnected;
+};
 
-  const senderName = executingAgent?.name || 'Unknown';
-  const senderRole = executingAgent?.role || 'Agent';
-  const chatId = executingAgent?.telegramConfig?.lastChatId;
-  const botToken = executingAgent?.telegramConfig?.botToken;
-  const now = new Date().toISOString();
-
-  const messageId = crypto.randomUUID();
-  const message: AgentMessage = {
-    id: messageId,
-    fromAgentId: executingAgentId,
-    toAgentId: targetAgent.id,
-    content: args.content,
-    status: 'pending',
-    createdAt: now,
-    chatId,
-    botToken,
-  };
-
-  mutateStore(s => {
-    s.messages.push(message);
-  });
-
-  logTaskWorkflow(executingAgentId, 'Ask Agent Started', `Request ${messageId} sent to ${targetAgent.name}.`, 'info');
-
-  const wasBusy = (targetAgent.activeSessions || 0) > 0;
-
-  mutateStore(s => {
-    const a = s.agents.find(x => x.id === targetAgent.id);
-    if (a) a.activeSessions = (a.activeSessions || 0) + 1;
-  });
-
-  let busyContext = '';
-  let busyUserNote = `Do the work, then call reply_to_message("${messageId}", "your response") to reply.`;
-  if (wasBusy) {
-    const currentTask = state.tasks.find(t => t.id === targetAgent.currentTaskId && t.status === 'In Progress');
-    if (currentTask) {
-      busyContext = `\n\nCRITICAL CONTEXT: You are currently working on task "${currentTask.title}" in another session. This is a quick interrupt from another agent.`;
-      busyUserNote = `Note: You are in the middle of task "${currentTask.title}". If this request requires significant work, reply briefly with a short acknowledgment and say you will handle it after finishing your current task. If it's a quick question, answer immediately. Either way, call reply_to_message("${messageId}", "your response").`;
-    } else {
-      busyContext = `\n\nCRITICAL CONTEXT: You are currently busy with another task. This is a quick interrupt from another agent.`;
-      busyUserNote = `Note: You are in the middle of another task. If this request requires significant work, reply briefly with a short acknowledgment and say you will handle it after. If it's a quick question, answer immediately. Either way, call reply_to_message("${messageId}", "your response").`;
-    }
-  }
-
-  const targetSystemPrompt = buildSystemPrompt(targetAgent) +
-    `\n\nYou are responding to a request from ${senderName} (${senderRole}), a connected agent. Use reply_to_message("${messageId}", content) to send your reply.` + busyContext;
-
-  const TIMEOUT_MS = 120000;
-  const startTime = Date.now();
-
-  try {
-    const targetMemory = loadMemory(targetAgent.id);
-    const recentMsgs: ChatMessage[] = targetMemory?.recentMessages
-      .slice(-15)
-      .filter(m => m.role === 'user' || m.role === 'assistant')
-      .map(m => ({ role: m.role, content: m.content })) ?? [];
-
-    const chatSession = createChatSession(targetAgent, targetSystemPrompt, { initialMessages: recentMsgs });
-    const userMessage = `Request from ${senderName} (${senderRole}):\n\n${args.content}\n\n${busyUserNote}`;
-    logTaskWorkflow(targetAgent.id, 'LLM Session Started', `Processing ask_agent request ${messageId} from ${senderName}.`, 'info');
-    let response = await chatSession.sendMessage(userMessage);
-    let replyText = response.text;
-
-    while (response.toolCalls && response.toolCalls.length > 0) {
-      logTaskWorkflow(targetAgent.id, 'Tool Calls Planned', `Model returned ${response.toolCalls.length} tool call(s) for ask_agent request ${messageId}: ${response.toolCalls.map(c => c.function.name).join(', ')}.`, 'info');
-      if (Date.now() - startTime > TIMEOUT_MS) {
-        logTaskWorkflow(targetAgent.id, 'Ask Agent Timeout', `Timeout while processing request ${messageId}.`, 'warning');
-        mutateStore(s => {
-          const m = s.messages.find(x => x.id === messageId);
-          if (m) { m.status = 'delivered'; m.reply = 'Timeout — agent did not respond in 2 minutes.'; m.repliedAt = now; }
-        });
-        return { success: false, error: `Timeout waiting for ${targetAgent.name} to respond (2 min limit).` };
-      }
-
-      const results = [];
-      for (const call of response.toolCalls) {
-        const toolArgs = JSON.parse(call.function.arguments);
-        logTaskWorkflow(targetAgent.id, 'Executing Tool', `Calling ${call.function.name} with args ${JSON.stringify(toolArgs).slice(0, 500)} for request ${messageId}.`, 'info');
-        const result = await executeTool(call.function.name, toolArgs, targetAgent.id, undefined);
-        logTaskWorkflow(targetAgent.id, 'Tool Result', `${call.function.name} returned ${JSON.stringify(result).slice(0, 500)} for request ${messageId}.`, result?.success === false ? 'warning' : 'info');
-        results.push(result);
-      }
-      logTaskWorkflow(targetAgent.id, 'Sending Tool Results', `Returning ${results.length} tool result(s) to model for ask_agent request ${messageId}.`, 'info');
-      response = await chatSession.sendToolResults(response.toolCalls, results);
-      if (response.text) {
-        replyText = response.text;
-      }
+export function createAskAgentHandler(deps: AskAgentDeps) {
+  return async function handleAskAgent(args: any, executingAgentId: string, token?: string): Promise<any> {
+    const state = deps.getState();
+    const executingAgent = state.agents.find(a => a.id === executingAgentId);
+    const targetAgent = state.agents.find(a => a.name.toLowerCase().includes(args.agentName.toLowerCase()));
+    if (!targetAgent) return { success: false, error: `Agent "${args.agentName}" not found.` };
+    if (targetAgent.id === executingAgentId) return { success: false, error: 'You cannot ask yourself.' };
+    if (!deps.isConnected(executingAgentId, targetAgent.id, state.agents)) {
+      return { success: false, error: `You are not connected to "${targetAgent.name}".` };
     }
 
-    const stored = getStore().messages.find(m => m.id === messageId);
-    if (!stored?.reply) {
-      const finalReply = replyText || 'Done.';
-      mutateStore(s => {
-        const m = s.messages.find(x => x.id === messageId);
-        if (m) { m.reply = finalReply; m.status = 'replied'; m.repliedAt = now; }
-      });
-      if (botToken && chatId) {
-        mutateStore(s2 => {
-          const m2 = s2.messages.find(x => x.id === messageId);
-          if (m2) m2.replyDelivered = true;
-        });
-      }
-    }
+    const senderName = executingAgent?.name || 'Unknown';
+    const senderRole = executingAgent?.role || 'Agent';
+    const chatId = executingAgent?.telegramConfig?.lastChatId;
+    const botToken = executingAgent?.telegramConfig?.botToken;
+    const now = new Date().toISOString();
 
-    await appendMessage(executingAgentId, {
-      role: 'system',
-      content: `[Asked ${targetAgent.name}]: ${args.content}`,
-      source: 'telegram'
-    });
-    await appendMessage(executingAgentId, {
-      role: 'system',
-      content: `[Reply from ${targetAgent.name}]: ${stored?.reply || replyText || ''}`,
-      source: 'telegram'
-    });
-    await appendMessage(targetAgent.id, {
-      role: 'system',
-      content: `[Request from ${senderName}]: ${args.content}`,
-      source: 'telegram'
-    });
-    await appendMessage(targetAgent.id, {
-      role: 'system',
-      content: `[Replied to ${senderName}]: ${stored?.reply || replyText || ''}`,
-      source: 'telegram'
+    const messageId = crypto.randomUUID();
+    const message: AgentMessage = {
+      id: messageId,
+      fromAgentId: executingAgentId,
+      toAgentId: targetAgent.id,
+      content: args.content,
+      status: 'pending',
+      createdAt: now,
+      chatId,
+      botToken,
+    };
+
+    deps.setState(s => {
+      s.messages.push(message);
     });
 
-    logAction('Agent Asked', `Asked ${targetAgent.name} and got reply.`, 'info', executingAgentId, 'telegram', 'message', executingAgent?.workspaceId, { senderName: executingAgent?.name, targetAgentName: targetAgent.name, messageId });
-    logTaskWorkflow(targetAgent.id, 'Ask Agent Finished', `Completed request ${messageId} from ${senderName}.`, 'success');
-    return { success: true, from: targetAgent.name, role: targetAgent.role, reply: stored?.reply || replyText };
-  } catch (e: any) {
-    logTaskWorkflow(targetAgent.id, 'Ask Agent Failed', `Error while processing request ${messageId}: ${e.message}`, 'error');
-    mutateStore(s => {
-      const m = s.messages.find(x => x.id === messageId);
-      if (m) { m.status = 'delivered'; m.reply = `Error: ${e.message}`; m.repliedAt = now; }
-    });
-    return { success: false, error: `Failed to get response from ${targetAgent.name}: ${e.message}` };
-  } finally {
-    mutateStore(s => {
+    deps.logTask(executingAgentId, 'Ask Agent Started', `Request ${messageId} sent to ${targetAgent.name}.`, 'info');
+
+    const wasBusy = (targetAgent.activeSessions || 0) > 0;
+
+    deps.setState(s => {
       const a = s.agents.find(x => x.id === targetAgent.id);
-      if (a) a.activeSessions = Math.max(0, (a.activeSessions || 0) - 1);
+      if (a) {
+        if ((a.activeSessions || 0) > 5) a.activeSessions = 0;
+        a.activeSessions = (a.activeSessions || 0) + 1;
+      }
     });
-    chainProcessNext(targetAgent);
-  }
+
+    let busyContext = '';
+    let busyUserNote = `Do the work, then call reply_to_message("${messageId}", "your response") to reply.`;
+    if (wasBusy) {
+      const currentTask = state.tasks.find(t => t.id === targetAgent.currentTaskId && t.status === 'In Progress');
+      if (currentTask) {
+        busyContext = `\n\nCRITICAL CONTEXT: You are currently working on task "${currentTask.title}" in another session. This is a quick interrupt from another agent.`;
+        busyUserNote = `Note: You are in the middle of task "${currentTask.title}". If this request requires significant work, reply briefly with a short acknowledgment and say you will handle it after finishing your current task. If it's a quick question, answer immediately. Either way, call reply_to_message("${messageId}", "your response").`;
+      } else {
+        busyContext = `\n\nCRITICAL CONTEXT: You are currently busy with another task. This is a quick interrupt from another agent.`;
+        busyUserNote = `Note: You are in the middle of another task. If this request requires significant work, reply briefly with a short acknowledgment and say you will handle it after. If it's a quick question, answer immediately. Either way, call reply_to_message("${messageId}", "your response").`;
+      }
+    }
+
+    const targetSystemPrompt = buildSystemPrompt(targetAgent, 'telegram-ask') +
+      `\n\nYou are responding to a request from ${senderName} (${senderRole}), a connected agent. Use reply_to_message("${messageId}", content) to send your reply.` + busyContext;
+
+    const TIMEOUT_MS = 120000;
+    const startTime = Date.now();
+    const isRateLimit = (msg: string) => msg.includes('429') || /rate.limit|too many requests/i.test(msg);
+
+    const askRunSession = async (): Promise<string> => {
+      const targetMemory = deps.loadAgentMemory(targetAgent.id);
+      const recentMsgs: ChatMessage[] = targetMemory?.recentMessages
+        .slice(-6)
+        .filter(m => m.role === 'user' || m.role === 'assistant')
+        .map(m => ({ role: m.role, content: m.content })) ?? [];
+
+      const chatSession = deps.createSession(targetAgent, targetSystemPrompt, { initialMessages: recentMsgs });
+      const userMessage = `Request from ${senderName} (${senderRole}):\n\n${args.content}\n\n${busyUserNote}`;
+      deps.logTask(targetAgent.id, 'LLM Session Started', `Processing ask_agent request ${messageId} from ${senderName}.`, 'info');
+      let response = await chatSession.sendMessage(userMessage);
+      let replyText = response.text;
+
+      while (response.toolCalls && response.toolCalls.length > 0) {
+        deps.logTask(targetAgent.id, 'Tool Calls Planned', `Model returned ${response.toolCalls.length} tool call(s) for ask_agent request ${messageId}: ${response.toolCalls.map(c => c.function.name).join(', ')}.`, 'info');
+        if (Date.now() - startTime > TIMEOUT_MS) {
+          deps.logTask(targetAgent.id, 'Ask Agent Timeout', `Timeout while processing request ${messageId}.`, 'warning');
+          deps.setState(s => {
+            const m = s.messages.find(x => x.id === messageId);
+            if (m) { m.status = 'replied'; m.reply = 'Timeout — agent did not respond in 2 minutes.'; m.repliedAt = now; }
+          });
+          return '';
+        }
+
+        const results = [];
+        for (const call of response.toolCalls) {
+          const toolArgs = JSON.parse(call.function.arguments);
+          deps.logTask(targetAgent.id, 'Executing Tool', `Calling ${call.function.name} with args ${JSON.stringify(toolArgs).slice(0, 500)} for request ${messageId}.`, 'info');
+          const result = await deps.runTool(call.function.name, toolArgs, targetAgent.id, undefined);
+          deps.logTask(targetAgent.id, 'Tool Result', `${call.function.name} returned ${JSON.stringify(result).slice(0, 500)} for request ${messageId}.`, result?.success === false ? 'warning' : 'info');
+          results.push(result);
+        }
+        deps.logTask(targetAgent.id, 'Sending Tool Results', `Returning ${results.length} tool result(s) to model for ask_agent request ${messageId}.`, 'info');
+        response = await chatSession.sendToolResults(response.toolCalls, results);
+        if (response.text) {
+          replyText = response.text;
+        }
+      }
+
+      return replyText;
+    };
+
+    const askProcessWithRetry = async (attempt = 1): Promise<string> => {
+      try {
+        return await askRunSession();
+      } catch (e: any) {
+        if (isRateLimit(String(e.message ?? '')) && attempt < 3) {
+          deps.logTask(targetAgent.id, 'Ask Agent Retry', `Retry ${attempt}/3 after rate limit error.`, 'warning');
+          await new Promise(resolve => setTimeout(resolve, attempt * 5000));
+          return askProcessWithRetry(attempt + 1);
+        }
+        throw e;
+      }
+    };
+
+    try {
+      const replyText = await askProcessWithRetry();
+
+      const stored = deps.getState().messages.find(m => m.id === messageId);
+      if (!stored?.reply) {
+        const finalReply = replyText || 'Done.';
+        deps.setState(s => {
+          const m = s.messages.find(x => x.id === messageId);
+          if (m) { m.reply = finalReply; m.status = 'replied'; m.repliedAt = now; }
+        });
+        if (botToken && chatId) {
+          deps.setState(s2 => {
+            const m2 = s2.messages.find(x => x.id === messageId);
+            if (m2) m2.replyDelivered = true;
+          });
+        }
+      }
+
+      await deps.appendAgentMessage(executingAgentId, {
+        role: 'user',
+        content: `[Asked ${targetAgent.name}]: ${args.content}`,
+        source: 'telegram'
+      });
+      await deps.appendAgentMessage(executingAgentId, {
+        role: 'assistant',
+        content: `[Reply from ${targetAgent.name}]: ${stored?.reply || replyText || ''}`,
+        source: 'telegram'
+      });
+      await deps.appendAgentMessage(targetAgent.id, {
+        role: 'user',
+        content: `[Request from ${senderName}]: ${args.content}`,
+        source: 'telegram'
+      });
+      await deps.appendAgentMessage(targetAgent.id, {
+        role: 'assistant',
+        content: `[Replied to ${senderName}]: ${stored?.reply || replyText || ''}`,
+        source: 'telegram'
+      });
+
+      deps.logEvent('Agent Asked', `Asked ${targetAgent.name} and got reply.`, 'info', executingAgentId, 'telegram', 'message', executingAgent?.workspaceId, { senderName: executingAgent?.name, targetAgentName: targetAgent.name, messageId });
+      deps.logTask(targetAgent.id, 'Ask Agent Finished', `Completed request ${messageId} from ${senderName}.`, 'success');
+      return { success: true, from: targetAgent.name, role: targetAgent.role, reply: stored?.reply || replyText };
+    } catch (e: any) {
+      deps.logTask(targetAgent.id, 'Ask Agent Failed', `Error while processing request ${messageId}: ${e.message}`, 'error');
+      deps.setState(s => {
+        const m = s.messages.find(x => x.id === messageId);
+        if (m) { m.status = 'replied'; m.reply = `Error: ${e.message}`; m.repliedAt = now; }
+      });
+      return { success: false, error: `Failed to get response from ${targetAgent.name}: ${e.message}` };
+    } finally {
+      deps.setState(s => {
+        const a = s.agents.find(x => x.id === targetAgent.id);
+        if (a) a.activeSessions = Math.max(0, (a.activeSessions || 0) - 1);
+      });
+      chainProcessNext(targetAgent);
+    }
+  };
 }
+
+export const handleAskAgent = createAskAgentHandler({
+  getState: getStore,
+  setState: mutateStore,
+  createSession: createChatSession,
+  loadAgentMemory: loadMemory,
+  appendAgentMessage: appendMessage,
+  runTool: executeTool,
+  logTask: logTaskWorkflow,
+  logEvent: logAction,
+  isConnected: agentsAreConnected,
+});

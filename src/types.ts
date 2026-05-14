@@ -7,8 +7,13 @@ export type PermissionType =
   | 'file:write'
   | 'file:delete'
   | 'file:list'
+  | 'folder:read'
+  | 'folder:write'
+  | 'folder:delete'
+  | 'folder:list'
   | 'system:run_commands'
   | 'system:approve_commands'
+  | 'system:approve_work'
   | 'system:manage_agents'
   | 'system:manage_permissions'
   | 'system:manage_roles'
@@ -128,6 +133,10 @@ export interface ApprovalRequest {
   status: 'pending' | 'approved' | 'rejected';
   createdAt: string;
   details?: string;
+  approverAgentId?: string;
+  approverAgentName?: string;
+  requiredPermission?: PermissionType;
+  permissionScope?: string[];
 }
 
 export interface ApprovalRequestInput {
@@ -138,6 +147,10 @@ export interface ApprovalRequestInput {
   risk: TaskRisk;
   estimatedCost: number;
   details?: string;
+  approverAgentId?: string;
+  approverAgentName?: string;
+  requiredPermission?: PermissionType;
+  permissionScope?: string[];
 }
 
 export interface Comment {
@@ -181,7 +194,13 @@ export type DomainEventType =
   | 'task.status.changed'
   | 'task.completed'
   | 'task.comment.added'
-  | 'task.assignee.changed';
+  | 'task.assignee.changed'
+  | 'pipeline.stage.started'
+  | 'pipeline.stage.completed'
+  | 'pipeline.stage.failed'
+  | 'pipeline.completed'
+  | 'pipeline.failed'
+  | 'approval.requested';
 
 export interface EventDefinition {
   type: DomainEventType;
@@ -198,7 +217,7 @@ export interface DomainEvent {
   payload: Record<string, unknown>;
 }
 
-export type SubscriptionChannel = 'telegram' | 'in_app';
+export type SubscriptionChannel = 'telegram' | 'in_app' | 'internal';
 
 export interface EventSubscription {
   id: string;
@@ -258,9 +277,9 @@ export interface AgentMemory {
   };
 }
 
-export type LogSource = 'system' | 'agent' | 'cron' | 'telegram' | 'task-autopilot' | 'events' | 'tool' | 'llm';
+export type LogSource = 'system' | 'agent' | 'cron' | 'telegram' | 'task-autopilot' | 'events' | 'tool' | 'llm' | 'pipeline';
 
-export type LogCategory = 'llm' | 'tool' | 'task' | 'agent' | 'cron' | 'telegram' | 'file' | 'event' | 'approval' | 'message' | 'role' | 'web' | 'connection' | 'system';
+export type LogCategory = 'llm' | 'tool' | 'task' | 'agent' | 'cron' | 'telegram' | 'file' | 'event' | 'approval' | 'message' | 'role' | 'web' | 'connection' | 'system' | 'pipeline';
 
 export interface LogMetadata {
   // LLM
@@ -347,6 +366,15 @@ export interface LogMetadata {
   agentCount?: number;
   // Skills
   skillId?: string;
+  // Pipeline
+  pipelineId?: string;
+  instanceId?: string;
+  stageName?: string;
+  stageIndex?: number;
+  stageStatus?: string;
+  totalStages?: number;
+  // Web / HTTP
+  method?: string;
 }
 
 export interface Log {
@@ -440,6 +468,52 @@ export interface WorkspaceAgentDef {
   role_doc?: string;
   identity?: string;
   soul?: string;
+}
+
+export interface PipelineStage {
+  id: string;
+  name: string;
+  order: number;
+  assigneeRole: AgentRole;
+  instructions: string;
+  expectedOutput?: string;
+  transition: 'auto' | 'approval_required' | 'manual';
+  timeoutMinutes?: number;
+}
+
+export interface PipelineStageResult {
+  stageId: string;
+  agentId?: string;
+  agentName?: string;
+  status: 'pending' | 'completed' | 'failed' | 'rejected' | 'skipped';
+  output?: string;
+  startedAt?: string;
+  completedAt?: string;
+  comments: string[];
+  chatMessages?: { role: string; content: string; tool_call_id?: string; tool_calls?: unknown }[];
+}
+
+export interface Pipeline {
+  id: string;
+  name: string;
+  description?: string;
+  workspaceId: string;
+  stages: PipelineStage[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PipelineInstance {
+  id: string;
+  pipelineId: string;
+  taskId: string;
+  currentStageIndex: number;
+  status: 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
+  stageResults: PipelineStageResult[];
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  error?: string;
 }
 
 export interface CronJob {

@@ -4,6 +4,7 @@ import os from 'os';
 import { Agent, Workspace, AgentMemory, MemoryMessage } from '../types';
 import { getStore } from './store';
 import { EVENT_DEFINITIONS } from './event-registry';
+import { selectPolicyCards } from './lib/policy-cards';
 import { getSettings } from './lib/settings';
 import { getProviderClient, getProviderDef } from './llm';
 import { vectorStorePath, buildVectorIndex, searchSimilar } from './lib/vector-retrieval';
@@ -185,13 +186,6 @@ function writeMemoryMd(memory: AgentMemory): void {
     }
     lines.push('');
   }
-
-  lines.push('## Memory Budget');
-  lines.push(`- Total messages: ${memory.totalMessages}`);
-  lines.push(`- Archived messages: ${memory.archivedMessages ?? 0}`);
-  lines.push(`- Recent window: ${memory.recentMessages.length} / ${MEMORY_SESSION_WINDOW_MAX}`);
-  lines.push(`- Facts kept: ${memory.keyFacts.length} / ${MEMORY_FACTS_MAX}`);
-  lines.push(`- Active tasks kept: ${memory.activeTasks.length} / ${MEMORY_TASKS_MAX}`);
 
   try {
     fs.writeFileSync(memoryMdPath(memory.agentId), lines.join('\n'));
@@ -491,30 +485,164 @@ export function getAllPersonalityFiles(agentId: string): Record<PersonalityFile,
   };
 }
 
-export function buildSystemPrompt(agent: Agent): string {
+function compileAgentContract(agent: Agent, role: string, identity: string, soul: string): string {
+  const name = agent.name;
+  const roleName = agent.role || 'Assistant';
+
+  const roleLines = extractSectionLines(role, 'Responsibilities', 3)
+    || extractSectionLines(role, '## Responsibilities', 3);
+  const authorityLines = extractSectionLines(role, 'Authority', 2)
+    || extractSectionLines(role, '## Authority', 2);
+  const collabLines = extractSectionLines(role, 'Collaboration', 2)
+    || extractSectionLines(role, '## Collaboration', 2);
+
+  const personality = extractSectionContent(identity, 'Personality');
+  const tone = extractSectionContent(identity, 'Tone');
+
+  const values = extractSectionContent(soul, 'Values');
+  const neverDo = extractSectionLines(soul, 'NEVER', 3);
+  const alwaysDo = extractSectionLines(soul, 'ALWAYS', 3);
+  const priority = extractSectionLines(soul, 'Priority Framework', 4);
+  const commBounds = extractSectionContent(soul, 'Communication Boundaries');
+
+  const lines: string[] = [];
+  lines.push(`You are ${name}, a ${roleName}.`);
+
+  if (personality) lines.push(`Persona: ${personality}`);
+  if (tone) lines.push(`Tone: ${tone}`);
+
+  if (roleLines) {
+    lines.push(`Duties: ${roleLines}`);
+  }
+  if (authorityLines) {
+    lines.push(`Authority: ${authorityLines}`);
+  }
+  if (collabLines) {
+    lines.push(`Team: ${collabLines}`);
+  }
+
+  if (values) lines.push(`Values: ${values}`);
+  if (neverDo) lines.push(`NEVER: ${neverDo}`);
+  if (alwaysDo) lines.push(`ALWAYS: ${alwaysDo}`);
+  if (commBounds) lines.push(commBounds);
+  if (priority) lines.push(`Priorities: ${priority}`);
+
+  const skillList = agent.skills.length > 0
+    ? `Skills: ${agent.skills.join(', ')}.`
+    : '';
+  if (skillList) lines.push(skillList);
+
+  return lines.join('\n');
+}
+
+function extractSectionLines(text: string, sectionHeader: string, maxLines: number): string | null {
+  if (!text) return null;
+  const idx = text.indexOf(sectionHeader);
+  if (idx === -1) return null;
+
+  const after = text.slice(idx + sectionHeader.length);
+  const lines: string[] = [];
+  for (const l of after.split('\n')) {
+    const trimmed = l.trim();
+    if (trimmed.startsWith('#') || trimmed.startsWith('---')) break;
+    const clean = l.replace(/^[\s\-*#:]+/, '').replace(/\*\*/g, '').trim();
+    if (clean && !clean.startsWith(':')) lines.push(clean);
+  }
+
+  return lines.slice(0, maxLines).join('. ') + '.' || null;
+}
+
+function extractSectionContent(text: string, sectionHeader: string): string | null {
+  if (!text) return null;
+  const idx = text.indexOf(sectionHeader);
+  if (idx === -1) return null;
+
+  const after = text.slice(idx + sectionHeader.length);
+  const lines: string[] = [];
+  for (const l of after.split('\n')) {
+    const trimmed = l.trim();
+    if (trimmed.startsWith('#') || trimmed.startsWith('---')) break;
+    const clean = l.replace(/^[\s\-*#:]+/, '').replace(/\*\*/g, '').trim();
+    if (clean && !clean.startsWith(':')) lines.push(clean);
+  }
+
+  if (lines.length === 0) return null;
+  return lines[0].replace(/^:\s*/, '').replace(/\.\./g, '.');
+}
+
+function buildDialogState(agentId: string): string {
+  const memory = loadMemory(agentId);
+  if (!memory) return '';
+
+  const lines: string[] = [];
+
+  if (memory.workingState?.currentGoal) {
+    lines.push(`Goal: ${memory.workingState.currentGoal}`);
+  }
+
+  const open = memory.workingState?.openQuestions?.filter(Boolean);
+  if (open && open.length > 0) {
+    lines.push(`Open questions: ${open.join(' | ')}`);
+  }
+
+  const decisions = memory.workingState?.importantDecisions?.filter(Boolean);
+  if (decisions && decisions.length > 0) {
+    lines.push(`Decisions: ${decisions.join(' | ')}`);
+  }
+
+  const work = memory.workingState?.activeWork?.filter(Boolean);
+  if (work && work.length > 0) {
+    lines.push(`Active: ${work.join(' | ')}`);
+  }
+
+  if (memory.keyFacts.length > 0) {
+    const facts = memory.keyFacts.slice(-6);
+    lines.push(`Facts: ${facts.join(' | ')}`);
+  }
+
+  if (memory.activeTasks.length > 0) {
+    const tasks = memory.activeTasks.slice(0, 4);
+    lines.push(`Tasks: ${tasks.map(t => `${t.title} (${t.status})`).join(' | ')}`);
+  }
+
+  const recent = memory.recentMessages.slice(-3);
+  if (recent.length > 0) {
+    lines.push(`Recent: ${recent.map(m => {
+      const short = m.timestamp.slice(11, 16);
+      const txt = m.content.length > 120 ? m.content.slice(0, 117) + '...' : m.content;
+      return `[${short}] ${txt}`;
+    }).join(' | ')}`);
+  }
+
+  return lines.join('\n');
+}
+
+export function buildSystemPrompt(agent: Agent, context?: string): string {
   const role = readPersonalityFile(agent.id, 'ROLE.md');
   const identity = readPersonalityFile(agent.id, 'IDENTITY.md');
   const soul = readPersonalityFile(agent.id, 'SOUL.md');
-  const memory = getMemoryContext(agent.id);
-  const retrieval = buildRetrievedMemoryContext(agent.id, memory);
   const store = getStore();
 
   const parts: string[] = [];
 
-  if (role) {
-    parts.push(`# ROLE — What you are and what you do\n\n${role}`);
+  const contract = compileAgentContract(agent, role, identity, soul);
+  parts.push(`# AGENT CONTRACT\n\n${contract}`);
+
+  const state = buildDialogState(agent.id);
+  if (state) {
+    parts.push(`# DIALOG STATE\n\n${state}`);
   }
-  if (identity) {
-    parts.push(`# IDENTITY — Who you are and how you communicate\n\n${identity}`);
+
+  if (context) {
+    const rules = selectPolicyCards(context);
+    if (rules) {
+      parts.push(`# RELEVANT RULES\n\n${rules}`);
+    }
   }
-  if (soul) {
-    parts.push(`# SOUL — Your core principles and boundaries\n\n${soul}`);
-  }
-  if (memory) {
-    parts.push(`# CONTEXT — What you remember from past interactions\n\n${memory}`);
-  }
+
+  const retrieval = buildRetrievedMemoryContext(agent.id, state || '', state || undefined);
   if (retrieval) {
-    parts.push(`# RETRIEVED CONTEXT — Relevant older fragments\n\n${retrieval}`);
+    parts.push(`# RETRIEVED CONTEXT\n\n${retrieval}`);
   }
 
   const pendingMessages = store.messages.filter(m =>
@@ -529,19 +657,22 @@ export function buildSystemPrompt(agent: Agent): string {
     parts.push(`# PENDING MESSAGES — You have ${pendingMessages.length} unread message(s)\n\n${msgLines.join('\n')}`);
   }
 
-  const supportedEvents = EVENT_DEFINITIONS.map(def => `- ${def.type}: ${def.description}`).join('\n');
-  parts.push(`# EVENT SUBSCRIPTIONS\n\nIf the user asks you to watch, track, notify, follow, or alert on something happening in the system, use the subscription tools:\n- subscribe_to_event\n- list_subscriptions\n- update_subscription\n- delete_subscription\n\nThink in terms of events, not just tasks. The supported event registry currently includes:\n${supportedEvents}\n\nFor requests like "If task X reaches Done, tell me and give a brief summary", create a subscription with:\n- eventType: task.status.changed\n- taskTitle or taskId: the target task\n- channel: telegram\n- instructions: a short summary request in natural language
+  const agentSubscriptions = store.subscriptions?.filter(s => s.agentId === agent.id);
+  if (agentSubscriptions && agentSubscriptions.length > 0) {
+    const supportedEvents = EVENT_DEFINITIONS.map(def => `- ${def.type}: ${def.description}`).join('\n');
+    parts.push(`# EVENT SUBSCRIPTIONS\n\nIf the user asks you to watch, track, notify, follow, or alert on something happening in the system, use the subscription tools:\n- subscribe_to_event\n- list_subscriptions\n- update_subscription\n- delete_subscription\n\nThink in terms of events, not just tasks. The supported event registry currently includes:\n${supportedEvents}\n\nFor requests like "If task X reaches Done, tell me and give a brief summary", create a subscription with:\n- eventType: task.status.changed\n- taskTitle or taskId: the target task\n- channel: telegram\n- instructions: a short summary request in natural language
 - oneshot: true (if the user wants a one-time notification)
 
 When the user says "notify me" or "tell me", default the subscription channel to telegram unless they explicitly ask for in-app only.`);
+  }
 
   return parts.join('\n\n---\n\n');
 }
 
-export function buildRetrievedMemoryContext(agentId: string, focusText: string): string {
+export function buildRetrievedMemoryContext(agentId: string, focusText: string, excludeText?: string): string {
   if (!focusText.trim()) return '';
   const snippets = retrieveMemorySnippets(agentId, focusText);
-  return formatRetrievedSnippets(snippets);
+  return formatRetrievedSnippets(snippets, excludeText);
 }
 
 export function buildRetrievedMemoryContextFromFiles(sessionFiles: string[], focusText: string): string {
@@ -550,10 +681,29 @@ export function buildRetrievedMemoryContextFromFiles(sessionFiles: string[], foc
   return formatRetrievedSnippets(snippets);
 }
 
-function formatRetrievedSnippets(snippets: string[]): string {
+function formatRetrievedSnippets(snippets: string[], excludeText?: string): string {
   if (snippets.length === 0) return '';
 
-  return snippets
+  const seen = new Set<string>();
+  const excludeWords = excludeText
+    ? new Set(excludeText.toLowerCase().replace(/[^a-zа-яё0-9\s]/g, ' ').replace(/\s+/g, ' ').split(/\s+/).filter(w => w.length > 4))
+    : null;
+
+  const deduped = snippets.filter(s => {
+    const norm = s.toLowerCase().replace(/[^a-zа-яё0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!norm || seen.has(norm)) return false;
+    seen.add(norm);
+
+    if (excludeWords && excludeWords.size > 0) {
+      const words = new Set(norm.split(/\s+/));
+      const overlap = [...excludeWords].filter(w => words.has(w));
+      if (overlap.length >= 3) return false;
+    }
+
+    return true;
+  });
+
+  return deduped
     .map((snippet, index) => `${index + 1}. ${snippet}`)
     .join('\n');
 }

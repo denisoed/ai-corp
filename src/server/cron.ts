@@ -242,7 +242,7 @@ async function executeCronJob(jobId: string): Promise<void> {
     console.log(`[Cron] Firing — "${job.name}" for agent ${agent.name} (schedule: ${job.schedule}, prompt: "${job.prompt.slice(0, 100)}")`);
 
     const memory = loadMemory(agent.id);
-    let systemInstruction = buildSystemPrompt(agent);
+    let systemInstruction = buildSystemPrompt(agent, 'cron');
 
     if (agent.telegramConfig?.botToken) {
       const chatId = agent.telegramConfig.lastChatId;

@@ -1,14 +1,14 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { Agent, Task, Log, ApprovalRequest, Workspace, AgentMessage, Role, PermissionEntry, PermissionType, EventSubscription, CommandRun } from '../types';
+import { Agent, Task, Log, ApprovalRequest, Workspace, AgentMessage, Role, PermissionEntry, PermissionType, EventSubscription, CommandRun, Pipeline, PipelineInstance } from '../types';
 import { matchesGlob } from './lib/glob';
 import {
-  getDb, loadCollection, saveCollection,
+  getDb, loadCollection, saveCollection, resetDb,
   loadSetting, saveSetting, loadAllSettings
 } from './db';
 
-const DATA_DIR = path.join(os.homedir(), '.aicorp');
+const DATA_DIR = process.env.AICORP_HOME || path.join(os.homedir(), '.aicorp');
 const WORKSPACES_DIR = path.join(DATA_DIR, 'workspaces');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const WORKSPACES_LIST_FILE = path.join(DATA_DIR, 'workspaces.json');
@@ -25,6 +25,8 @@ export interface StoreData {
   roles: Role[];
   subscriptions: EventSubscription[];
   commandRuns: CommandRun[];
+  pipelines: Pipeline[];
+  pipelineInstances: PipelineInstance[];
   totalCost: number;
 }
 
@@ -80,6 +82,8 @@ let store: StoreData = {
   roles: [],
   subscriptions: [],
   commandRuns: [],
+  pipelines: [],
+  pipelineInstances: [],
   totalCost: 0
 };
 
@@ -125,13 +129,16 @@ function loadFromJsonFiles(): StoreData {
       roles: allRoles,
       subscriptions: allSubscriptions,
       commandRuns: allCommandRuns,
+      pipelines: [],
+      pipelineInstances: [],
       totalCost: settings.totalCost
     };
   } catch (e) {
     console.error('[Store] Failed to load from JSON files:', e);
     return {
       agents: [], workspaces: [], tasks: [], logs: [], approvals: [],
-      messages: [], roles: [], subscriptions: [], commandRuns: [], totalCost: 0
+      messages: [], roles: [], subscriptions: [], commandRuns: [],
+      pipelines: [], pipelineInstances: [], totalCost: 0
     };
   }
 }
@@ -148,6 +155,8 @@ function loadFromSqlite(): StoreData {
     roles: loadCollection<Role>('roles'),
     subscriptions: loadCollection<EventSubscription>('subscriptions'),
     commandRuns: loadCollection<CommandRun>('command_runs'),
+    pipelines: loadCollection<Pipeline>('pipelines'),
+    pipelineInstances: loadCollection<PipelineInstance>('pipeline_instances'),
     totalCost: costStr ? parseFloat(costStr) : 0,
   };
 }
@@ -166,6 +175,8 @@ function migrateJsonToSqlite(data: StoreData): void {
   saveCollection('roles', data.roles, (r) => r.workspaceId || '');
   saveCollection('subscriptions', data.subscriptions, (s) => '');
   saveCollection('command_runs', data.commandRuns, (c) => c.workspaceId || '');
+  saveCollection('pipelines', data.pipelines, (p) => p.workspaceId || '');
+  saveCollection('pipeline_instances', data.pipelineInstances, (pi) => '');
 
   console.log('[Store] Migration to SQLite complete');
 }
@@ -245,6 +256,8 @@ export function loadStore() {
           roles: (old as any).roles || [],
           subscriptions: (old as any).subscriptions || [],
           commandRuns: (old as any).commandRuns || [],
+          pipelines: [],
+          pipelineInstances: [],
           totalCost: old.totalCost ?? 0,
         };
         applyOrphanMigration();
@@ -291,6 +304,8 @@ export function saveStore() {
       saveCollection('roles', store.roles, (r) => r.workspaceId || '');
       saveCollection('subscriptions', store.subscriptions, () => '');
       saveCollection('command_runs', store.commandRuns, (c) => c.workspaceId || '');
+      saveCollection('pipelines', store.pipelines, (p) => p.workspaceId || '');
+      saveCollection('pipeline_instances', store.pipelineInstances, () => '');
     });
 
     transaction();
@@ -428,6 +443,8 @@ export function ensureDefaultRoles(workspaceId: string): void {
       permissions: [
         { type: 'file:read', scope: 'all' },
         { type: 'file:list', scope: 'all' },
+        { type: 'folder:read', scope: 'all' },
+        { type: 'folder:list', scope: 'all' },
         { type: 'system:web_search', scope: 'all' },
         { type: 'system:fetch_url', scope: 'all' },
       ],
@@ -447,6 +464,10 @@ export function ensureDefaultRoles(workspaceId: string): void {
         { type: 'file:write', scope: 'all' },
         { type: 'file:delete', scope: 'all' },
         { type: 'file:list', scope: 'all' },
+        { type: 'folder:read', scope: 'all' },
+        { type: 'folder:write', scope: 'all' },
+        { type: 'folder:delete', scope: 'all' },
+        { type: 'folder:list', scope: 'all' },
       ],
       createdAt: now,
       updatedAt: now,
@@ -464,6 +485,10 @@ export function ensureDefaultRoles(workspaceId: string): void {
         { type: 'file:write', scope: 'all' },
         { type: 'file:delete', scope: 'all' },
         { type: 'file:list', scope: 'all' },
+        { type: 'folder:read', scope: 'all' },
+        { type: 'folder:write', scope: 'all' },
+        { type: 'folder:delete', scope: 'all' },
+        { type: 'folder:list', scope: 'all' },
         { type: 'system:manage_agents', scope: 'all' },
         { type: 'system:manage_permissions', scope: 'all' },
         { type: 'system:manage_roles', scope: 'all' },
@@ -501,4 +526,16 @@ export function assignDefaultRole(agentId: string): void {
       agent.roleIds.push(readerRole.id);
     }
   }
+}
+
+export function grantDirectPermission(agentId: string, type: PermissionType, scope: 'all' | string[]): void {
+  mutateStore(s => {
+    const agent = s.agents.find(a => a.id === agentId);
+    if (!agent) return;
+    if (!agent.permissions) agent.permissions = [];
+    if (!agent.permissions.some(p => p.type === type && JSON.stringify(p.scope) === JSON.stringify(scope))) {
+      agent.permissions.push({ type, scope });
+      saveStore();
+    }
+  });
 }

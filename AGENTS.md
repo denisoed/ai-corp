@@ -11,7 +11,7 @@
 - **Inter-agent messaging**: send_message, ask_agent, reply_to_message
 - **Telegram-боты**: каждый агент может иметь своего Telegram-бота для общения с пользователем
 - **Cron-задачи**: периодическое выполнение задач агентами по расписанию
-- **Role-based permissions**: file:read/write/delete/list, system:manage_agents/roles/crons/broadcast
+- **Role-based permissions**: file:read/write/delete/list, folder:read/write/delete/list, system:manage_agents/roles/crons/broadcast
 - **Company templates**: преднастроенные команды (Software Dev Team, Marketing Agency, Data Science Team)
 - **Инициализация из .aicorp.yml**: workspace можно создать из YAML-файла в корне проекта
 

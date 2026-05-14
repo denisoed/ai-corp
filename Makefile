@@ -14,6 +14,8 @@ bootstrap:
 
 start:
 	@mkdir -p .aicorp
+	@# Clean up any leftover process on port 4000 before starting
+	@lsof -ti :4000 | xargs kill 2>/dev/null || true
 	@if [ -f "$(BACKEND_PID_FILE)" ] && kill -0 "$$(cat $(BACKEND_PID_FILE))" 2>/dev/null; then \
 		echo "backend already running"; \
 	else \
@@ -29,8 +31,10 @@ stop:
 	@if [ -f "$(BACKEND_PID_FILE)" ]; then \
 		kill "$$(cat $(BACKEND_PID_FILE))" 2>/dev/null || true; \
 		rm -f "$(BACKEND_PID_FILE)"; \
-		echo "backend stopped"; \
 	fi
+	@# Kill any leftover node process on port 4000 (stale PID, manual start, etc.)
+	@lsof -ti :4000 | xargs kill 2>/dev/null || true
+	@echo "backend stopped"
 
 status:
 	@docker compose ps

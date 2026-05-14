@@ -3,21 +3,35 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
-const DATA_DIR = path.join(os.homedir(), '.aicorp');
-const DB_FILE = path.join(DATA_DIR, 'data.db');
+function getDataDir(): string {
+  return process.env.AICORP_HOME || path.join(os.homedir(), '.aicorp');
+}
+
+function getDbFile(): string {
+  return path.join(getDataDir(), 'data.db');
+}
 
 let db: Database.Database | null = null;
 
 export function getDb(): Database.Database {
   if (!db) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    db = new Database(DB_FILE);
+    const dir = getDataDir();
+    const file = getDbFile();
+    fs.mkdirSync(dir, { recursive: true });
+    db = new Database(file);
     db.pragma('journal_mode = WAL');
     db.pragma('busy_timeout = 5000');
     db.pragma('foreign_keys = ON');
     initTables();
   }
   return db;
+}
+
+export function resetDb(): void {
+  if (db) {
+    db.close();
+    db = null;
+  }
 }
 
 function initTables(): void {

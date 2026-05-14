@@ -3,8 +3,9 @@ import express from 'express';
 import path from 'path';
 import apiRouter from './api';
 import { loadStore, getStore, ensureDefaultRoles } from './store';
-import { startTelegramManager } from './telegram';
+import { startTelegramManager, processPendingMessagesAtStartup } from './telegram';
 import { startTaskAutopilotManager } from './task-autopilot';
+import { startPipelineEngine } from './pipeline-engine';
 import { initMemorySystem } from './agent-memory';
 import { initCronManager } from './cron';
 import { getSettings, loadSettings } from './lib/settings';
@@ -27,7 +28,11 @@ for (const ws of getStore().workspaces) {
 // Start background services
 startTelegramManager();
 startTaskAutopilotManager();
+startPipelineEngine();
 initCronManager();
+
+// Process any leftover pending messages from previous sessions
+processPendingMessagesAtStartup();
 
 void (async () => {
   const settings = getSettings();

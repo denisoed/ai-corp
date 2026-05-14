@@ -37,6 +37,7 @@ export function Tabs({ tabs, activeTab, onTabChange, className }: TabsProps) {
 }
 
 interface TabPanelProps {
+  key?: string | number;
   id: string;
   activeTab: string;
   children: React.ReactNode;

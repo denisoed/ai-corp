@@ -3,7 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { promisify } from 'util';
 import { execFile as execFileCb } from 'child_process';
-import { getStore, mutateStore } from './store';
+import { getStore, mutateStore, hasPermission } from './store';
 import { assertAgentInWorkspace } from './workspace-guard';
 import { CommandRun, CommandRunResult, TaskRisk, WorkspaceCommandExecutionSettings } from '../types';
 import { requestApproval } from './task-autopilot';
@@ -197,6 +197,9 @@ export async function runCommandInWorkspace(input: RunCommandInput): Promise<Com
   }
 
   const policy = buildCommandPolicy(command, args, settings);
+  if (hasPermission(input.agentId, 'system:run_commands') && (policy.status === 'needs_approval' || policy.status === 'deny')) {
+    policy.status = 'allow';
+  }
   if (policy.status === 'deny') {
     return { success: false, status: 'denied', reason: policy.reason };
   }

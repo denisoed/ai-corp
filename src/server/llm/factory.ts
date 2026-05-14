@@ -7,6 +7,7 @@ import { GoogleClient } from './providers/google';
 import { ChatSessionWrapper } from './chat-session';
 import { mutateStore } from '../store';
 import { formatLlmUsage } from '../lib/llm-usage';
+import { filterToolsForAgent } from '../lib/tool-permissions';
 import type { ChatSession, ChatSessionOptions, LLMProviderClient } from './types';
 
 export function createChatSession(agent: Agent, systemPrompt: string, options: ChatSessionOptions = {}): ChatSession {
@@ -31,6 +32,7 @@ export function createChatSession(agent: Agent, systemPrompt: string, options: C
   const model = agent.model || provider.defaultModel || def.defaultModel;
 
   const client = createClient(providerId, provider.apiKey, baseUrl);
+  const tools = filterToolsForAgent(agent.id);
 
   const onUsage = options.onUsage;
 
@@ -79,7 +81,7 @@ export function createChatSession(agent: Agent, systemPrompt: string, options: C
     });
   });
 
-  return new ChatSessionWrapper(client, systemPrompt, model, onUsage, onResponse, options.initialMessages);
+  return new ChatSessionWrapper(client, systemPrompt, model, tools, onUsage, onResponse, options.initialMessages);
 }
 
 export function createClient(

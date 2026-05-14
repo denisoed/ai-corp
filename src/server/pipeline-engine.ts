@@ -38,10 +38,7 @@ function publishPipelineEvent<K extends PipelineInstance>(
   stageAgentId?: string
 ) {
   const store = getStore();
-  const stageTask = store.tasks.find(t =>
-    t.tags?.includes(`pipeline:${pipeline.id}`) &&
-    t.tags?.includes(`stage:${stage.order}`)
-  );
+  const parentTask = store.tasks.find(t => t.id === instance.taskId);
 
   const now = new Date().toISOString();
   publishEvent({
@@ -57,20 +54,21 @@ function publishPipelineEvent<K extends PipelineInstance>(
       stageName: stage.name,
       stageIndex: instance.currentStageIndex,
       totalStages: pipeline.stages.length,
-      stageTaskId: stageTask?.id,
+      stageTaskId: instance.taskId,
       ...extra,
     }
-  }, stageAgentId || stageTask?.assigneeId);
+  }, stageAgentId || parentTask?.assigneeId);
 }
 
 async function executeStage(instance: PipelineInstance, pipeline: Pipeline, stage: PipelineStage): Promise<PipelineStageResult> {
   const store = getStore();
   const task = store.tasks.find(t => t.id === instance.taskId);
+  const previousResult = instance.stageResults.find(r => r.stageId === stage.id);
   const result: PipelineStageResult = {
     stageId: stage.id,
     status: 'pending',
-    comments: [],
-    startedAt: new Date().toISOString(),
+    comments: previousResult?.comments || [],
+    startedAt: previousResult?.startedAt || new Date().toISOString(),
   };
 
   const assignee = findAgentByRole(stage.assigneeRole, pipeline.workspaceId);
@@ -84,65 +82,71 @@ async function executeStage(instance: PipelineInstance, pipeline: Pipeline, stag
   result.agentId = assignee.id;
   result.agentName = assignee.name;
 
-  logPipeline(instance.id, 'Pipeline Stage Started', `Stage "${stage.name}" assigned to ${assignee.name}.`, 'info', {
+  const parentTaskId = task?.id || instance.taskId;
+  mutateStore(s => {
+    const t = s.tasks.find(x => x.id === parentTaskId);
+    if (t) {
+      if (t.subtasks.length === 0) {
+        t.subtasks = pipeline.stages.map(s => ({
+          id: s.id,
+          title: `${s.name} (${s.assigneeRole})`,
+          completed: false,
+        }));
+      }
+      t.assigneeId = assignee.id;
+      t.status = 'In Progress';
+      t.updatedAt = new Date().toISOString();
+    }
+  });
+
+  logPipeline(instance.id, 'Pipeline Stage Started', `Stage "${stage.name}" assigned to ${assignee.name}.${previousResult ? ' (resumed)' : ''}`, 'info', {
     stageName: stage.name, stageIndex: instance.currentStageIndex, assigneeName: assignee.name, taskId: instance.taskId
   });
 
   publishPipelineEvent(instance, pipeline, stage, 'pipeline.stage.started', {}, assignee.id);
-
-  const stageTask = {
-    id: crypto.randomUUID(),
-    title: `[${pipeline.name}] ${stage.name}`,
-    description: stage.instructions,
-    status: 'In Progress' as const,
-    priority: 'High' as const,
-    risk: 'medium' as const,
-    cost: 0,
-    assigneeId: assignee.id,
-    creatorId: 'pipeline-engine',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    comments: [],
-    tags: [`pipeline:${pipeline.id}`, `stage:${stage.order}`],
-    subtasks: [],
-  };
-
-  if (task) {
-    stageTask.description = `${task.description}\n\n---\nPipeline Stage: ${stage.name}\n${stage.instructions}`;
-    stageTask.tags.push(`parent-task:${task.id}`);
-  }
-
-  mutateStore(s => {
-    s.tasks.unshift(stageTask);
-  });
 
   try {
     const agent = store.agents.find(a => a.id === assignee.id);
     if (!agent) throw new Error('Agent not found');
 
     const memory = loadMemory(agent.id);
-    const systemPrompt = buildSystemPrompt(agent) + '\n\n' + [
+    const systemPrompt = buildSystemPrompt(agent, 'pipeline') + '\n\n' + [
       `You are executing stage "${stage.name}" of pipeline "${pipeline.name}".`,
       stage.instructions,
       stage.expectedOutput ? `Expected output: ${stage.expectedOutput}` : '',
       task ? `Parent task context:\nTitle: ${task.title}\nDescription: ${task.description}` : '',
-      '',
-      'Operating rules for pipeline stage:',
-      '- Work on the stage task until it reaches Done.',
-      '- Use tools to accomplish the stage goal.',
-      '- If blocked, move task to Blocked and call request_approval with a clear question.',
-      '- When complete, move the task to Done and write a summary comment.',
     ].filter(Boolean).join('\n');
 
-    const chatSession = createChatSession(agent, systemPrompt);
-    let response = await chatSession.sendMessage(`Execute stage "${stage.name}" of pipeline "${pipeline.name}". Goal: ${stage.instructions}`);
+    const chatSession = createChatSession(agent, systemPrompt, {
+      initialMessages: ((previousResult?.chatMessages || []) as any[]).map(m => ({
+        role: m.role as 'system' | 'user' | 'assistant' | 'tool',
+        content: m.content,
+        tool_call_id: m.tool_call_id,
+        tool_calls: m.tool_calls as any,
+      })),
+    });
+    const isResumed = previousResult?.chatMessages && previousResult.chatMessages.length > 0;
+    let response = isResumed
+      ? await chatSession.sendMessage(`Resuming stage "${stage.name}". Continue from where you left off.`)
+      : await chatSession.sendMessage(`Execute stage "${stage.name}" of pipeline "${pipeline.name}". Goal: ${stage.instructions}`);
 
+    const stageTimeout = stage.timeoutMinutes ? stage.timeoutMinutes * 60 * 1000 : 0;
+    const stageStartTime = Date.now();
     let safetyCounter = 0;
     while (response.toolCalls && response.toolCalls.length > 0) {
       safetyCounter += 1;
       if (safetyCounter > 40) {
         logPipeline(instance.id, 'Pipeline Stage Safety Stop', `Stage "${stage.name}" stopped after 40 tool loops.`, 'warning', { stageName: stage.name });
         break;
+      }
+      if (stageTimeout > 0 && Date.now() - stageStartTime > stageTimeout) {
+        result.status = 'failed';
+        result.output = `Stage "${stage.name}" timed out after ${stage.timeoutMinutes} minutes.`;
+        result.completedAt = new Date().toISOString();
+        result.chatMessages = chatSession.getMessages();
+        logPipeline(instance.id, 'Pipeline Stage Timeout', result.output, 'error', { stageName: stage.name });
+        publishPipelineEvent(instance, pipeline, stage, 'pipeline.stage.failed', { error: result.output }, assignee.id);
+        return result;
       }
 
       const results = [];
@@ -158,19 +162,38 @@ async function executeStage(instance: PipelineInstance, pipeline: Pipeline, stag
         results.push(toolResult);
 
         if (call.function.name === 'request_approval') {
+          const r = toolResult as any;
+          if (r?.status === 'already_approved' || r?.status === 'already_pending' || r?.approvalId === 'already_granted') {
+            continue;
+          }
           result.status = 'pending';
           result.comments.push('Stage paused: awaiting approval.');
+          result.chatMessages = chatSession.getMessages();
+          logPipeline(instance.id, 'Pipeline Stage Waiting Approval', `Stage "${stage.name}" waiting for approval.`, 'warning');
+          return result;
+        }
+        if (toolResult?.status === 'needs_approval') {
+          result.status = 'pending';
+          result.comments.push('Stage paused: awaiting approval.');
+          result.chatMessages = chatSession.getMessages();
           logPipeline(instance.id, 'Pipeline Stage Waiting Approval', `Stage "${stage.name}" waiting for approval.`, 'warning');
           return result;
         }
       }
 
-      const updatedTask = getStore().tasks.find(t => t.id === stageTask.id);
+      const updatedTask = getStore().tasks.find(t => t.id === parentTaskId);
       if (updatedTask?.status === 'Done') {
         result.status = 'completed';
         result.output = response.text?.trim() || 'Stage completed.';
         result.completedAt = new Date().toISOString();
         result.comments.push(response.text?.trim() || 'Stage completed.');
+        mutateStore(s => {
+          const t = s.tasks.find(x => x.id === parentTaskId);
+          if (t) {
+            const sub = t.subtasks.find(x => x.id === stage.id);
+            if (sub) sub.completed = true;
+          }
+        });
         break;
       }
 
@@ -184,12 +207,19 @@ async function executeStage(instance: PipelineInstance, pipeline: Pipeline, stag
       response = await chatSession.sendToolResults(response.toolCalls, results);
     }
 
-    const finalTask = getStore().tasks.find(t => t.id === stageTask.id);
+    const finalTask = getStore().tasks.find(t => t.id === parentTaskId);
     if (!result.completedAt) {
       if (finalTask?.status === 'Done') {
         result.status = 'completed';
         result.output = response.text?.trim() || 'Stage completed.';
         result.completedAt = new Date().toISOString();
+        mutateStore(s => {
+          const t = s.tasks.find(x => x.id === parentTaskId);
+          if (t) {
+            const sub = t.subtasks.find(x => x.id === stage.id);
+            if (sub) sub.completed = true;
+          }
+        });
       } else if (finalTask?.status === 'Needs Approval') {
         result.status = 'pending';
         result.comments.push('Awaiting approval to complete.');
@@ -200,7 +230,8 @@ async function executeStage(instance: PipelineInstance, pipeline: Pipeline, stag
       }
     }
 
-    logPipeline(instance.id, 'Pipeline Stage Completed', `Stage "${stage.name}" -> ${result.status}. Agent: ${assignee.name}`, 'success', {
+    result.chatMessages = chatSession.getMessages();
+    logPipeline(instance.id, 'Pipeline Stage Completed', `Stage "${stage.name}" -> ${result.status}. Agent: ${assignee.name}`, 'info', {
       stageName: stage.name, stageStatus: result.status, assigneeName: assignee.name
     });
     publishPipelineEvent(instance, pipeline, stage, result.status === 'completed' ? 'pipeline.stage.completed' : 'pipeline.stage.failed', { stageStatus: result.status }, assignee.id);
@@ -235,12 +266,27 @@ export async function runPipelineInstance(instanceId: string): Promise<void> {
 
     while (instance.currentStageIndex < pipeline.stages.length) {
       const stage = pipeline.stages[instance.currentStageIndex];
-      const stageResult = await executeStage(instance, pipeline, stage);
+      let stageResult = await executeStage(instance, pipeline, stage);
+
+      // Retry 429/rate limit errors up to 3 times
+      const isRateLimit = (s: string) => /429|rate.limit|too many requests|try again later/i.test(s);
+      let retries = 0;
+      while (stageResult.status === 'failed' && isRateLimit(stageResult.output || '') && retries < 3) {
+        retries++;
+        logPipeline(instance.id, 'Pipeline Stage Retry', `Retry ${retries}/3 for "${stage.name}" after rate limit error.`, 'warning');
+        await new Promise(resolve => setTimeout(resolve, retries * 5000));
+        stageResult = await executeStage(instance, pipeline, stage);
+      }
 
       mutateStore(s => {
         const inst = s.pipelineInstances.find(pi => pi.id === instanceId);
         if (!inst) return;
-        inst.stageResults.push(stageResult);
+        const existingIdx = inst.stageResults.findIndex(r => r.stageId === stageResult.stageId);
+        if (existingIdx >= 0) {
+          inst.stageResults[existingIdx] = stageResult;
+        } else {
+          inst.stageResults.push(stageResult);
+        }
         inst.updatedAt = new Date().toISOString();
         if (stageResult.status === 'failed') {
           inst.status = 'failed';
@@ -253,11 +299,32 @@ export async function runPipelineInstance(instanceId: string): Promise<void> {
       });
 
       if (stageResult.status === 'failed') {
+        const failedTask = getStore().tasks.find(t => t.id === instance.taskId);
+        if (failedTask) {
+          mutateStore(s => {
+            const t = s.tasks.find(x => x.id === instance.taskId);
+            if (t) { t.status = 'Failed'; t.updatedAt = new Date().toISOString(); }
+          });
+        }
         publishPipelineEvent(instance, pipeline, stage, 'pipeline.failed', { reason: stageResult.output }, stageResult.agentId);
         return;
       }
 
       if (stageResult.status === 'pending') {
+        return;
+      }
+
+      const nextStage = pipeline.stages[instance.currentStageIndex + 1];
+      if (nextStage?.transition === 'manual') {
+        mutateStore(s => {
+          const inst = s.pipelineInstances.find(pi => pi.id === instanceId);
+          if (inst) {
+            inst.currentStageIndex += 1;
+            inst.status = 'paused';
+            inst.updatedAt = new Date().toISOString();
+          }
+        });
+        logPipeline(instanceId, 'Pipeline Manual Pause', `Pipeline paused before stage "${nextStage.name}" (manual transition).`, 'info');
         return;
       }
 
@@ -272,8 +339,8 @@ export async function runPipelineInstance(instanceId: string): Promise<void> {
       if (inst) { inst.status = 'completed'; inst.completedAt = new Date().toISOString(); inst.updatedAt = new Date().toISOString(); }
     });
 
-    const task = getStore().tasks.find(t => t.id === instance.taskId);
-    if (task) {
+    const pipelineParentTask = getStore().tasks.find(t => t.id === instance.taskId);
+    if (pipelineParentTask) {
       mutateStore(s => {
         const t = s.tasks.find(x => x.id === instance.taskId);
         if (t) { t.status = 'Done'; t.updatedAt = new Date().toISOString(); }
@@ -303,16 +370,38 @@ export function startPipelineEngine(): void {
       if (!pipeline) continue;
 
       const currentStage = pipeline.stages[latest.currentStageIndex];
-      if (!currentStage) continue;
+      if (!currentStage) {
+        if (latest.currentStageIndex >= pipeline.stages.length) {
+          mutateStore(s => {
+            const inst = s.pipelineInstances.find(pi => pi.id === instance.id);
+            if (inst) { inst.status = 'completed'; inst.completedAt = new Date().toISOString(); inst.updatedAt = new Date().toISOString(); }
+          });
+          logPipeline(instance.id, 'Pipeline Completed', `Pipeline completed (resumed after manual stage).`, 'success');
+        }
+        continue;
+      }
 
       const stageResult = latest.stageResults[latest.stageResults.length - 1];
+
+      if (stageResult?.status === 'completed' && currentStage.transition === 'manual') {
+        mutateStore(s => {
+          const inst = s.pipelineInstances.find(pi => pi.id === instance.id);
+          if (inst) {
+            inst.status = 'running';
+            inst.updatedAt = new Date().toISOString();
+          }
+        });
+        void runPipelineInstance(instance.id);
+        continue;
+      }
+
       if (!stageResult || stageResult.status !== 'pending') continue;
 
       const assignee = findAgentByRole(currentStage.assigneeRole, pipeline.workspaceId);
       if (!assignee) continue;
 
-      const stageTask = store.tasks.find(t => t.assigneeId === assignee.id && t.tags.includes(`pipeline:${pipeline.id}`) && t.tags.includes(`stage:${currentStage.order}`));
-      if (!stageTask) {
+      const pipelineParentTask = store.tasks.find(t => t.id === instance.taskId);
+      if (!pipelineParentTask) {
         mutateStore(s => {
           const inst = s.pipelineInstances.find(pi => pi.id === instance.id);
           if (inst) { inst.status = 'running'; inst.updatedAt = new Date().toISOString(); }
@@ -321,20 +410,23 @@ export function startPipelineEngine(): void {
         continue;
       }
 
-      if (stageTask.status === 'Done') {
-        mutateStore(s => {
-          const inst = s.pipelineInstances.find(pi => pi.id === instance.id);
-          if (inst) {
-            const lastResult = inst.stageResults[inst.stageResults.length - 1];
-            if (lastResult) { lastResult.status = 'completed'; lastResult.completedAt = new Date().toISOString(); }
-            inst.currentStageIndex += 1;
-            inst.status = 'running';
-            inst.updatedAt = new Date().toISOString();
-          }
-        });
-        void runPipelineInstance(instance.id);
-      } else if (stageTask.status === 'Failed' || stageTask.status === 'Blocked') {
-        const reason = stageTask.status === 'Blocked' ? 'Stage blocked by approval' : 'Stage task failed';
+      if (pipelineParentTask.status === 'Done') {
+        const stageSubtask = pipelineParentTask.subtasks.find(s => s.id === currentStage.id);
+        if (stageSubtask?.completed) {
+          mutateStore(s => {
+            const inst = s.pipelineInstances.find(pi => pi.id === instance.id);
+            if (inst) {
+              const lastResult = inst.stageResults[inst.stageResults.length - 1];
+              if (lastResult) { lastResult.status = 'completed'; lastResult.completedAt = new Date().toISOString(); }
+              inst.currentStageIndex += 1;
+              inst.status = 'running';
+              inst.updatedAt = new Date().toISOString();
+            }
+          });
+          void runPipelineInstance(instance.id);
+        }
+      } else if (pipelineParentTask.status === 'Failed' || pipelineParentTask.status === 'Blocked') {
+        const reason = pipelineParentTask.status === 'Blocked' ? 'Stage blocked by approval' : 'Stage task failed';
         mutateStore(s => {
           const inst = s.pipelineInstances.find(pi => pi.id === instance.id);
           if (inst) {
@@ -346,6 +438,18 @@ export function startPipelineEngine(): void {
           }
         });
         logPipeline(instance.id, 'Pipeline Failed', `Pipeline failed: ${reason}`, 'error');
+      } else if (pipelineParentTask.status === 'In Progress') {
+        const pendingApproval = store.approvals.find(a =>
+          a.taskId === instance.taskId && a.status === 'pending'
+        );
+        if (!pendingApproval) {
+          mutateStore(s => {
+            const inst = s.pipelineInstances.find(pi => pi.id === instance.id);
+            if (inst) { inst.status = 'running'; inst.updatedAt = new Date().toISOString(); }
+          });
+          logPipeline(instance.id, 'Pipeline Resumed', `Resuming after approval resolved (no pending approvals).`, 'info');
+          void runPipelineInstance(instance.id);
+        }
       }
     }
   }, 5000);

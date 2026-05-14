@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../../store';
 import type { PermissionType, PermissionEntry, LLMProvider, SkillDefinition } from '../../types';
 import * as d3 from 'd3';
@@ -7,7 +8,7 @@ import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Input } from '../ui/Input';
 import { FolderPicker } from '../ui/FolderPicker';
-import { Plus, Briefcase, Users as UsersIcon, Trash2, X, User, Link2, MessageCircle, AlertTriangle, FolderKanban, FileText, Pencil, Check, Clock, Play, RotateCw, Shield, ShieldCheck, Eye, Edit3, List, Trash, Sparkles, Puzzle, ExternalLink, Search } from 'lucide-react';
+import { Plus, Briefcase, Users as UsersIcon, Trash2, X, User, Link2, MessageCircle, AlertTriangle, FolderKanban, FileText, Pencil, Check, Clock, Play, RotateCw, Shield, ShieldCheck, Eye, Edit3, List, Trash, Sparkles, Puzzle, ExternalLink, Search, KanbanSquare, ArrowRight } from 'lucide-react';
 import { COMPANY_TEMPLATES } from '../../lib/templates';
 import { ReactFlow, Background, Controls, Node, Edge, useNodesState, useEdgesState } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -111,8 +112,150 @@ function computeTree(wsAgents: any[], rootId: string) {
   return { desc: root.descendants(), links: root.links() };
 }
 
+interface WorkspaceCardsViewProps {
+  workspaces: any[];
+  agents: any[];
+  tasks: any[];
+  onSelectWorkspace: (id: string) => void;
+  onCreateWorkspace: () => void;
+}
+
+function WorkspacesCardsView({ workspaces, agents, tasks, onSelectWorkspace, onCreateWorkspace }: WorkspaceCardsViewProps) {
+  const workspaceColors = ['#6366f1', '#8b5cf6', '#ec4899', '#f97316', '#14b8a6', '#22c55e', '#3b82f6', '#eab308'];
+  
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white">My Workspaces</h1>
+          <p className="text-zinc-400 mt-1">Manage your AI teams and their environments</p>
+        </div>
+      </div>
+
+      {workspaces.length === 0 ? (
+        <div className="text-center py-16">
+          <div className="w-16 h-16 rounded-2xl bg-zinc-800/50 flex items-center justify-center mx-auto mb-4">
+            <FolderKanban className="w-8 h-8 text-zinc-500" />
+          </div>
+          <h3 className="text-lg font-semibold text-zinc-300 mb-2">No workspaces yet</h3>
+          <p className="text-zinc-500 mb-6 max-w-md mx-auto">Create your first workspace to start building AI teams with agents, tasks, and automation.</p>
+          <Button onClick={onCreateWorkspace}>
+            <Plus className="w-4 h-4 mr-2" />
+            Create Workspace
+          </Button>
+        </div>
+      ) : (
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {workspaces.map((workspace, index) => {
+            const workspaceAgents = agents.filter(a => a.workspaceId === workspace.id);
+            const workspaceTasks = tasks.filter(t => t.assigneeId && workspaceAgents.some(a => a.id === t.assigneeId));
+            const activeTasks = workspaceTasks.filter((t: any) => t.status === 'In Progress').length;
+            const color = workspaceColors[index % workspaceColors.length];
+            
+            return (
+              <button
+                key={workspace.id}
+                onClick={() => onSelectWorkspace(workspace.id)}
+                className="group p-6 bg-zinc-900/50 border border-zinc-800 rounded-xl hover:border-zinc-700 hover:bg-zinc-900 transition-all text-left"
+              >
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div 
+                      className="w-10 h-10 rounded-lg flex items-center justify-center"
+                      style={{ backgroundColor: `${color}20` }}
+                    >
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-white group-hover:text-indigo-400 transition-colors">{workspace.name}</h3>
+                      <p className="text-xs text-zinc-500">{workspaceAgents.length} agent{workspaceAgents.length !== 1 ? 's' : ''}</p>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-4 text-sm">
+                  <div className="flex items-center gap-1.5 text-zinc-400">
+                    <KanbanSquare className="w-4 h-4" />
+                    <span>{workspaceTasks.length} task{workspaceTasks.length !== 1 ? 's' : ''}</span>
+                  </div>
+                  {activeTasks > 0 && (
+                    <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 text-xs rounded-full">
+                      {activeTasks} active
+                    </span>
+                  )}
+                </div>
+                
+                {workspaceAgents.length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-zinc-800">
+                    <div className="flex -space-x-2">
+                      {workspaceAgents.slice(0, 5).map((agent: any) => (
+                        <div 
+                          key={agent.id}
+                          className="w-7 h-7 rounded-full bg-zinc-700 border-2 border-zinc-900 flex items-center justify-center text-[10px] font-medium text-zinc-300"
+                          title={agent.name}
+                        >
+                          {agent.name.charAt(0)}
+                        </div>
+                      ))}
+                      {workspaceAgents.length > 5 && (
+                        <div className="w-7 h-7 rounded-full bg-zinc-800 border-2 border-zinc-900 flex items-center justify-center text-[10px] font-medium text-zinc-500">
+                          +{workspaceAgents.length - 5}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                <div className="mt-4 flex items-center text-xs text-zinc-500 group-hover:text-zinc-400">
+                  <span>Open workspace</span>
+                  <ArrowRight className="w-3 h-3 ml-1 transition-transform group-hover:translate-x-1" />
+                </div>
+              </button>
+            );
+          })}
+          
+          {/* Add new workspace card */}
+          <button
+            onClick={onCreateWorkspace}
+            className="p-6 border-2 border-dashed border-zinc-800 rounded-xl hover:border-zinc-700 hover:bg-zinc-900/30 transition-all text-left flex flex-col items-center justify-center min-h-[200px]"
+          >
+            <div className="w-10 h-10 rounded-lg bg-zinc-800/50 flex items-center justify-center mb-3">
+              <Plus className="w-5 h-5 text-zinc-500" />
+            </div>
+            <span className="text-sm font-medium text-zinc-500">Add Workspace</span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function WorkspacesList() {
-  const { agents, workspaces, crons, roles, addAgent, removeAgent, updateAgent, addWorkspace, updateWorkspace, removeWorkspace, assignAgentToWorkspace, applyTemplate, initWorkspaceFromYml, addLog, runCron, removeCron, updateCron, fetchCrons, assignRole, revokeRole, grantPermissionToAgent, revokePermissionFromAgent, fetchSkillsCatalog, installSkill, uninstallSkill, createCustomSkill, deleteCustomSkill, skillsCatalog, skillsCatalogLoading } = useStore();
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { agents, workspaces, tasks, crons, roles, addWorkspace, updateWorkspace, removeWorkspace, applyTemplate, initWorkspaceFromYml, setActiveWorkspace } = useStore();
+
+  // If workspace ID is present, show the graph view
+  const isDetailView = !!id;
+  
+  // If no ID, show the cards view
+  if (!isDetailView) {
+    return (
+      <WorkspacesCardsView 
+        workspaces={workspaces}
+        agents={agents}
+        tasks={tasks}
+        onSelectWorkspace={(workspaceId) => {
+          setActiveWorkspace(workspaceId);
+          navigate(`/workspaces/${workspaceId}`);
+        }}
+        onCreateWorkspace={() => navigate('/workspaces')}
+      />
+    );
+  }
+
+  // Continue with existing logic for detail view...
+  const { agents: allAgents, crons: allCrons, roles: allRoles, addAgent, removeAgent, updateAgent, updateWorkspace: uw2, removeWorkspace: rw2, assignAgentToWorkspace, applyTemplate: apt2, initWorkspaceFromYml: iwy2, addLog, runCron, removeCron, updateCron, fetchCrons, assignRole, revokeRole, grantPermissionToAgent, revokePermissionFromAgent, fetchSkillsCatalog, installSkill, uninstallSkill, createCustomSkill, deleteCustomSkill, skillsCatalog, skillsCatalogLoading } = useStore();
   const [showAddAgent, setShowAddAgent] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
@@ -152,6 +295,7 @@ export function WorkspacesList() {
   const [settingsData, setSettingsData] = useState<{ providers: Record<string, LLMProvider>; defaultProviderId: string } | null>(null);
   const [agentModels, setAgentModels] = useState<Record<string, string[]>>({});
   const [loadingAgentModels, setLoadingAgentModels] = useState<Record<string, boolean>>({});
+  const [resettingAgentMemory, setResettingAgentMemory] = useState(false);
 
   const [newWsName, setNewWsName] = useState('');
   const [newWsDescription, setNewWsDescription] = useState('');
@@ -250,6 +394,23 @@ export function WorkspacesList() {
       setSavingFile(false);
     }
   };
+
+  const resetAgentMemory = useCallback(async () => {
+    if (!selectedAgentId) return;
+    const agent = agents.find(a => a.id === selectedAgentId);
+    const ok = window.confirm('Clear this agent model context and start a new session?');
+    if (!ok) return;
+    setResettingAgentMemory(true);
+    try {
+      const res = await fetch(`/api/agents/${selectedAgentId}/memory/reset`, { method: 'POST' });
+      if (!res.ok) throw new Error(`Reset failed: ${res.status}`);
+      addLog({ agentId: 'system', action: 'Agent Memory Reset', details: `Cleared model context for ${agent?.name || selectedAgentId}.`, type: 'warning' });
+    } catch (e: any) {
+      addLog({ agentId: 'system', action: 'Agent Memory Reset Failed', details: e.message, type: 'error' });
+    } finally {
+      setResettingAgentMemory(false);
+    }
+  }, [selectedAgentId, agents, addLog]);
 
   const nodeTypes = useMemo(() => ({
     agent: AgentNode,
@@ -928,10 +1089,10 @@ export function WorkspacesList() {
             <FileText className="mr-2 h-4 w-4" />
             Init from .aicorp.yml
           </Button>
-          {/* <Button variant="outline" onClick={() => setShowTemplates(true)}>
+          <Button variant="outline" onClick={() => setShowTemplates(true)}>
             <Briefcase className="mr-2 h-4 w-4" />
             Templates
-          </Button> */}
+          </Button>
           <Button variant="outline" onClick={() => setShowCreateWorkspace(true)}>
             <Plus className="mr-2 h-4 w-4" />
             Create Workspace
@@ -1581,6 +1742,10 @@ export function WorkspacesList() {
                                   p.type.startsWith('file:write') ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5' :
                                   p.type.startsWith('file:delete') ? 'text-red-400 border-red-500/20 bg-red-500/5' :
                                   p.type.startsWith('file:list') ? 'text-cyan-400 border-cyan-500/20 bg-cyan-500/5' :
+                                  p.type.startsWith('folder:read') ? 'text-sky-400 border-sky-500/20 bg-sky-500/5' :
+                                  p.type.startsWith('folder:write') ? 'text-teal-400 border-teal-500/20 bg-teal-500/5' :
+                                  p.type.startsWith('folder:delete') ? 'text-rose-400 border-rose-500/20 bg-rose-500/5' :
+                                  p.type.startsWith('folder:list') ? 'text-sky-400 border-sky-500/20 bg-sky-500/5' :
                                   p.type.startsWith('system:manage_agents') ? 'text-purple-400 border-purple-500/20 bg-purple-500/5' :
                                   p.type.startsWith('system:manage_permissions') ? 'text-amber-400 border-amber-500/20 bg-amber-500/5' :
                                   p.type.startsWith('system:manage_roles') ? 'text-indigo-400 border-indigo-500/20 bg-indigo-500/5' :
@@ -1608,7 +1773,7 @@ export function WorkspacesList() {
                         <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Extra Permissions (direct)</label>
                         <p className="text-[10px] text-zinc-600 leading-tight">Grant individual permissions on top of roles. Useful for quick one-off access without creating a role.</p>
                         <div className="flex flex-wrap gap-1">
-                          {(['file:read', 'file:write', 'file:delete', 'file:list', 'system:run_commands', 'system:approve_commands', 'system:web_search', 'system:fetch_url', 'system:manage_agents', 'system:manage_crons', 'system:broadcast'] as PermissionType[])
+                          {(['file:read', 'file:write', 'file:delete', 'file:list', 'folder:read', 'folder:write', 'folder:delete', 'folder:list', 'system:run_commands', 'system:approve_commands', 'system:web_search', 'system:fetch_url', 'system:manage_agents', 'system:manage_crons', 'system:broadcast'] as PermissionType[])
                             .filter(pt => !uniquePerms.has(pt) || (selectedAgent.permissions || []).some(p => p.type === pt))
                             .map(pt => {
                             const hasDirect = (selectedAgent.permissions || []).some(p => p.type === pt);
@@ -1646,13 +1811,25 @@ export function WorkspacesList() {
               </TabPanel>
 
               <div className="pt-4 border-t border-zinc-800 mt-4">
-                <Button variant="destructive" className="w-full flex justify-center items-center gap-2 bg-red-950/50 hover:bg-red-900 border border-red-900/50 text-red-200" onClick={() => {
-                  removeAgent(selectedAgent.id);
-                  setSelectedAgentId(null);
-                  addLog({ agentId: 'system', action: 'Agent Removed', details: `${selectedAgent.name} left the company.`, type: 'warning' });
-                }}>
-                  <Trash2 size={16} /> Retire Agent
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 w-10 shrink-0 justify-center items-center border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                    onClick={resetAgentMemory}
+                    disabled={resettingAgentMemory}
+                    title="Clear Model Context"
+                  >
+                    <RotateCw size={16} className={resettingAgentMemory ? 'animate-spin' : ''} />
+                  </Button>
+                  <Button variant="destructive" className="flex-[1.3] flex justify-center items-center gap-2 bg-red-950/50 hover:bg-red-900 border border-red-900/50 text-red-200" onClick={() => {
+                    removeAgent(selectedAgent.id);
+                    setSelectedAgentId(null);
+                    addLog({ agentId: 'system', action: 'Agent Removed', details: `${selectedAgent.name} left the company.`, type: 'warning' });
+                  }}>
+                    <Trash2 size={16} /> Retire Agent
+                  </Button>
+                </div>
               </div>
             </div>
           </div>

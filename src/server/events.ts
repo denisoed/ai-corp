@@ -2,7 +2,7 @@ import { createChatSession } from './llm';
 import { appendMessage, buildSystemPrompt } from './agent-memory';
 import { getStore, mutateStore, agentsAreConnected } from './store';
 import { getEventDefinition, getSupportedEventTypes } from './event-registry';
-import type { Agent, DomainEvent, EventSubscription, Task } from '../types';
+import type { Agent, DomainEvent, EventSubscription, Task, ApprovalRequest } from '../types';
 
 const SUPPORTED_EVENTS = getSupportedEventTypes();
 
@@ -78,6 +78,53 @@ function buildNotificationPrompt(agent: Agent, event: DomainEvent, task: Task, s
     subscription?.instructions ? `Subscriber instructions: ${subscription.instructions}` : '',
     `Event payload: ${JSON.stringify(event.payload, null, 2)}`,
   ].join('\n\n');
+}
+
+function generateNotificationText(event: DomainEvent, task: Task): string {
+  const p = event.payload as Record<string, unknown>;
+  const taskTitle = String(p.taskTitle || task.title);
+
+  switch (event.type) {
+    case 'task.status.changed': {
+      const from = String(p.fromStatus || '?');
+      const to = String(p.toStatus || '?');
+      const summary = typeof p.summary === 'string' && p.summary.trim()
+        ? `\nSummary: ${p.summary.slice(0, 200)}`
+        : '';
+      if (to === 'Done') return `✅ "${taskTitle}" is Complete!${summary}`;
+      if (to === 'Review') return `👀 "${taskTitle}" moved to Review${summary}`;
+      if (to === 'In Progress') return `🔄 "${taskTitle}" is now In Progress`;
+      if (to === 'Blocked') return `🚫 "${taskTitle}" has been Blocked`;
+      if (to === 'Needs Approval') return `⏳ "${taskTitle}" needs approval`;
+      return `📋 "${taskTitle}" moved: ${from} → ${to}${summary}`;
+    }
+    case 'task.completed': {
+      const summary = typeof p.summary === 'string' && p.summary.trim()
+        ? `\n${p.summary.slice(0, 200)}`
+        : '';
+      return `✅ "${taskTitle}" is Complete!${summary}`;
+    }
+    case 'task.comment.added': {
+      const author = String(p.authorName || 'Someone');
+      const content = String(p.content || '').slice(0, 150);
+      return `💬 ${author} on "${taskTitle}": ${content}`;
+    }
+    case 'task.assignee.changed': {
+      return `👤 Task "${taskTitle}" reassigned`;
+    }
+    case 'pipeline.stage.started':
+      return `🚀 Pipeline stage "${String(p.stageName || '?')}" started`;
+    case 'pipeline.stage.completed':
+      return `✅ Pipeline stage "${String(p.stageName || '?')}" completed`;
+    case 'pipeline.stage.failed':
+      return `❌ Pipeline stage "${String(p.stageName || '?')}" failed`;
+    case 'pipeline.completed':
+      return `🎉 Pipeline completed!`;
+    case 'pipeline.failed':
+      return `💥 Pipeline failed`;
+    default:
+      return `📌 Update on "${taskTitle}"`;
+  }
 }
 
 async function sendTelegramNotification(agent: Agent, text: string): Promise<void> {
@@ -172,7 +219,25 @@ export function createTaskAssigneeChangedEvent(task: Task, previousAssigneeId: s
   };
 }
 
-export async function publishEvent(event: DomainEvent): Promise<void> {
+export function createApprovalRequestedEvent(approval: ApprovalRequest, taskTitle?: string): DomainEvent {
+  return {
+    id: crypto.randomUUID(),
+    type: 'approval.requested',
+    taskId: approval.taskId,
+    createdAt: new Date().toISOString(),
+    payload: {
+      approvalId: approval.id,
+      action: approval.action,
+      details: approval.details,
+      risk: approval.risk,
+      requesterAgentId: approval.agentId,
+      approverAgentId: approval.approverAgentId!,
+      taskTitle,
+    },
+  };
+}
+
+export async function publishEvent(event: DomainEvent, contextAgentId?: string): Promise<void> {
   const state = getStore();
   const def = getEventDefinition(event.type);
   const task = event.taskId ? state.tasks.find(t => t.id === event.taskId) : undefined;
@@ -200,10 +265,7 @@ export async function publishEvent(event: DomainEvent): Promise<void> {
   );
   if (subscriptions.length === 0) return;
 
-  if (!task) {
-    logEvent('Event Dropped', `${def?.label || event.type} had no task context and was skipped.`, 'warning', 'system', eventMeta);
-    return;
-  }
+  const effectiveAgentId = contextAgentId || task?.assigneeId || undefined;
 
   for (const subscription of subscriptions) {
     const agent = state.agents.find(a => a.id === subscription.agentId);
@@ -211,7 +273,7 @@ export async function publishEvent(event: DomainEvent): Promise<void> {
       logEvent('Event Delivery Skipped', `Subscription ${subscription.id.slice(0, 8)} skipped: agent not found.`, 'warning', 'system', eventMeta);
       continue;
     }
-    if (!agentsAreConnected(subscription.agentId, task.assigneeId || subscription.agentId, state.agents)) {
+    if (event.type !== 'approval.requested' && !agentsAreConnected(subscription.agentId, effectiveAgentId || subscription.agentId, state.agents)) {
       logEvent(
         'Event Delivery Skipped',
         `Subscription ${subscription.id.slice(0, 8)} for ${agent.name} skipped: agent is not connected to task context.`,
@@ -220,6 +282,27 @@ export async function publishEvent(event: DomainEvent): Promise<void> {
         { ...eventMeta, agentName: agent.name }
       );
       continue;
+    }
+
+    if (event.type === 'approval.requested') {
+      const { runApprovalAutopilot } = await import('./task-autopilot');
+      const approval = state.approvals.find(a => a.id === event.payload?.approvalId);
+      if (approval && approval.status === 'pending') {
+        runApprovalAutopilot(approval).catch(err => {
+          logEvent('Approval Autopilot Error', `runApprovalAutopilot failed for approval ${approval.id}: ${err.message}`, 'error', 'system');
+        });
+      }
+      if (subscription.oneshot) {
+        mutateStore(s => {
+          s.subscriptions = s.subscriptions.filter(sub => sub.id !== subscription.id);
+        });
+      }
+      continue;
+    }
+
+    if (!task) {
+      logEvent('Event Dropped', `${def?.label || event.type} had no task context and was skipped.`, 'warning', 'system', eventMeta);
+      return;
     }
 
     const deliveryMeta = { ...eventMeta, agentName: agent.name, deliveryChannel: subscription.channel };
@@ -231,14 +314,19 @@ export async function publishEvent(event: DomainEvent): Promise<void> {
         agent.id,
         deliveryMeta
       );
-      const chatSession = createChatSession(agent, buildNotificationPrompt(agent, event, task, subscription));
-      const response = await chatSession.sendMessage(
-        `Generate a Telegram notification for this event:\n${JSON.stringify(event, null, 2)}`
-      );
-      const text = response.text.trim();
-      if (!text) {
-        logEvent('Event Delivery Failed', `LLM returned empty text for ${agent.name} on ${def?.label || event.type}.`, 'error', agent.id, deliveryMeta);
-        continue;
+      let text: string;
+      if (subscription.instructions) {
+        const chatSession = createChatSession(agent, buildNotificationPrompt(agent, event, task, subscription));
+        const response = await chatSession.sendMessage(
+          `Generate a Telegram notification for this event:\n${JSON.stringify(event, null, 2)}`
+        );
+        text = response.text.trim();
+        if (!text) {
+          logEvent('Event Delivery Failed', `LLM returned empty text for ${agent.name} on ${def?.label || event.type}.`, 'error', agent.id, deliveryMeta);
+          continue;
+        }
+      } else {
+        text = generateNotificationText(event, task);
       }
 
       if (subscription.channel === 'telegram') {
@@ -300,7 +388,7 @@ export function createTaskEventSubscription(
   eventType: DomainEvent['type'],
   filters: Partial<EventSubscription['filters']> = {},
   instructions?: string,
-  oneshot = false
+  oneshot = true
 ): EventSubscription {
   const now = new Date().toISOString();
   return {

@@ -1,33 +1,8 @@
 import { marked, Renderer } from 'marked';
 import type { Tokens } from 'marked';
 
-export const TELEGRAM_FORMATTING_RULES = `# TELEGRAM FORMATTING RULES — Must follow strictly
-
-You are responding via Telegram messenger. Use standard Markdown. The system will convert it automatically.
-
-Supported formatting:
-- **bold** or __bold__
-- _italic_ or *italic*
-- \`inline code\`
-- \`\`\` code blocks \`\`\`
-- [links](URL)
-- - bullet lists
-- 1. numbered lists
-
-NOT supported (will be removed):
-- Headers (#, ##, etc.)
-- Tables (|--|)
-- Images
-- HTML tags/entities
-- Strikethrough
-
-Rules:
-- Use "- " or "• " for bullet list items. Each item must start at the BEGINNING of a new line.
-- NEVER use indentation alone as a list marker — always include the "-" or "1." prefix.
-- NEVER use tables (|--|). Tables are forbidden in Telegram — they render as garbled text. Use bullet or numbered lists instead. If you need to show structured data (like agent details, task stats, or comparisons), format each row as a list item with labeled fields: "- **Name**: Alice, **Role**: Developer, **Status**: Active".
-- Keep responses concise (1-3 sentences per paragraph).
-- Use short paragraphs, bullet lists, and numbers to organize information.
-- When asked to "list" or "show" agents, tasks, crons, or any collection: ALWAYS enumerate each item individually on its own line with relevant details (name, role, status, etc.). NEVER reply with just a count or summary when the user asks for a list.`;
+export const TELEGRAM_FORMATTING_RULES = `# TELEGRAM FORMATTING
+Use **bold**, _italic_, \`code\`, \`\`\`blocks\`\`\`, [links](url), bullet (-) and numbered (1.) lists. FORBIDDEN: headers (#), tables (|--|), images, HTML tags. Use bullet lists for structured data: "- **Name**: Alice, **Role**: Developer". When asked to list agents/tasks: enumerate each individually, never just a count. When asked to message/notify/contact another agent: call send_message or ask_agent — do NOT just acknowledge. Keep responses concise.`;
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

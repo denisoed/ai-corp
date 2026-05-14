@@ -57,14 +57,41 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     case 'remove_connection': return (await import('./connection')).handleRemoveConnection(args, executingAgentId);
     case 'update_connection': return (await import('./connection')).handleUpdateConnection(args, executingAgentId);
     case 'resolve_approval': return (await import('./connection')).handleResolveApproval(args, executingAgentId);
-    case 'request_approval': return (await import('../task-autopilot')).requestApproval({
-      agentId: executingAgentId,
-      taskTitle: args.taskTitle,
-      action: args.action,
-      risk: args.risk,
-      estimatedCost: args.estimatedCost,
-      details: `${args.question}${args.taskTitle ? ` (Task: ${args.taskTitle})` : ''}`
-    });
+    case 'request_approval': {
+      const store = getStore();
+      const task = args.taskTitle
+        ? store.tasks.find(t => t.title.toLowerCase().includes((args.taskTitle as string).toLowerCase()))
+        : undefined;
+      const recentMs = 60_000;
+      const now = Date.now();
+      const duplicate = store.approvals.find(a =>
+        a.agentId === executingAgentId &&
+        (a.status === 'pending' || (now - new Date(a.createdAt).getTime() < recentMs)) &&
+        (
+          (task && a.taskId === task.id) ||
+          (a.commandRunId && store.commandRuns.find(r => r.id === a.commandRunId && r.agentId === executingAgentId))
+        )
+      );
+      if (duplicate) {
+        const dedupStatus = duplicate.status === 'approved' ? 'already_approved' : 'already_pending';
+        return { success: true, status: dedupStatus, approvalId: duplicate.id, error: `Approval already ${duplicate.status} (id: ${duplicate.id}). Do NOT request again.` };
+      }
+
+      const approverAgent = args.approverAgentName
+        ? getStore().agents.find(a => a.name.toLowerCase().includes((args.approverAgentName as string).toLowerCase()))
+        : undefined;
+      return (await import('../task-autopilot')).requestApproval({
+        agentId: executingAgentId,
+        taskTitle: args.taskTitle,
+        action: args.action,
+        risk: args.risk,
+        estimatedCost: args.estimatedCost,
+        details: `${args.question}${args.taskTitle ? ` (Task: ${args.taskTitle})` : ''}`,
+        approverAgentId: approverAgent?.id,
+        approverAgentName: approverAgent?.name,
+      });
+    }
+    case 'respond_to_approval': return (await import('../task-autopilot')).handleRespondToApproval(args, executingAgentId);
 
     // Messaging tools
     case 'send_message': return (await import('./messaging')).handleSendMessage(args, executingAgentId);
@@ -80,6 +107,8 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     case 'write_file': return (await import('./file')).handleWriteFile(args, executingAgentId);
     case 'delete_file': return (await import('./file')).handleDeleteFile(args, executingAgentId);
     case 'list_files': return (await import('./file')).handleListFiles(args, executingAgentId);
+    case 'create_folder': return (await import('./file')).handleCreateFolder(args, executingAgentId);
+    case 'delete_folder': return (await import('./file')).handleDeleteFolder(args, executingAgentId);
 
     // Role tools
     case 'create_role': return (await import('./role')).handleCreateRole(args, executingAgentId);
@@ -107,6 +136,15 @@ export async function executeTool(name: string, args: any, executingAgentId: str
     case 'delete_cron': return (await import('./cron')).handleDeleteCron(args, executingAgentId);
     case 'update_cron': return (await import('./cron')).handleUpdateCron(args, executingAgentId);
     case 'run_cron_now': return (await import('./cron')).handleRunCronNow(args, executingAgentId);
+
+    // Pipeline tools
+    case 'create_pipeline': return (await import('./pipeline')).handleCreatePipeline(args, executingAgentId);
+    case 'start_pipeline': return (await import('./pipeline')).handleStartPipeline(args, executingAgentId);
+    case 'get_pipeline_status': return (await import('./pipeline')).handleGetPipelineStatus(args, executingAgentId);
+    case 'cancel_pipeline': return (await import('./pipeline')).handleCancelPipeline(args, executingAgentId);
+    case 'list_pipelines': return (await import('./pipeline')).handleListPipelines(args, executingAgentId);
+    case 'plan_pipeline': return (await import('./pipeline')).handlePlanPipeline(args, executingAgentId);
+    case 'delete_pipeline': return (await import('./pipeline')).handleDeletePipeline(args, executingAgentId);
 
     default:
       return { success: false, error: 'Unknown tool' };

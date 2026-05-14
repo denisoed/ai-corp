@@ -42,7 +42,7 @@ vi.mock('../../src/server/lib/telegram-formatter', () => ({
   markdownToTelegramHtml: (text: string) => mockMarkdownToTelegram(text),
 }));
 
-import { handleAskAgent, processPendingMessage, handleIncomingMessage } from '../../src/server/telegram';
+import { handleAskAgent, processPendingMessage, createHandleIncomingMessageHandler } from '../../src/server/telegram';
 
 describe('telegram orchestrators', () => {
   const state = {
@@ -52,6 +52,8 @@ describe('telegram orchestrators', () => {
     logs: [] as any[],
     workspaces: [] as any[],
   };
+
+  let handleIncomingMessage: (agentId: string, token: string, message: any) => Promise<void>;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -100,7 +102,19 @@ describe('telegram orchestrators', () => {
       json: vi.fn().mockResolvedValue({}),
     });
 
-    globalThis.fetch = mockFetch as unknown as typeof fetch;
+    handleIncomingMessage = createHandleIncomingMessageHandler({
+      getState: () => mockGetState(),
+      setState: (u: unknown) => mockMutateStore(u),
+      createSession: (...args: unknown[]) => mockCreateSession(...args),
+      loadAgentMemory: (...args: unknown[]) => mockLoadMemory(...args),
+      createAgentMemory: (...args: unknown[]) => mockCreateMemory(...args),
+      appendAgentMessage: (...args: unknown[]) => mockAppendMessage(...args),
+      runTool: (...args: unknown[]) => mockExecuteTool(...args),
+      buildPrompt: (...args: unknown[]) => mockBuildSystemPrompt(...args),
+      logEvent: (...args: unknown[]) => mockLogAction(...args),
+      markdownToTelegram: (...args: unknown[]) => mockMarkdownToTelegram(...args),
+      fetchImpl: mockFetch,
+    });
   });
 
   it('routes ask_agent to the target agent and stores reply metadata on both sides', async () => {
@@ -109,22 +123,22 @@ describe('telegram orchestrators', () => {
     expect(result.success).toBe(true);
     expect(mockCreateSession).toHaveBeenCalledOnce();
     expect(mockAppendMessage).toHaveBeenCalledWith('agent-1', expect.objectContaining({
-      role: 'system',
+      role: 'user',
       content: '[Asked PM]: How are tasks?',
       source: 'telegram',
     }));
     expect(mockAppendMessage).toHaveBeenCalledWith('agent-1', expect.objectContaining({
-      role: 'system',
+      role: 'assistant',
       content: '[Reply from PM]: I am good.',
       source: 'telegram',
     }));
     expect(mockAppendMessage).toHaveBeenCalledWith('agent-2', expect.objectContaining({
-      role: 'system',
+      role: 'user',
       content: '[Request from Alice]: How are tasks?',
       source: 'telegram',
     }));
     expect(mockAppendMessage).toHaveBeenCalledWith('agent-2', expect.objectContaining({
-      role: 'system',
+      role: 'assistant',
       content: '[Replied to Alice]: I am good.',
       source: 'telegram',
     }));
@@ -159,17 +173,17 @@ describe('telegram orchestrators', () => {
 
     expect(mockCreateSession).toHaveBeenCalledOnce();
     expect(mockAppendMessage).toHaveBeenCalledWith('agent-1', expect.objectContaining({
-      role: 'system',
+      role: 'user',
       content: '[Reply from PM]: I am good.',
       source: 'system',
     }));
     expect(mockAppendMessage).toHaveBeenCalledWith('agent-2', expect.objectContaining({
-      role: 'system',
+      role: 'user',
       content: '[Request from Alice]: How are tasks?',
       source: 'system',
     }));
     expect(mockAppendMessage).toHaveBeenCalledWith('agent-2', expect.objectContaining({
-      role: 'system',
+      role: 'assistant',
       content: '[Replied to Alice]: I am good.',
       source: 'system',
     }));
