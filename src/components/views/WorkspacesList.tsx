@@ -118,12 +118,14 @@ interface WorkspaceCardsViewProps {
   tasks: any[];
   onSelectWorkspace: (id: string) => void;
   onCreateWorkspace: () => void;
+  createWorkspaceModal?: React.ReactNode;
 }
 
-function WorkspacesCardsView({ workspaces, agents, tasks, onSelectWorkspace, onCreateWorkspace }: WorkspaceCardsViewProps) {
+function WorkspacesCardsView({ workspaces, agents, tasks, onSelectWorkspace, onCreateWorkspace, createWorkspaceModal }: WorkspaceCardsViewProps) {
   const workspaceColors = ['#6366f1', '#8b5cf6', '#ec4899', '#f97316', '#14b8a6', '#22c55e', '#3b82f6', '#eab308'];
   
   return (
+    <>
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -227,13 +229,40 @@ function WorkspacesCardsView({ workspaces, agents, tasks, onSelectWorkspace, onC
         </div>
       )}
     </div>
+    {createWorkspaceModal}
+    </>
   );
 }
 
 export function WorkspacesList() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { agents, workspaces, tasks, crons, roles, addWorkspace, updateWorkspace, removeWorkspace, applyTemplate, initWorkspaceFromYml, setActiveWorkspace } = useStore();
+  const { agents, workspaces, tasks, crons, roles, addWorkspace, updateWorkspace, removeWorkspace, applyTemplate, initWorkspaceFromYml, setActiveWorkspace, addLog } = useStore();
+  const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
+  const [newWsName, setNewWsName] = useState('');
+  const [newWsDescription, setNewWsDescription] = useState('');
+  const [newWsFolder, setNewWsFolder] = useState('');
+  const [newWsColor, setNewWsColor] = useState(DEFAULT_COLOR);
+  const [newWsSlug, setNewWsSlug] = useState('');
+
+  const handleCreateWorkspace = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newWsName.trim()) return;
+    addWorkspace({
+      name: newWsName,
+      slug: newWsSlug || newWsName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+      description: newWsDescription,
+      folderPath: newWsFolder || undefined,
+      color: newWsColor
+    });
+    addLog({ agentId: 'system', action: 'Workspace Created', details: `Created workspace: ${newWsName}`, type: 'success' });
+    setNewWsName('');
+    setNewWsDescription('');
+    setNewWsFolder('');
+    setNewWsColor(DEFAULT_COLOR);
+    setNewWsSlug('');
+    setShowCreateWorkspace(false);
+  };
 
   // If workspace ID is present, show the graph view
   const isDetailView = !!id;
@@ -249,16 +278,91 @@ export function WorkspacesList() {
           setActiveWorkspace(workspaceId);
           navigate(`/workspaces/${workspaceId}`);
         }}
-        onCreateWorkspace={() => navigate('/workspaces')}
+        onCreateWorkspace={() => setShowCreateWorkspace(true)}
+        createWorkspaceModal={showCreateWorkspace ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="absolute inset-0" onClick={() => { setShowCreateWorkspace(false); setNewWsSlug(''); setNewWsColor(DEFAULT_COLOR); }} />
+            <div className="relative w-full max-w-lg bg-zinc-950 border border-zinc-800 xl:rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+              <div className="p-6 border-b border-zinc-800 flex justify-between items-start bg-zinc-900/40 shrink-0">
+                <div>
+                  <h3 className="text-xl font-semibold text-zinc-100">Create Workspace</h3>
+                  <p className="text-sm text-zinc-500 mt-1 mb-0">A workspace groups agents with shared settings and a working folder.</p>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => setShowCreateWorkspace(false)} className="rounded-full w-8 h-8 p-0 flex items-center justify-center -mt-2 -mr-2">×</Button>
+              </div>
+
+              <div className="p-6 overflow-y-auto">
+                <form id="create-workspace-form" onSubmit={handleCreateWorkspace} className="space-y-6">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Name</label>
+                    <Input
+                      value={newWsName}
+                      onChange={e => setNewWsName(e.target.value)}
+                      required
+                      placeholder="e.g. Frontend Team"
+                      className="bg-zinc-900 shadow-inner border-zinc-800"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Slug</label>
+                    <Input
+                      value={newWsSlug}
+                      onChange={e => setNewWsSlug(e.target.value)}
+                      placeholder="e.g. frontend-team (auto-generated from name if empty)"
+                      className="bg-zinc-900 shadow-inner border-zinc-800 font-mono text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Description</label>
+                    <Input
+                      value={newWsDescription}
+                      onChange={e => setNewWsDescription(e.target.value)}
+                      placeholder="What does this workspace focus on?"
+                      className="bg-zinc-900 shadow-inner border-zinc-800"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Working Folder</label>
+                    <FolderPicker
+                      value={newWsFolder}
+                      onChange={setNewWsFolder}
+                      placeholder="Select a folder..."
+                      className="w-full"
+                    />
+                    <p className="text-xs text-zinc-500 leading-tight">Agents in this workspace will work within this folder path.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Color</label>
+                    <div className="flex gap-3">
+                      {WORKSPACE_COLORS.map(color => (
+                        <button
+                          key={color}
+                          type="button"
+                          onClick={() => setNewWsColor(color)}
+                          className={cn("w-8 h-8 rounded-lg border-2 transition-all", newWsColor === color ? "border-white scale-110" : "border-transparent hover:scale-105")}
+                          style={{ backgroundColor: color }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </form>
+              </div>
+
+              <div className="p-6 border-t border-zinc-800 bg-zinc-950 flex justify-end gap-3 shrink-0">
+                <Button variant="ghost" type="button" onClick={() => { setShowCreateWorkspace(false); setNewWsSlug(''); }}>Cancel</Button>
+                <Button type="submit" form="create-workspace-form" className="bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25">Create Workspace</Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       />
     );
   }
 
   // Continue with existing logic for detail view...
-  const { agents: allAgents, crons: allCrons, roles: allRoles, addAgent, removeAgent, updateAgent, updateWorkspace: uw2, removeWorkspace: rw2, assignAgentToWorkspace, applyTemplate: apt2, initWorkspaceFromYml: iwy2, addLog, runCron, removeCron, updateCron, fetchCrons, assignRole, revokeRole, grantPermissionToAgent, revokePermissionFromAgent, fetchSkillsCatalog, installSkill, uninstallSkill, createCustomSkill, deleteCustomSkill, skillsCatalog, skillsCatalogLoading } = useStore();
+  const { agents: allAgents, crons: allCrons, roles: allRoles, addAgent, removeAgent, updateAgent, updateWorkspace: uw2, removeWorkspace: rw2, assignAgentToWorkspace, applyTemplate: apt2, initWorkspaceFromYml: iwy2, runCron, removeCron, updateCron, fetchCrons, assignRole, revokeRole, grantPermissionToAgent, revokePermissionFromAgent, fetchSkillsCatalog, installSkill, uninstallSkill, createCustomSkill, deleteCustomSkill, skillsCatalog, skillsCatalogLoading } = useStore();
   const [showAddAgent, setShowAddAgent] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
-  const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
   const [showInitYml, setShowInitYml] = useState(false);
   const [initYmlFolder, setInitYmlFolder] = useState('');
   const [showWorkspaceSettings, setShowWorkspaceSettings] = useState<string | null>(null);
@@ -296,12 +400,6 @@ export function WorkspacesList() {
   const [agentModels, setAgentModels] = useState<Record<string, string[]>>({});
   const [loadingAgentModels, setLoadingAgentModels] = useState<Record<string, boolean>>({});
   const [resettingAgentMemory, setResettingAgentMemory] = useState(false);
-
-  const [newWsName, setNewWsName] = useState('');
-  const [newWsDescription, setNewWsDescription] = useState('');
-  const [newWsFolder, setNewWsFolder] = useState('');
-  const [newWsColor, setNewWsColor] = useState(DEFAULT_COLOR);
-  const [newWsSlug, setNewWsSlug] = useState('');
 
   useEffect(() => {
     if (selectedAgentId) {
@@ -1017,25 +1115,6 @@ export function WorkspacesList() {
     } catch (e: any) {
       alert(e?.message || 'Failed to init from .aicorp.yml');
     }
-  };
-
-  const handleCreateWorkspace = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newWsName.trim()) return;
-    addWorkspace({
-      name: newWsName,
-      slug: newWsSlug || newWsName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
-      description: newWsDescription,
-      folderPath: newWsFolder || undefined,
-      color: newWsColor
-    });
-    addLog({ agentId: 'system', action: 'Workspace Created', details: `Created workspace: ${newWsName}`, type: 'success' });
-    setNewWsName('');
-    setNewWsDescription('');
-    setNewWsFolder('');
-    setNewWsColor(DEFAULT_COLOR);
-    setNewWsSlug('');
-    setShowCreateWorkspace(false);
   };
 
   const handleAddAgent = (e: React.FormEvent<HTMLFormElement>) => {
