@@ -159,10 +159,10 @@ export default function App() {
         
         {/* Main pages */}
         <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/workspaces" element={<WorkspacesList />} />
+        <Route path="/workspaces" element={<WorkspacesList key="workspaces-list" />} />
         
         {/* Workspace-specific routes */}
-        <Route path="/workspaces/:id" element={<WorkspacesList />} />
+        <Route path="/workspaces/:id" element={<WorkspacesList key="workspaces-detail" />} />
         <Route path="/workspaces/:id/agents" element={<WorkspaceAgents />} />
         <Route path="/workspaces/:id/board" element={<WorkspaceBoard />} />
         <Route path="/workspaces/:id/roles" element={<WorkspaceRoles />} />

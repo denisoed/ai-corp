@@ -21,8 +21,8 @@ export function Layout({ children }: LayoutProps) {
   const activeWorkspaceId = useStore(s => s.activeWorkspaceId);
   const setActiveWorkspace = useStore(s => s.setActiveWorkspace);
 
-  const activeWorkspace = activeWorkspaceId 
-    ? workspaces.find(w => w.id === activeWorkspaceId) 
+  const activeWorkspace = activeWorkspaceId
+    ? workspaces.find(w => w.id === activeWorkspaceId)
     : null;
 
   const handleLogout = async () => {
@@ -102,7 +102,7 @@ export function Layout({ children }: LayoutProps) {
                     <span className="truncate">{workspace.name}</span>
                   </button>
                 ))}
-                
+
                 {/* Add new workspace button */}
                 <button
                   onClick={() => { navigate('/workspaces'); setActiveWorkspace(null); }}
@@ -290,12 +290,12 @@ export function Layout({ children }: LayoutProps) {
             >
               <Menu className="h-5 w-5 text-zinc-300" />
             </Button>
-            
+
             {/* Breadcrumb */}
             <div className="flex items-center gap-2 text-sm">
               {activeWorkspace && (
                 <>
-                  <span 
+                  <span
                     className="text-zinc-500 cursor-pointer hover:text-zinc-300"
                     onClick={() => { navigate('/workspaces'); setActiveWorkspace(null); }}
                   >
@@ -315,21 +315,6 @@ export function Layout({ children }: LayoutProps) {
               )}
             </div>
           </div>
-          
-          {/* Active workspace indicator */}
-          {activeWorkspace && (
-            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-zinc-800/50 rounded-lg">
-              <div className="w-2 h-2 rounded-full bg-emerald-500" />
-              <span className="text-xs text-zinc-400">{activeWorkspace.name}</span>
-              <button 
-                onClick={() => { setActiveWorkspace(null); navigate('/workspaces'); }}
-                className="text-zinc-500 hover:text-zinc-300"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          )}
-          
           <span className="hidden md:inline-flex px-2 py-0.5 bg-emerald-500/10 text-emerald-400 text-xs rounded border border-emerald-500/20 whitespace-nowrap ml-auto">SYSTEM STABLE</span>
         </header>
 
