@@ -1,31 +1,103 @@
 <div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+<img width="1200" height="475" alt="AI Corp banner" src="public/banner.png" />
+
+# AI Corp - Experimental AI agent company dashboard
+<p><strong>Experimental AI agent company dashboard</strong> for orchestrating workspace-scoped agents, tasks, roles, Telegram bots, cron jobs, and pipeline-style automation.</p>
+
+<p>
+<img src="https://img.shields.io/badge/status-experimental-orange" alt="experimental status" />
+<img src="https://img.shields.io/badge/stack-React%2019%20%2B%20Node.js%20%2B%20TypeScript-blue" alt="stack badge" />
+<img src="https://img.shields.io/badge/runtime-local%20first-success" alt="local first badge" />
+</p>
 </div>
 
-# AI Corp
+> AI Corp is a living lab, not a polished product.
+> Expect fast iteration, incomplete edges, and ideas that may shift as the project evolves.
 
-AI Agent Company Dashboard for orchestrating workspace-scoped agents, tasks, roles, Telegram bots, and cron jobs.
+## What This Is
+
+AI Corp explores what a modern “AI company” interface can look like when agents are treated as first-class team members.
+
+The project combines:
+- workspace-scoped AI agents with roles, skills, and personalities
+- Kanban-style task management
+- inter-agent messaging and approvals
+- Telegram bot integration
+- cron-based automation
+- command execution inside a Docker sandbox
+- pipeline and event views for experimentation around agent workflows
+
+## Why The README Framing Matters
+
+This repo is intentionally presented as experimental because:
+- the product direction is still being explored
+- features may appear, change, or disappear quickly
+- some flows are designed for internal iteration rather than polished onboarding
+- the value is in the system design, not in pretending it is finished
+
+If you want a concise mental model:
+
+```text
+Workspace = a company
+Agents    = team members
+Tasks     = work items
+Roles     = permissions + behavior
+Telegram  = external interface
+Crons     = recurring automation
+Pipelines = structured agent workflows
+```
+
+## Highlights
+
+- Workspace creation and management
+- AI agents with roles, skills, memory, and personality files
+- Task board from Backlog to Done
+- Direct agent-to-agent messaging
+- Telegram bot support per agent
+- Cron jobs for scheduled actions
+- Role-based permissions for file, folder, and system access
+- Command execution in a controlled Docker sandbox
+- Pipeline and event views for more advanced orchestration experiments
+- Workspace initialization from `.aicorp.yml`
+
+## Stack
+
+- Frontend: React 19, React Router 7, Zustand 5, Tailwind CSS v4
+- Backend: Node.js, Express 4, TypeScript 5.8, tsx
+- Data: JSON persistence in `~/.aicorp/` and SQLite-backed pieces where needed
+- UI: Radix UI, Lucide React, motion animations
+- Visualization: @xyflow/react, D3.js
+- Automation: node-cron, Telegram bots, sandboxed command execution
 
 ## Quick Start
 
-**Prerequisites**
+### Prerequisites
+
 - Node.js
 - Docker Desktop or Docker Engine
 
+### Local Development
+
 1. Install dependencies:
-   `npm install`
+   ```bash
+   npm install
+   ```
 2. Start the frontend:
-   `npm run dev`
+   ```bash
+   npm run dev
+   ```
 3. Start the backend:
-   `npm run dev:server`
+   ```bash
+   npm run dev:server
+   ```
 
-The app uses:
-- frontend dev server on `http://localhost:3001`
-- backend API on `http://localhost:4000`
+The app runs on:
+- frontend: `http://localhost:3001`
+- backend API: `http://localhost:4000`
 
-## Run With Docker
+## Docker Workflow
 
-Use `make` to start, restart, and stop the stack with one command each:
+Use `make` if you want a more guided workflow:
 
 ```bash
 make bootstrap
@@ -38,73 +110,44 @@ make logs-web
 make logs-backend
 ```
 
-This starts:
-- the backend on the host via `npm run dev:server`
-- the UI in Docker via `docker compose up -d web`
-- background agent managers inside the backend
+This setup is useful when you want:
+- the backend on the host for workspace path access
+- the UI in Docker
+- background agent managers running with the server
 
-The UI container proxies API calls to the host backend at `http://host.docker.internal:4000`.
+## Sandbox Command Execution
 
-`make bootstrap` checks dependencies and validates the Docker compose config before first run.
+Agents can execute shell commands inside a Docker sandbox scoped to their workspace.
 
-## Run With Docker In Dev Mode
-
-For hot reload while editing code:
-
-```bash
-make start
-```
-
-This starts:
-- `web` on `http://localhost:3001`
-- `server` on `http://localhost:4000`
-
-The UI mounts the repo source tree, so file changes are reflected immediately.
-The backend runs on the host, so it can see any workspace paths selected from the UI.
-
-## Workspace Command Execution
-
-Agents can execute shell commands inside a Docker sandbox that is scoped to their workspace.
-
-### What changed
-- Agents can call the `run_command` tool.
-- Commands run in Docker, not on the host machine.
-- Each command is mounted to the workspace folder only.
-- Dangerous or networked commands can require approval.
-
-### Default safety model
+This experiment focuses on safe defaults:
 - non-root container user
-- no Linux capabilities
-- `no-new-privileges`
-- resource limits for CPU, memory, and process count
 - workspace-only filesystem mount
+- resource limits
 - approval flow for risky commands
+- optional network access control
 
-### Permissions
-Two new permissions were added:
+Two permissions control this feature:
 - `system:run_commands`
 - `system:approve_commands`
 
-Grant them from the Roles and Agents screens if you want agents to run commands or approve pending runs.
-
 ## Workspace Settings
 
-Each workspace can define command-execution settings:
-- enable or disable command execution
-- choose a Docker image
-- set timeout, CPU, memory, and PID limits
-- allow or disallow network access
-- allow or disallow destructive commands
-- allow or disallow Git write operations
+Each workspace can define:
+- whether command execution is enabled
+- Docker image to use
+- CPU, memory, PID, and timeout limits
+- network access policy
+- destructive command policy
+- Git write policy
 
 ## First-Time Setup
 
-The first time you use command execution:
+The first time you open a workspace:
 - make sure Docker is running
-- open or create a workspace with a valid `folderPath`
+- create or open a workspace with a valid `folderPath`
 - let the system create the command sandbox automatically
 
-If Docker is unavailable, command execution returns a clear error and does not affect the rest of the app.
+If Docker is unavailable, command execution fails gracefully and the rest of the app still works.
 
 ## Development
 
@@ -115,8 +158,18 @@ npm run lint
 npm test
 ```
 
-## Notes
+## A Few Notes
 
-- User-facing workflows remain the same.
-- Docker is an internal execution layer and is not exposed in the normal UI flow.
-- Initial setup requires Docker to be installed on the machine that runs the backend.
+- The project is optimized for experimentation and iteration, not production hardening.
+- UX and data models may change as the experiment evolves.
+- Some features are intentionally internal or opinionated to support rapid testing of agent workflows.
+
+## Project Structure
+
+```text
+src/
+  components/   UI and views
+  lib/          shared client utilities
+  server/       API, tools, automation, persistence
+tests/          Vitest coverage for core logic
+```
