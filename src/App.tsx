@@ -36,6 +36,12 @@ function useSync() {
   }, [fetchState, authRequired]);
 }
 
+
+function WorkspaceDetail() {
+  const { id } = useParams();
+  return <WorkspacesList key={id ?? 'workspace-detail'} />;
+}
+
 // Wrapper components for workspace-scoped pages
 function WorkspaceAgents() {
   const { id } = useParams();
@@ -162,7 +168,7 @@ export default function App() {
         <Route path="/workspaces" element={<WorkspacesList />} />
         
         {/* Workspace-specific routes */}
-        <Route path="/workspaces/:id" element={<WorkspacesList />} />
+        <Route path="/workspaces/:id" element={<WorkspaceDetail />} />
         <Route path="/workspaces/:id/agents" element={<WorkspaceAgents />} />
         <Route path="/workspaces/:id/board" element={<WorkspaceBoard />} />
         <Route path="/workspaces/:id/roles" element={<WorkspaceRoles />} />
